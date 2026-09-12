@@ -1,0 +1,77 @@
+# Running the expanded bot
+
+## Local WSL
+
+`npm run setup:local` generates a local service secret, copies it into the bot and AI environment files, and preserves Discord credentials. It never selects a model. This has already been run in this checkout.
+
+In one Ubuntu terminal run `npm run service:dev`. In another run `npm run dev`. After changing command definitions run `npm run commands:deploy:dev` separately.
+
+Python tools use `.venv/bin/python`. On a new machine run `bash scripts/setup-python.sh`; install the distribution's python3-venv package first if ensurepip is unavailable. This checkout used a project-local pip bootstrap from https://bootstrap.pypa.io/get-pip.py because the installed WSL Python lacked ensurepip. System Python was not modified.
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `/ask question [image]` | Queued model answer; optional native vision |
+| `/calculate expression [operation]` | Arithmetic, simplify, differentiate, integrate, solve expression=0 for x |
+| `/plot expression [min] [max]` | Sampled PNG plot |
+| `/python code` | Optional Docker sandbox; disabled by default |
+| `/cancel request` | Cancel your own queued or running request |
+| `/queue` | Show your accepted requests, including recoverable request IDs |
+| `/ai enable`, `/ai disable`, `/ai status` | Manage Server permission; persistent assistance admission state |
+| `/filter add`, `/filter remove`, `/filter list` | Manage Messages permission; empty rule list by default |
+| `/reaction-role set`, `/reaction-role sync`, `/reaction-role remove`, `/reaction-role list` | Manage Roles permission; opt-in roles |
+
+Disabling assistance rejects new study jobs (including calculator, plot, and Python). It does not stop accepted queued/running jobs, reactions, or moderation. Jobs and admission state survive service restarts. Interrupted running jobs are requeued; inference is at least once after a crash. Delivery edits a persistent bot message instead of relying on an interaction token that expires. Long answers are attached as text. Reply conversations are restricted to the original user and channel and include up to eight prior turns. Reply to a completed answer.
+
+## Discord permissions and message features
+
+For the new commands grant Send Messages, View Channel, Read Message History, and Attach Files in the relevant channels. Reaction roles additionally require Add Reactions and Manage Roles; put the bot's highest role above Science Geek. Do not grant Administrator.
+
+Reply-chain conversations and server-wide filtering require **Message Content Intent** in the Developer Portal, followed by `MESSAGE_FEATURES_ENABLED=true` in `.env.development` and a bot restart. Reaction roles work without Message Content Intent. Filtering covers new and edited messages, exempts bots and members with Manage Messages, matches whole words/phrases with Unicode normalization, and writes audit entries in SQLite. Set `MOD_LOG_CHANNEL_ID` for Discord notifications. It fails open if its service is down; it is not a replacement for Discord AutoMod. No screenshot word list was imported.
+
+## Science Geek reaction role
+
+Use `/reaction-role set message:<existing message link> role:@Science Geek emoji:🥼`. The default emoji is 🥼, so that option may be omitted. This is self-attestation of HKISO/IESO participation; the bot does not verify competition records.
+
+The bot adds the reaction and reconciles all existing reactors, paginating beyond 100 users. It reconciles again after reaction changes, at startup, and every minute. `/reaction-role sync message:<message ID>` requests another reconciliation.
+
+| Existing state | Result |
+| --- | --- |
+| Reacted, already has role | No role write; existing assignment is not claimed by the bot |
+| Reacted, missing role | Bot grants role and records ownership |
+| No reaction, manually/pre-existing role | Preserved |
+| Removed reaction, bot-owned role | Removed |
+| Duplicate event/restart | Same state is reconciled; no duplicate assignment |
+| Bot-owned role missing, reaction remains | Role is restored |
+| Member left | No grant; stale ownership record cleared |
+| Deleted/inaccessible message or failed pagination | No mass removal; reconciliation retries |
+| Missing permissions or changed hierarchy | No privilege escalation; error logged and retried |
+| All reactions cleared | Only bot-owned assignments removed |
+| Mapping removed | All current roles preserved; ownership tracking ends |
+
+One message and one role per mapping are allowed; a role cannot be managed by two messages. Repeating identical setup preserves ownership. Privileged/managed/everyone roles are rejected. A moderator cannot configure a role above their own highest role. Existing assignments are preserved conservatively: the bot cannot infer historical ownership or detect an administrator re-granting an already-present role. If administrators want to override a bot-owned role permanently, remove the mapping or the user's reaction before making a manual assignment.
+
+## Model and queue configuration
+
+Edit `.env.ai.development`: `INFERENCE_BASE_URL` is a trusted OpenAI-compatible chat-completions endpoint (often ending in /v1), `INFERENCE_MODEL` identifies the candidate, and `INFERENCE_API_KEY` is optional for authenticated backends. No model has been chosen. No connection to the music AI is made. Local HTTP inference is allowed only on loopback; remote/home backends require HTTPS and should require authentication. Do not expose the study service port publicly; it binds only to loopback and uses its own shared secret.
+
+`AI_CONCURRENCY` defaults to 1. `COACH_RESERVED_SLOTS` must be below total concurrency; default 0. Enable reserved-slot borrowing explicitly if wanted. Coach jobs take the next eligible slot without preempting ordinary work. Set `COACH_ROLE_IDS` or `COACH_USER_IDS` in the bot file. At most two accepted jobs per user/server and one active job per user/server are allowed. The global queue has a configurable limit and job timeout.
+
+`INFERENCE_VISION=true` requires a backend/model that actually accepts native image inputs. PNG/JPEG attachments are bounded, decoded under resource limits, resized and stripped of metadata before model submission. Expired Discord image URLs may need reattachment. Web search requires `BRAVE_SEARCH_API_KEY`; URL fetching can work without search. Web fetch uses public HTTPS only, validates and pins DNS results, rechecks redirects and limits bytes/time. Tool output is untrusted evidence; the model cannot invoke arbitrary shell commands or change queue/moderation settings. These controls reduce prompt-injection risks; source truth and model citations still need human judgment.
+
+## Optional Python sandbox
+
+Docker is not installed by this change. Build the local image with `docker build -t math-bot-python:local python`, then set `PYTHON_SANDBOX_ENABLED=true` only after validating the isolation on your host. The runtime denies network, host mounts and capabilities and uses a non-root UID, read-only filesystem, CPU/memory/process/output/time limits and a temporary filesystem. No unsandboxed fallback exists. The model tool list does not expose arbitrary Python; `/python` is explicit. The default image has only the Python standard library. Containers share the host kernel: use a separate hardened worker/VM for hostile public workloads. The production service template does not grant access to a Docker socket; provision a separately reviewed sandbox worker before enabling there.
+
+## Manual VPS rollout (not performed)
+
+1. Provision Oracle ARM VPS and a `mathbot` service user, compatible Node, Python/venv and Git. Benchmark models on its actual 3 cores / ~23 GB RAM before choosing one.
+2. Prepare `/srv/math-bot/repo` as a clone of the GitHub source of truth; `/srv/math-bot/shared` holds production environment files and persistent data. Use a distinct production Discord application and service secret. Set production bot URL to port 8788, AI port 8788, and database to `/srv/math-bot/shared/data/production.sqlite`.
+3. Install/review the two systemd unit templates in `deploy/`, adjust Node paths if necessary, and allow the deployment account the specific restart/status commands it needs. Do not broadly grant passwordless sudo.
+4. Review, commit and push locally. On the VPS manually run `bash scripts/deploy-vps.sh FULL_COMMIT_SHA`. It creates a release from origin, installs/builds, switches the current symlink, restarts services and rolls back on startup/health failure. No GitHub push triggers a deploy. Review migration compatibility before relying on binary rollback with persistent data. Do not run simultaneous service instances against the same SQLite file.
+5. Confirm Discord login in journal logs. Register production commands separately with `npm run commands:deploy:production`. This explicitly confirmed command replaces the production app's global command set and compares its own successful JSON snapshot. The deploy script does not register commands or select a model.
+
+`npm run benchmark` tests the configured candidate with basic math/science/English prompts and saves timing and answers under `data/benchmarks`. This is a starting harness, not a quality ranking; manually review answers, add your worksheets/vision tests, measure peak RAM and test concurrent requests on the VPS. The optional home GTX 1080 uses the same configurable endpoint contract; no tunnel is created.
+
+SQLite contains prompts, answers, job state, reaction ownership and moderation audit data. Back it up with SQLite's backup mechanism (not a blind copy of a live WAL database). No automatic retention purge is enabled yet; decide your server's retention policy before collecting production conversations.

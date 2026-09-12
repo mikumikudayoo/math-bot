@@ -1,0 +1,19 @@
+[Unit]
+Description=Math bot Discord gateway
+After=network-online.target math-bot-ai.service
+Wants=network-online.target math-bot-ai.service
+
+[Service]
+User=mathbot
+WorkingDirectory=/srv/math-bot/current
+Environment=BOT_ENV=production
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,2 +1,49 @@
 # math-bot
 
+Discord.js + TypeScript study bot with a separate authenticated study service, durable queue and conversations, calculator/plotting, model adapter, moderation and reaction roles. See [operations](docs/operations.md) for setup and [architecture](docs/architecture.md) for boundaries. No model or VPS is selected/provisioned.
+
+For the expanded setup, run `npm run setup:local`, start `npm run service:dev` in one WSL terminal and `npm run dev` in another. Install Python tools with `bash scripts/setup-python.sh` on a fresh machine. Run `npm run commands:deploy:dev` manually after definition changes. The existing checkout's local Python dependencies and service credentials are prepared.
+
+## WSL development
+
+Open Ubuntu WSL and run from this repository:
+
+```sh
+cd /mnt/d/devstuff/math-bot
+node --version
+npm ci
+cp .env.development.example .env.development
+```
+
+Use Node 22.12 or newer (tested runtime pinned in .nvmrc). Dependencies are installed with Linux npm in WSL; do not mix Windows node_modules into this checkout.
+
+## Discord Developer Portal
+
+1. Create a new application named `math-bot-dev` at https://discord.com/developers/applications.
+2. General Information: copy **Application ID** into `DISCORD_APPLICATION_ID` in `.env.development`.
+3. Bot: generate/reset the **bot token** and put it in `DISCORD_TOKEN` locally. Never paste the token into chat or commit it. A client secret/public key is not needed.
+4. Installation: enable **Guild Install**; configure scopes `bot` and `applications.commands`. Grant **View Channels** and **Send Messages**, then use the install link to add the dev app to a private test server. No Administrator permission or privileged gateway intents are needed for /ping.
+5. Discord user settings > Advanced > Developer Mode: right-click the test server, Copy Server ID, and put it in `DISCORD_GUILD_ID`.
+6. Leave Interactions Endpoint URL blank: this bot uses the gateway, so no HTTP endpoint or tunnel is needed.
+
+Then, in WSL:
+
+```sh
+npm run check
+npm test
+npm run commands:json
+npm run commands:deploy:dev
+npm run dev
+```
+
+Wait for the login message, then run `/ping` in the test server; expect `pong! 🏓`. Ctrl+C stops the bot. Live login and registration require your real development credentials.
+
+## Commands and deployment
+
+Add command modules under `src/commands/` and import them into the list in `src/commands/index.ts`. Both runtime dispatch and generated definitions use this registry; source and compiled builds use the same imports.
+
+`commands:deploy:dev` manually replaces the dev app's complete command set in the configured test guild. It skips if JSON matches the last successful local snapshot. It does not reconcile out-of-band Discord edits; delete the matching `.cache/commands-APP-GUILD.json` to intentionally resync. Failed API writes do not advance the snapshot. Keep one registration process active at a time.
+
+`npm run build` creates `dist/`; `npm start` runs it, using development config by default. Production is explicitly selected with `BOT_ENV=production npm start` and a separate `.env.production` file. That file must contain a different production application's token and ID; do not reuse the dev application. Production application creation and deployment can wait. Environment files are isolated: inherited credential variables are intentionally ignored. Production command registration is a separate explicit `npm run commands:deploy:production` action; never run it for the dev app.
+
+Existing GitHub remote: https://github.com/mikumikudayoo/math-bot.git. Review changes before committing/pushing. No CI deployment, PM2, VPS configuration or tunnels are installed by this foundation.

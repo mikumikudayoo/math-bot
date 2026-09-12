@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.cache/
+.env
+.env.*
+!.env.*.example
+*.log
+.venv/
+data/
+__pycache__/
+.env.ai.*
+!.env.ai.*.example
