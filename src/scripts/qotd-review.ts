@@ -7,7 +7,11 @@ import { overrideImages } from '../qotd/crops.js';
 const [action='list',id='',...options]=process.argv.slice(2);
 const settings=qotdSettings();const store=new QotdStore(settings.database);
 try {
-  const actor=process.env.USER??process.env.USERNAME??'local-operator';
+  const actor =
+  process.env.QOTD_REVIEW_ACTOR ??
+  process.env.USER ??
+  process.env.USERNAME ??
+  'local-operator';
   if(action==='list')console.log(JSON.stringify(store.list(id||'pending',1000),null,2));
   else if(action==='show')console.log(JSON.stringify({question:store.get(id),sources:store.occurrences(id)},null,2));
   else if(action==='approve'||action==='reject'||action==='replace') {
