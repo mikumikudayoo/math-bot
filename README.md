@@ -4,6 +4,8 @@ Discord.js + TypeScript study bot with a separate authenticated study service, d
 
 For the expanded setup, run `bun run setup:local`, start `bun run service:dev` in one WSL terminal and `bun run dev` in another. Install Python tools with `bash scripts/setup-python.sh` on a fresh machine. Run `bun run commands:deploy:dev` manually after definition changes. The existing checkout's local Python dependencies and service credentials are prepared.
 
+Study/AI functionality is private by default: set `AI_TESTER_USER_IDS=821682594830614578` in the bot's environment file to permit the tester. Empty or missing allowlists deny everyone, including admins and coaches. Comma-separated IDs support additional testers. Ordinary commands keep their existing permissions. For mentions/reply chains, also enable Message Content Intent and `MESSAGE_FEATURES_ENABLED=true`. See [private testing setup](docs/operations.md#private-ai-testing) for Discord command visibility and restart steps.
+
 ## WSL development
 
 Open Ubuntu WSL and run from this repository:

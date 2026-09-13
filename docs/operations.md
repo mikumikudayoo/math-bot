@@ -12,6 +12,8 @@ Python tools use `.venv/bin/python`. On a new machine run `bash scripts/setup-py
 
 ## Commands
 
+The study commands `/ask`, `/calculate`, `/plot`, `/python`, `/cancel`, `/queue`, and every `/ai` subcommand require the tester allowlist during private testing. This includes deterministic tools in the shared study suite. `/ping`, `/filter`, and `/reaction-role` retain their existing permissions and do not require tester access.
+
 | Command | Purpose |
 | --- | --- |
 | `/ask question [image]` | Queued model answer; optional native vision |
@@ -31,6 +33,30 @@ Disabling assistance rejects new study jobs (including calculator, plot, and Pyt
 For the new commands grant Send Messages, View Channel, Read Message History, and Attach Files in the relevant channels. Reaction roles additionally require Add Reactions and Manage Roles; put the bot's highest role above Science Geek. Do not grant Administrator.
 
 Reply-chain conversations and server-wide filtering require **Message Content Intent** in the Developer Portal, followed by `MESSAGE_FEATURES_ENABLED=true` in `.env.development` and a bot restart. Reaction roles work without Message Content Intent. Filtering covers new and edited messages, exempts bots and members with Manage Messages, matches whole words/phrases with Unicode normalization, and writes audit entries in SQLite. Set `MOD_LOG_CHANNEL_ID` for Discord notifications. It fails open if its service is down; it is not a replacement for Discord AutoMod. No screenshot word list was imported.
+
+## Private AI testing
+
+Configure the **bot** environment file, `.env.development` locally or `.env.production` on the VPS:
+
+```ini
+AI_TESTER_USER_IDS=821682594830614578
+MESSAGE_FEATURES_ENABLED=true
+```
+
+The allowlist is a comma-separated list of Discord user IDs. Whitespace and duplicate entries are handled; malformed IDs stop startup rather than broadening access. Empty/missing values deny everyone. To add another tester later, append their ID to the same variable; no source edit or command-definition update is needed. This variable belongs in the bot configuration, not `.env.ai.*`.
+
+The command registry enforces tester membership before every private command handler. The shared study submission helper also checks it, and the message handler checks membership and `MESSAGE_FEATURES_ENABLED` before any conversation lookup or inference request. Moderator/admin/owner status and coach roles never bypass membership; `/ai` still additionally requires its existing Manage Server permission. Non-testers receive an ephemeral slash-command rejection and their AI mentions/replies are silently ignored. Moderation continues independently for everyone's messages.
+
+Allowlisted users may start a conversation with `@bot <prompt>` (a leading direct mention, not a role mention) or `/ask`, and reply to their own completed answers. A mention inside a reply uses one submission, not two. Mention-only messages with no prompt, bot messages, and DMs are ignored. Existing service-token authentication, admission state, per-user limits, coach scheduling, cancellation ownership, and accepted queued jobs are unchanged. Removing a tester blocks future entry; it does not cancel work already accepted. Replies and results still use ordinary channel messages, so use a private test channel if the answer content should also be private.
+
+Private command definitions set `default_member_permissions` to `"0"`, disabling them for ordinary members by default. After **manually** registering definitions, open **Server Settings → Integrations → this bot**, select each private command, and add an allow override for the tester (needed when the tester is not an Administrator). Keep ordinary commands enabled according to their normal permissions. Discord admins may still see/invoke the commands in the UI, but the bot rejects non-allowlisted admins. Per-user overrides are guild-specific and are not embedded in slash-command JSON; API updates require separate OAuth authorization, so this project does not automate them with its bot token. See [Discord command permissions](https://docs.discord.com/developers/interactions/application-commands#permissions).
+
+After configuration/code changes:
+
+1. Rebuild with `bun run build` for compiled deployments and restart the **Discord bot process** using your normal manual deployment/restart procedure. The AI service does not need a restart solely for this allowlist change. Development uses `bun run dev`; restart it after environment/intent changes.
+2. Enable **Message Content Intent** in the Developer Portal before enabling message features. This setting alone never grants AI access.
+3. To apply the reduced command visibility, manually run `bun run commands:deploy:dev` for the test server, or `bun run commands:deploy:production` only when deliberately updating production. No command registration occurs on startup. The allowlist enforces access even if old public command definitions are still registered.
+4. Apply tester-specific command overrides in each server as described above. Future allowlist-only changes need a bot restart and corresponding Discord overrides for new non-admin testers, but no command re-registration.
 
 ## Science Geek reaction role
 
