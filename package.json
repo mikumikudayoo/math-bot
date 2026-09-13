@@ -23,7 +23,8 @@
     "import:solmans": "bun src/scripts/import-solmans.ts",
     "qotd:review": "bun src/scripts/qotd-review.ts",
     "qotd:review-ui": "bun src/scripts/qotd-review-ui.ts",
-    "qotd:reset-local": "bun src/scripts/qotd-reset-local.ts"
+    "qotd:reset-local": "bun src/scripts/qotd-reset-local.ts",
+    "qotd:reveal-dev": "BOT_ENV=development bun src/scripts/qotd-reveal-dev.ts"
   },
   "dependencies": {
     "@napi-rs/canvas": "1.0.9",

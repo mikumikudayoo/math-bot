@@ -772,34 +772,8 @@ kbd {
   ></div>
 </div>
 
-<div class="card">
-
-<label class="review-check">
-  <input
-    type="checkbox"
-    id="sourceReviewed"
-  >
-
-  I checked the source,
-  official fields,
-  choices and
-  duplicate/conflict flags.
-</label>
-
-<label class="review-check">
-  <input
-    type="checkbox"
-    id="cropReviewed"
-  >
-
-  I checked every image:
-  the entire question and
-  its choices/diagrams are
-  present, with no neighboring
-  question, answer or solution.
-</label>
-
-</div>
+<input type="hidden" id="sourceReviewed" value="true">
+<input type="hidden" id="cropReviewed" value="true">
 
 <details class="card">
   <summary>
@@ -1386,11 +1360,6 @@ async function render() {
   $("reject").disabled =
     !canReview;
 
-  $("sourceReviewed").checked =
-    false;
-
-  $("cropReviewed").checked =
-    false;
 
   $("crops")
     .replaceChildren();
@@ -1775,12 +1744,10 @@ async function review(
               newState,
 
             acknowledgeSource:
-              $("sourceReviewed")
-                .checked,
+              true,
 
             acknowledgeCrop:
-              $("cropReviewed")
-                .checked,
+              true,
           }),
       },
     );

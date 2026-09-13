@@ -945,6 +945,7 @@ export class QotdStore {
     id: number,
     actor: string,
     now = Date.now(),
+    allowEarly = false,
   ) {
     return this.transaction(() => {
       const row = this.historyEntry(
@@ -956,9 +957,12 @@ export class QotdStore {
         !row ||
         row.state !== 'posted' ||
         !row.posted_at ||
-        Number(row.posted_at) +
-          24 * 60 * 60 * 1000 >
-          now
+        (
+          !allowEarly &&
+          Number(row.posted_at) +
+            24 * 60 * 60 * 1000 >
+            now
+        )
       ) {
         throw new Error(
           'Reveal is available only 24 hours after a confirmed post, after its poll closes.',

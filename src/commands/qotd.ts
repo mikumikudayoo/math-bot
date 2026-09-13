@@ -31,7 +31,7 @@ export const qotd: Command = {
       if(!entry)throw new Error('Unknown QOTD post.');
       const channel=await i.client.channels.fetch(String(entry.channel));
       if(!channel || !('guildId' in channel) || channel.guildId!==i.guildId || !channel.isSendable())throw new Error('Original QOTD channel is unavailable.');
-      await i.editReply(await revealAnswer(store,i.guildId!,id,i.user.id,payload=>channel.send(payload)));
+      await i.editReply(await revealAnswer(store,i.guildId!,id,i.user.id,payload=>channel.send(payload),Date.now(),process.env.BOT_ENV==='development'));
     } else if (action === 'history') {
       const rows = store.history(i.guildId!);
       await i.editReply(rows.slice(0,10).map(r=>`#${r.id} · ${r.day} · ${r.state} · ${r.question}${r.message ? `\nhttps://discord.com/channels/${i.guildId}/${r.channel}/${r.message}` : ''}`).join('\n') || 'no qotd history yet.');

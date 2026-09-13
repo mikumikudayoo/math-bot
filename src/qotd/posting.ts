@@ -35,27 +35,100 @@ export async function postDaily(store: QotdStore, guild: string, channel: string
   }
 }
 export function startQotd(client: Client, allowedGuild?: string) {
-  let busy = false;
-  async function tick() {
-    if (busy) return; busy = true;
+let busy = false;
+async function tick() {
+if (busy) return; busy = true;
+try {
+const store = qotdStore(); const now = new Date();
+const schedules = store.db.prepare('SELECT * FROM qotd_schedule WHERE hour<=?').all(now.getUTCHours());
+
+for (const s of schedules) {
+if (allowedGuild && s.guild !== allowedGuild) continue;
+
+const channel = await client.channels.fetch(String(s.channel));
+if (!channel || !('guildId' in channel) || channel.guildId !== s.guild || !channel.isSendable()) continue;
+
+const today = now.toISOString().slice(0,10);
+
+const alreadyPostedToday = store.db.prepare(`
+  SELECT 1
+  FROM qotd_history
+  WHERE guild=? AND day=?
+  LIMIT 1
+`).get(String(s.guild), today);
+
+if (alreadyPostedToday) continue;
+
+const previous = store.db.prepare(`
+  SELECT
+    h.id,
+    r.state AS revealState
+  FROM qotd_history h
+  LEFT JOIN qotd_reveals r ON r.history = h.id
+  WHERE h.guild = ?
+    AND h.state = 'posted'
+    AND h.day < ?
+  ORDER BY h.id DESC
+  LIMIT 1
+`).get(String(s.guild), today) as {
+  id: number;
+  revealState: string | null;
+} | undefined;
+
+if (previous) {
+  if (previous.revealState === null) {
     try {
-      const store = qotdStore(); const now = new Date();
-      const schedules = store.db.prepare('SELECT * FROM qotd_schedule WHERE hour<=?').all(now.getUTCHours());
-      for (const s of schedules) {
-        if (allowedGuild && s.guild !== allowedGuild) continue;
-        const channel = await client.channels.fetch(String(s.channel));
-        if (!channel || !('guildId' in channel) || channel.guildId !== s.guild || !channel.isSendable()) continue;
-        await postDaily(store,String(s.guild),String(s.channel),payload=>channel.send(payload),undefined,s.role ? String(s.role) : qotdSettings().role);
-      }
-    } catch (e) { console.error('QOTD scheduler:',e instanceof Error ? e.message : e); }
-    finally { busy = false; }
+      await revealAnswer(
+        store,
+        String(s.guild),
+        previous.id,
+        'scheduler',
+        payload => channel.send(payload),
+        Date.now(),
+        true,
+      );
+    } catch (error) {
+      console.error(
+        'QOTD automatic reveal:',
+        error instanceof Error ? error.message : error,
+      );
+
+      continue;
+    }
+  } else if (previous.revealState !== 'posted') {
+    console.error(
+      `QOTD automatic reveal blocked: history ${previous.id} has reveal state ${previous.revealState}. Inspect the channel before continuing.`,
+    );
+
+    continue;
   }
-  const timer = setInterval(()=>void tick(),60_000); void tick();
-  return ()=>clearInterval(timer);
 }
 
-export async function revealAnswer(store:QotdStore,guild:string,id:number,actor:string,send:(payload:MessageCreateOptions)=>Promise<{id:string}>,now=Date.now()) {
-  const q=store.claimReveal(guild,id,actor,now);
+await postDaily(
+  store,
+  String(s.guild),
+  String(s.channel),
+  payload => channel.send(payload),
+  today,
+  s.role ? String(s.role) : qotdSettings().role,
+);
+}
+} catch (e) {
+console.error('QOTD scheduler:',e instanceof Error ? e.message : e);
+}
+finally {
+busy = false;
+}
+}
+
+const timer = setInterval(()=>void tick(),60_000);
+void tick();
+
+return ()=>clearInterval(timer);
+}
+
+export async function revealAnswer(store:QotdStore,guild:string,id:number,actor:string,send:(payload:MessageCreateOptions)=>Promise<{id:string}>,now=Date.now(),allowEarly=false) {
+  const q=store.claimReveal(guild,id,actor,now,allowEarly);
   try {
     const content=`The official answer to the QOTD is:\n${q.officialAnswer}\n*Stay tuned for the next question!*`;
     const payload:MessageCreateOptions={content:content.length<=1900?content:'The official answer is attached.',allowedMentions:{parse:[]}};

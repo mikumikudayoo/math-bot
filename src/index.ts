@@ -37,7 +37,7 @@ async function main() {
       }
       await command.execute(interaction);
     } catch (error) {
-      console.error(`Command /${interaction.commandName} failed.`);
+      console.error(`Command /${interaction.commandName} failed.`, error);
       const content=error instanceof ServiceError?error.message:'Something went wrong. Please try again.';
       try {
         if (interaction.deferred) await interaction.editReply({content});
