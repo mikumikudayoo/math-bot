@@ -821,6 +821,7 @@ export class QotdStore {
     guild: string,
     channel: string,
     day: string,
+    kind?: 'mcq' | 'open',
   ): {
     claim: Claim;
     question: Question;
@@ -844,6 +845,7 @@ export class QotdStore {
           FROM qotd_questions q
           WHERE state='approved'
             AND crop_reviewed=1
+            AND (? IS NULL OR json_extract(q.payload, '$.kind') = ?)
             AND NOT EXISTS(
               SELECT 1
               FROM qotd_used u
@@ -853,7 +855,7 @@ export class QotdStore {
           ORDER BY random()
           LIMIT 1
         `)
-        .get(guild);
+        .get(kind ?? null, kind ?? null, guild);
 
       if (!row) return null;
 

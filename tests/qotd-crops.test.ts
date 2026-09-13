@@ -87,12 +87,35 @@ test('immediate daily posting shows crops, label-only polls and only the configu
     for(const q of store.list())store.review(q.id,'approved','operator',true,true);
     const role='123456789012345678';const mcq=store.list('approved').find(q=>q.kind==='mcq')!;
     const payload=questionMessage(mcq,'2026-09-13',role);
-    assert.equal(payload.content,`<@&${role}> **New QOTD of the Day!**\n*Submit your answer below!*`);
+    assert.equal(payload.content,`<@&${role}> **New Question of the Day!**\n*Submit your answer below!*`);
     assert.deepEqual(payload.allowedMentions,{parse:[],roles:[role]});assert.deepEqual(payload.poll!.answers.map(a=>a.text),['A','B','C']);
     assert.equal(payload.files!.length,mcq.crop.images.length);assert.ok(!JSON.stringify(payload).includes(mcq.text));assert.ok(!JSON.stringify(payload).includes(mcq.officialSolution));
     const open=store.list('approved').find(q=>q.kind==='open')!;assert.equal(questionMessage(open).poll,undefined);
-    let sent=0;await postDaily(store,'guild','channel',async p=>{assert.ok(p.files!.length);sent++;return{id:'message'};});
-    await postDaily(store,'guild','channel',async()=>{sent++;return{id:'unexpected'};});assert.equal(sent,1);
+    const sent: import('discord.js').MessageCreateOptions[] = [];
+    await postDaily(store,'guild','channel',async p=>{
+      sent.push(p);
+      return {id:`message-${sent.length}`};
+    });
+
+    assert.ok(sent[0]!.files?.length);
+
+    if (sent.length === 2) {
+      assert.ok(sent[1]!.poll);
+      assert.equal(sent[1]!.files,undefined);
+      assert.ok(sent[1]!.poll!.answers.length >= 2);
+    } else {
+      assert.equal(sent.length,1);
+      assert.equal(sent[0]!.poll,undefined);
+    }
+
+    const afterFirstPost=sent.length;
+
+    await postDaily(store,'guild','channel',async p=>{
+      sent.push(p);
+      return{id:'unexpected'};
+    });
+
+    assert.equal(sent.length,afterFirstPost);
   }finally{store.close();await f.close();}
 });
 test('local review UI displays crops and protects approval from missing acknowledgement and foreign requests',async()=>{
