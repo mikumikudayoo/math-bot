@@ -2,33 +2,48 @@ import { AttachmentBuilder, MessageFlags, type ChatInputCommandInteraction, type
 import { service } from './ai-client.js';
 import { loadConfig } from './config.js';
 import type { Job, JobKind } from './service/types.js';
+import { authorizeAIInteraction, isAITester } from './ai-access.js';
 
-export function coach(user:string,roles:string[]){const c=loadConfig();return c.coachUsers.includes(user)||roles.some(r=>c.coachRoles.includes(r));}
-export async function submit(interaction:ChatInputCommandInteraction,kind:JobKind,prompt:string,image?:string) {
+export interface StudyRuntime { config: typeof loadConfig; service: typeof service }
+const defaultRuntime: StudyRuntime = { config: loadConfig, service };
+export function coach(user:string,roles:string[],c=loadConfig()){return c.coachUsers.includes(user)||roles.some(r=>c.coachRoles.includes(r));}
+export async function submit(interaction:ChatInputCommandInteraction,kind:JobKind,prompt:string,image?:string,runtime:StudyRuntime=defaultRuntime) {
+  const config=runtime.config();
+  // Also guard the shared submit helper so a future entry point cannot bypass admission.
+  if(!await authorizeAIInteraction(interaction,config))return;
   if(!interaction.inGuild()||!interaction.channel?.isSendable()){
     await interaction.reply({content:'Use this in a server text channel.',flags:MessageFlags.Ephemeral});return;
   }
   await interaction.deferReply({flags:MessageFlags.Ephemeral});
   const roles=interaction.member?.roles;
   const roleIds=Array.isArray(roles)?roles:roles?[...roles.cache.keys()]:[];
-  const job=await service<Job>('/jobs',{id:interaction.id,guild:interaction.guildId,channel:interaction.channelId,user:interaction.user.id,coach:coach(interaction.user.id,roleIds),kind,prompt,...(image?{image}:{})});
+  const job=await runtime.service<Job>('/jobs',{id:interaction.id,guild:interaction.guildId,channel:interaction.channelId,user:interaction.user.id,coach:coach(interaction.user.id,roleIds,config),kind,prompt,...(image?{image}:{})});
   if(job.message){await interaction.editReply(`Already accepted: https://discord.com/channels/${job.guild}/${job.channel}/${job.message}`);return;}
   // A normal bot message survives the 15-minute interaction token lifetime.
   const message=await interaction.channel.send({content:`⏳ queued · request ${job.id}`,allowedMentions:{parse:[]}});
-  await service('/bind',{id:job.id,message:message.id});
+  await runtime.service('/bind',{id:job.id,message:message.id});
   await interaction.editReply(`Accepted! ${message.url}\nUse /cancel with request ID ${job.id} if needed.`);
 }
-export async function followReply(message:Message) {
-  if(!message.guildId||!message.reference?.messageId||!message.content.trim())return;
-  const parent=await service<Job|null>(`/parent?guild=${message.guildId}&channel=${message.channelId}&message=${message.reference.messageId}`);
-  if(!parent)return;
-  if(parent.user!==message.author.id)return;
+export async function handleStudyMessage(message:Message,runtime:StudyRuntime=defaultRuntime) {
+  const config=runtime.config();
+  if(!config.messageFeatures||message.author.bot||!message.guildId||
+    (config.guildId&&message.guildId!==config.guildId)||!isAITester(message.author.id,config))return;
+  const botId=message.client.user?.id;
+  const mention=botId?message.content.match(new RegExp(`^\\s*<@!?${botId}>\\s*([\\s\\S]*)$`)):null;
+  const prompt=(mention?mention[1]??'':message.content).trim();
+  if(!prompt)return;
+  let parent:Job|null=null;
+  if(message.reference?.messageId){
+    const candidate=await runtime.service<Job|null>(`/parent?guild=${message.guildId}&channel=${message.channelId}&message=${message.reference.messageId}`);
+    if(candidate?.user===message.author.id)parent=candidate;
+  }
+  if(!mention&&!parent)return;
   const image=message.attachments.first();
-  const job=await service<Job>('/jobs',{id:message.id,guild:message.guildId,channel:message.channelId,user:message.author.id,
-    coach:coach(message.author.id,[...(message.member?.roles.cache.keys()??[])]),kind:'ask',prompt:message.content,parent:parent.id,...(image?{image:image.url}:{})});
+  const job=await runtime.service<Job>('/jobs',{id:message.id,guild:message.guildId,channel:message.channelId,user:message.author.id,
+    coach:coach(message.author.id,[...(message.member?.roles.cache.keys()??[])],config),kind:'ask',prompt,...(parent?{parent:parent.id}:{}),...(image?{image:image.url}:{})});
   if(job.message)return;
   const response=await message.reply({content:`⏳ queued · request ${job.id}`,allowedMentions:{parse:[],repliedUser:false}});
-  await service('/bind',{id:job.id,message:response.id});
+  await runtime.service('/bind',{id:job.id,message:response.id});
 }
 export function startDelivery(client:Client) {
   let busy=false;const previous=new Map<string,string>();

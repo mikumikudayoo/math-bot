@@ -2,7 +2,7 @@ import { Client, Events, GatewayIntentBits, MessageFlags, Partials } from 'disco
 import { loadConfig } from './config.js';
 import { loadCommands } from './commands/index.js';
 import { ServiceError } from './ai-client.js';
-import { startDelivery, followReply } from './study.js';
+import { startDelivery, handleStudyMessage } from './study.js';
 import { moderate } from './moderation.js';
 import { startReactionRoles } from './reaction-roles.js';
 
@@ -48,7 +48,7 @@ async function main() {
   if(config.messageFeatures)client.on(Events.MessageCreate,async message=>{
     if(message.author.bot||!message.guildId||(config.guildId&&message.guildId!==config.guildId))return;
     try{if(await moderate(message))return;}catch{console.error('Moderation service unavailable.');}
-    try{await followReply(message);}catch(error){if(error instanceof ServiceError)await message.reply({content:error.message,allowedMentions:{parse:[],repliedUser:false}}).catch(()=>{});}
+    try{await handleStudyMessage(message);}catch(error){if(error instanceof ServiceError)await message.reply({content:error.message,allowedMentions:{parse:[],repliedUser:false}}).catch(()=>{});}
   });
   if(config.messageFeatures)client.on(Events.MessageUpdate,async(_old,message)=>{
     if(!message.guildId||(config.guildId&&message.guildId!==config.guildId))return;

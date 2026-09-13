@@ -12,6 +12,8 @@ export function parseConfig(env: NodeJS.ProcessEnv, mode: string) {
     if (!/^\d{17,20}$/.test(value)) throw new Error(`${key} must be a Discord ID.`);
     return value;
   };
+  const aiTesterUserIds = [...new Set((env.AI_TESTER_USER_IDS ?? '').split(',').map(id => id.trim()).filter(Boolean))];
+  if (aiTesterUserIds.some(id => !/^\d{17,20}$/.test(id))) throw new Error('AI_TESTER_USER_IDS must be a comma-separated list of Discord user IDs.');
   return {
     mode,
     token: required('DISCORD_TOKEN'),
@@ -20,6 +22,7 @@ export function parseConfig(env: NodeJS.ProcessEnv, mode: string) {
     serviceURL: env.AI_SERVICE_URL?.trim() || 'http://127.0.0.1:8787',
     serviceToken: env.AI_SERVICE_TOKEN?.trim() || '',
     messageFeatures: env.MESSAGE_FEATURES_ENABLED === 'true',
+    aiTesterUserIds,
     coachRoles: (env.COACH_ROLE_IDS ?? '').split(',').map(x=>x.trim()).filter(Boolean),
     coachUsers: (env.COACH_USER_IDS ?? '').split(',').map(x=>x.trim()).filter(Boolean),
     modLogChannel: env.MOD_LOG_CHANNEL_ID?.trim() || '',
