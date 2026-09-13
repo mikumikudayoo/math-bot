@@ -1,3 +1,4 @@
+import { startQotd } from './qotd/posting.js';
 import { Client, Events, GatewayIntentBits, MessageFlags, Partials } from 'discord.js';
 import { loadConfig } from './config.js';
 import { loadCommands } from './commands/index.js';
@@ -11,7 +12,7 @@ async function main() {
   const commands = loadCommands();
   const client = new Client({ intents: [GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessageReactions,...(config.messageFeatures?[GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent]:[])],
     partials:[Partials.Message,Partials.Channel,Partials.Reaction],allowedMentions: { parse: [] } });
-  let stopDelivery=()=>{};let stopRoles=()=>{};
+  let stopDelivery=()=>{};let stopRoles=()=>{};let stopQotd=()=>{};
   client.once(Events.ClientReady, ready => {
     if (ready.application.id !== config.applicationId) {
       console.error('Token belongs to a different application. Check the selected environment file.');
@@ -20,7 +21,7 @@ async function main() {
       return;
     }
     console.log(`Logged in as ${ready.user.tag} (${config.mode}).`);
-    stopDelivery=startDelivery(client);stopRoles=startReactionRoles(client);
+    stopDelivery=startDelivery(client);stopRoles=startReactionRoles(client);stopQotd=startQotd(client,config.guildId);
   });
   client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
@@ -55,7 +56,7 @@ async function main() {
     try{const full=message.partial?await message.fetch():message;await moderate(full);}catch{console.error('Could not moderate edited message.');}
   });
   client.on(Events.Error, () => console.error('Discord connection error.'));
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { stopDelivery();stopRoles();client.destroy(); });
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { stopDelivery();stopRoles();stopQotd();client.destroy(); });
   try { await client.login(config.token); }
   catch { client.destroy(); throw new Error('Discord login failed. Check the bot token and network connection.'); }
 }

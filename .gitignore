@@ -10,3 +10,5 @@ data/
 __pycache__/
 .env.ai.*
 !.env.ai.*.example
+
+solmans/

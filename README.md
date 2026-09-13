@@ -53,3 +53,7 @@ Add command modules under `src/commands/` and import them into the list in `src/
 `bun run build` creates `dist/`; `bun run start` runs it, using development config by default. Production is explicitly selected with `BOT_ENV=production bun run start` and a separate `.env.production` file. That file must contain a different production application's token and ID; do not reuse the dev application. Production application creation and deployment can wait. Environment files are isolated: inherited credential variables are intentionally ignored. Production command registration is a separate explicit `bun run commands:deploy:production` action; never run it for the dev app.
 
 Existing GitHub remote: https://github.com/mikumikudayoo/math-bot.git. Review changes before committing/pushing. No CI deployment, PM2, VPS configuration or tunnels are installed by this foundation.
+
+## Daily questions and solution manuals
+
+See [the QOTD runbook](docs/qotd.md) for recursive PDF import with Bun, source review/approval, private diagram fallbacks, Discord scheduling, and persistent no-repeat history. Imports start pending review. No production deployment is automatic.

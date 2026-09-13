@@ -19,12 +19,15 @@
     "service:dev": "bun --watch src/service/server.ts",
     "service:start": "bun dist/service/server.js",
     "setup:local": "bun src/scripts/setup-local.ts",
-    "benchmark": "bun src/scripts/benchmark.ts"
+    "benchmark": "bun src/scripts/benchmark.ts",
+    "import:solmans": "bun src/scripts/import-solmans.ts",
+    "qotd:review": "bun src/scripts/qotd-review.ts"
   },
   "dependencies": {
     "discord.js": "14.27.0",
     "dotenv": "17.4.2",
-    "ipaddr.js": "2.2.0"
+    "ipaddr.js": "2.2.0",
+    "pdfjs-dist": "6.3.289"
   },
   "devDependencies": {
     "@types/node": "^22",
