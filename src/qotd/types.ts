@@ -21,5 +21,20 @@ export interface ParsedQuestion {
   rawQuestion: string;
   rawSolution: string;
   flags: string[];
+  questionRange?: { start: { page: number; line: number }; end: { page: number; line: number } | null; separateListing: boolean };
+  crop?: QuestionCrop;
+}
+export interface CropImage {
+  path: string;
+  sha256: string;
+  page: number | null;
+  rect: [number, number, number, number] | null;
+  width: number;
+  height: number;
+}
+export interface QuestionCrop {
+  status: 'generated' | 'failed' | 'override';
+  images: CropImage[];
+  flags: string[];
 }
 export interface ParsedManual { metadata: ManualMetadata; questions: ParsedQuestion[]; warnings: string[] }

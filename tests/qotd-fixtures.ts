@@ -39,13 +39,13 @@ VTAMPS ${edition} Senior Secondary Set 9`,
 ];
 
 // Minimal, valid, text-only PDFs created from our own fixture strings at test time.
-export function syntheticPdf(pages: string[]): Buffer {
+export function syntheticPdf(pages: string[], decorations: string[] = []): Buffer {
   const objects: string[] = ['<< /Type /Catalog /Pages 2 0 R >>', ''];
   objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
   const kids: number[] = [];
-  for (const text of pages) {
+  for (const [pageIndex,text] of pages.entries()) {
     const page = objects.length + 1; kids.push(page);
-    const stream = 'BT /F1 11 Tf 14 TL 30 760 Td ' + text.split('\n').map((line,i)=>(i?'T* ':'')+'('+line.replace(/[\\()]/g,'\\$&')+') Tj').join('\n')+' ET';
+    const stream = 'BT /F1 11 Tf 14 TL 30 760 Td ' + text.split('\n').map((line,i)=>(i?'T* ':'')+'('+line.replace(/[\\()]/g,'\\$&')+') Tj').join('\n')+' ET\n'+(decorations[pageIndex]??'');
     objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${page+1} 0 R >>`);
     objects.push(`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`);
   }

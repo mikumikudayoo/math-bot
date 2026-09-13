@@ -19,7 +19,7 @@ export function metadataFromPages(pages: string[]): ManualMetadata {
 }
 const topic = /^(?:LOGICAL THINKING|ALGEBRA|NUMBER THEORY|GEOMETRY|COMBINATORICS|PART\s+\d+\s*:\s*.+)\s*$/i;
 const footer = /^(?:VTAMPS|PHIMO).*\bSet\s+\d/i;
-interface Line { text: string; page: number }
+interface Line { text: string; page: number; index: number }
 interface Block { number: number; section: string; lines: Line[]; page: number }
 function choicesFrom(text: string, section: string) {
   if (!/MULTIPLE\s+CHOICE/i.test(section)) return { text, choices: [] };
@@ -30,7 +30,7 @@ function choicesFrom(text: string, section: string) {
 }
 export function parseManual(pages: string[]): ParsedManual {
   const metadata = metadataFromPages(pages);
-  const lines: Line[] = pages.flatMap((p, i) => p.split('\n').filter(l => !footer.test(l.trim())).map(text => ({ text, page: i + 1 })));
+  const lines: Line[] = pages.flatMap((p, i) => p.split('\n').map((text,index) => ({ text, page: i + 1, index })).filter(l => !footer.test(l.text.trim())));
   const blocks: Block[] = [];
   let section = ''; let current: Block | undefined; let solutionMode = false;
   for (const line of lines) {
@@ -74,11 +74,14 @@ export function parseManual(pages: string[]): ParsedManual {
     const officialAnswer = answer && solution && solution.index > answer.index ? rawSolution.slice(answer.index + answer[0].length, solution.index) : '';
     const officialSolution = solution ? rawSolution.slice(solution.index + solution[0].length) : '';
     const solutionLine = solution ? rawSolution.slice(0, solution.index + solution[0].length).split('\n').length - 1 : -1;
+    const next = blocks[blocks.indexOf(b) + 1];
     questions.push({ number: b.number, section: b.section, text: extracted.text, choices: extracted.choices,
       kind: extracted.choices.length ? 'mcq' : 'open', officialAnswer, officialSolution,
       questionPage: b.page, questionEndPage: b.lines.at(-1)?.page ?? b.page,
       solutionPage: s ? s.lines[solutionLine]?.page ?? s.page : null,
-      solutionEndPage: s?.lines.at(-1)?.page ?? null, rawQuestion, rawSolution, flags });
+      solutionEndPage: s?.lines.at(-1)?.page ?? null, rawQuestion, rawSolution, flags,
+      questionRange: { start: { page: b.page, line: b.lines[0]!.index },
+        end: next ? { page: next.page, line: next.lines[0]!.index } : null, separateListing: b !== s && split >= 0 } });
   }
   if (!metadata.competition || !metadata.set) warnings.push('Unrecognized metadata: inspect source manually.');
   if (!questions.length) warnings.push('No questions extracted; scanned or unsupported PDF needs manual transcription.');

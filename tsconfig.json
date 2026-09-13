@@ -9,7 +9,8 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "skipLibCheck": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "types": ["bun"]
   },
   "include": [
     "src/**/*.ts"

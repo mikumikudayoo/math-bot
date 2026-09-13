@@ -1,4 +1,6 @@
-import { test } from 'node:test';
+import {createCanvas} from '@napi-rs/canvas';
+import {hash} from '../src/qotd/parser.js';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, symlinkSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -9,8 +11,15 @@ import { postDaily, questionMessage } from '../src/qotd/posting.js';
 import { importFolder } from '../src/qotd/importer.js';
 import { phimo, vtamps, syntheticPdf } from './qotd-fixtures.js';
 
-function seed(store: QotdStore) { return store.import('source-a','generic.pdf','source.pdf',phimo.length,parseManual(phimo)); }
-function approveAll(store: QotdStore) { for (const q of store.list()) store.review(q.id,'approved','test-moderator',true); }
+const imageDirectory=mkdtempSync(join(tmpdir(),'qotd-test-crops-'));
+const imagePath=join(imageDirectory,'question.png');const imageBytes=createCanvas(100,50).toBuffer('image/png');writeFileSync(imagePath,imageBytes);
+after(()=>rmSync(imageDirectory,{recursive:true,force:true}));
+function seed(store: QotdStore) {
+  const parsed=parseManual(phimo);
+  for(const q of parsed.questions)q.crop={status:'generated',images:[{path:imagePath,sha256:hash(imageBytes),page:1,rect:[0,0,100,50],width:100,height:50}],flags:[]};
+  return store.import('source-a','generic.pdf','source.pdf',phimo.length,parsed);
+}
+function approveAll(store: QotdStore) { for (const q of store.list()) store.review(q.id,'approved','test-moderator',true,true); }
 
 test('PHIMO content metadata, mixed kinds, exact official text and multi-page solutions', () => {
   const result = parseManual(phimo);
@@ -99,7 +108,7 @@ test('failed sends consume a reservation and are never retried automatically', a
 test('only MCQs create Discord polls; public payload never contains official solution', async () => {
   const store=new QotdStore(':memory:');
   try {
-    seed(store); const qs=store.list();
+    seed(store); approveAll(store); const qs=store.list('approved');
     const mcq=questionMessage(qs.find(q=>q.kind==='mcq')!); const open=questionMessage(qs.find(q=>q.kind==='open')!);
     assert.equal(mcq.poll!.answers.length,3); assert.equal(open.poll,undefined);
     assert.ok(!JSON.stringify(mcq).includes('The second door is green'));

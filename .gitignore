@@ -12,3 +12,8 @@ __pycache__/
 !.env.ai.*.example
 
 solmans/
+
+# Local QOTD databases and render caches (including custom local filenames)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
