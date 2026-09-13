@@ -20,13 +20,14 @@ ln -s "$shared/.env.production" "$release/.env.production"
 ln -s "$shared/.env.ai.production" "$release/.env.ai.production"
 ln -s "$shared/data" "$release/data"
 cd "$release"
-npm ci
-npm run check
-npm run build
+[[ "$(bun --version)" == "$(cat .bun-version)" ]] || { echo 'Install the Bun version pinned in .bun-version before deploying.'; exit 1; }
+bun install --frozen-lockfile
+bun run check
+bun run build
 python3 -m venv .venv
 .venv/bin/python -m pip install -r python/requirements.txt
 # Validate config before touching the running release. Never print credentials.
-BOT_ENV=production node --input-type=module -e 'import {loadConfig} from "./dist/config.js"; import {serviceConfig} from "./dist/service/config.js"; loadConfig(); serviceConfig();'
+BOT_ENV=production bun -e 'import {loadConfig} from "./dist/config.js"; import {serviceConfig} from "./dist/service/config.js"; loadConfig(); serviceConfig();'
 previous="$(readlink -f "$deploy_root/current" || true)"
 if [[ -n "$previous" && "$previous" != "$deploy_root/releases/"* ]]; then echo 'Unexpected current release path.'; exit 1; fi
 rollback() {
@@ -45,6 +46,6 @@ mv -Tf "$deploy_root/current.next" "$deploy_root/current"
 sudo systemctl restart math-bot-ai math-bot
 sleep 3
 sudo systemctl is-active --quiet math-bot-ai math-bot
-BOT_ENV=production node --input-type=module -e 'import {loadConfig} from "./dist/config.js"; const c=loadConfig(); const r=await fetch(c.serviceURL+"/health",{headers:{Authorization:"Bearer "+c.serviceToken},signal:AbortSignal.timeout(5000)}); if(!r.ok)process.exit(1);'
+BOT_ENV=production bun -e 'import {loadConfig} from "./dist/config.js"; const c=loadConfig(); const r=await fetch(c.serviceURL+"/health",{headers:{Authorization:"Bearer "+c.serviceToken},signal:AbortSignal.timeout(5000)}); if(!r.ok)process.exit(1);'
 trap - ERR
 echo 'Release started. Check journal logs for Discord login. Slash commands require a separate explicit registration command.'

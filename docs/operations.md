@@ -2,9 +2,11 @@
 
 ## Local WSL
 
-`npm run setup:local` generates a local service secret, copies it into the bot and AI environment files, and preserves Discord credentials. It never selects a model. This has already been run in this checkout.
+`bun run setup:local` generates a local service secret, copies it into the bot and AI environment files, and preserves Discord credentials. It never selects a model. This has already been run in this checkout.
 
-In one Ubuntu terminal run `npm run service:dev`. In another run `npm run dev`. After changing command definitions run `npm run commands:deploy:dev` separately.
+In one Ubuntu terminal run `bun run service:dev`. In another run `bun run dev`. After changing command definitions run `bun run commands:deploy:dev` separately.
+
+Use the Bun version in `.bun-version` (also pinned in `package.json`). `bun install --frozen-lockfile` is the release/clean-checkout install; `bun install` updates the committed `bun.lock` when intentionally changing dependencies. Run `bun run check`, `bun test`, `bun run build`, and `.venv/bin/python -m unittest discover -s python -p test_math.py`. `bunfig.toml` limits discovery to `tests`; the Python-backed integration test has an explicit 30-second timeout for WSL startup. Bun 1.4.2 supports the existing `node:sqlite` adapter, so database schema and persisted state are preserved without a storage migration.
 
 Python tools use `.venv/bin/python`. On a new machine run `bash scripts/setup-python.sh`; install the distribution's python3-venv package first if ensurepip is unavailable. This checkout used a project-local pip bootstrap from https://bootstrap.pypa.io/get-pip.py because the installed WSL Python lacked ensurepip. System Python was not modified.
 
@@ -66,12 +68,12 @@ Docker is not installed by this change. Build the local image with `docker build
 
 ## Manual VPS rollout (not performed)
 
-1. Provision Oracle ARM VPS and a `mathbot` service user, compatible Node, Python/venv and Git. Benchmark models on its actual 3 cores / ~23 GB RAM before choosing one.
+1. Provision Oracle ARM VPS and a `mathbot` service user, Bun matching .bun-version, Python/venv and Git. Benchmark models on its actual 3 cores / ~23 GB RAM before choosing one.
 2. Prepare `/srv/math-bot/repo` as a clone of the GitHub source of truth; `/srv/math-bot/shared` holds production environment files and persistent data. Use a distinct production Discord application and service secret. Set production bot URL to port 8788, AI port 8788, and database to `/srv/math-bot/shared/data/production.sqlite`.
-3. Install/review the two systemd unit templates in `deploy/`, adjust Node paths if necessary, and allow the deployment account the specific restart/status commands it needs. Do not broadly grant passwordless sudo.
-4. Review, commit and push locally. On the VPS manually run `bash scripts/deploy-vps.sh FULL_COMMIT_SHA`. It creates a release from origin, installs/builds, switches the current symlink, restarts services and rolls back on startup/health failure. No GitHub push triggers a deploy. Review migration compatibility before relying on binary rollback with persistent data. Do not run simultaneous service instances against the same SQLite file.
-5. Confirm Discord login in journal logs. Register production commands separately with `npm run commands:deploy:production`. This explicitly confirmed command replaces the production app's global command set and compares its own successful JSON snapshot. The deploy script does not register commands or select a model.
+3. Install/review the two systemd unit templates in `deploy/`, install the pinned Bun binary at /usr/local/bin/bun (accessible to mathbot with ProtectHome=true) or adjust both unit paths, and allow the deployment account the specific restart/status commands it needs. Do not broadly grant passwordless sudo.
+4. Review, commit and push locally. On the VPS manually run `bash scripts/deploy-vps.sh FULL_COMMIT_SHA`. It creates a release from origin, verifies the pinned Bun version, installs with `bun install --frozen-lockfile`, checks/builds with Bun, switches the current symlink, restarts services and rolls back on startup/health failure. The Bun on the deployment account's PATH must match the version installed for both systemd units. No GitHub push triggers a deploy. Review migration compatibility before relying on binary rollback with persistent data. Do not run simultaneous service instances against the same SQLite file. Rollback across the initial runtime migration also requires restoring the previous service-unit runtime configuration if that old release does not support Bun.
+5. Confirm Discord login in journal logs. Register production commands separately with `bun run commands:deploy:production`. This explicitly confirmed command replaces the production app's global command set and compares its own successful JSON snapshot. The deploy script does not register commands or select a model.
 
-`npm run benchmark` tests the configured candidate with basic math/science/English prompts and saves timing and answers under `data/benchmarks`. This is a starting harness, not a quality ranking; manually review answers, add your worksheets/vision tests, measure peak RAM and test concurrent requests on the VPS. The optional home GTX 1080 uses the same configurable endpoint contract; no tunnel is created.
+`bun run benchmark` tests the configured candidate with basic math/science/English prompts and saves timing and answers under `data/benchmarks`. This is a starting harness, not a quality ranking; manually review answers, add your worksheets/vision tests, measure peak RAM and test concurrent requests on the VPS. The optional home GTX 1080 uses the same configurable endpoint contract; no tunnel is created.
 
 SQLite contains prompts, answers, job state, reaction ownership and moderation audit data. Back it up with SQLite's backup mechanism (not a blind copy of a live WAL database). No automatic retention purge is enabled yet; decide your server's retention policy before collecting production conversations.

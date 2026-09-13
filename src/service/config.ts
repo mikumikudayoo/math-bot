@@ -10,7 +10,7 @@ export function serviceConfig() {
     return n;
   };
   const secret = env.AI_SERVICE_TOKEN ?? '';
-  if (secret.length < 32) throw new Error(`Run npm run setup:local or set AI_SERVICE_TOKEN in .env.ai.${mode}.`);
+  if (secret.length < 32) throw new Error(`Run bun run setup:local or set AI_SERVICE_TOKEN in .env.ai.${mode}.`);
   const backend = env.INFERENCE_BASE_URL?.replace(/\/$/,'') ?? '';
   if (backend) {
     const url = new URL(backend);

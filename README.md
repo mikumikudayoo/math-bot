@@ -2,7 +2,7 @@
 
 Discord.js + TypeScript study bot with a separate authenticated study service, durable queue and conversations, calculator/plotting, model adapter, moderation and reaction roles. See [operations](docs/operations.md) for setup and [architecture](docs/architecture.md) for boundaries. No model or VPS is selected/provisioned.
 
-For the expanded setup, run `npm run setup:local`, start `npm run service:dev` in one WSL terminal and `npm run dev` in another. Install Python tools with `bash scripts/setup-python.sh` on a fresh machine. Run `npm run commands:deploy:dev` manually after definition changes. The existing checkout's local Python dependencies and service credentials are prepared.
+For the expanded setup, run `bun run setup:local`, start `bun run service:dev` in one WSL terminal and `bun run dev` in another. Install Python tools with `bash scripts/setup-python.sh` on a fresh machine. Run `bun run commands:deploy:dev` manually after definition changes. The existing checkout's local Python dependencies and service credentials are prepared.
 
 ## WSL development
 
@@ -10,12 +10,16 @@ Open Ubuntu WSL and run from this repository:
 
 ```sh
 cd /mnt/d/devstuff/math-bot
-node --version
-npm ci
+bun --version
+bun install --frozen-lockfile
 cp .env.development.example .env.development
 ```
 
-Use Node 22.12 or newer (tested runtime pinned in .nvmrc). Dependencies are installed with Linux npm in WSL; do not mix Windows node_modules into this checkout.
+Use Bun 1.4.2 (pinned in .bun-version and package.json). Install dependencies with Linux Bun in WSL; do not mix Windows node_modules into this checkout.
+
+In this checkout Bun is installed at `.cache/bun/bin/bun`; open a new Ubuntu terminal to pick up the installer-added PATH, or run `export PATH="$PWD/.cache/bun/bin:$PATH"` in the existing terminal. On another machine install the pinned version using the [Bun installation instructions](https://bun.com/docs/installation). Commit `bun.lock`; reproducible installs use `bun install --frozen-lockfile`.
+
+Bun runs both TypeScript development entrypoints and compiled production JavaScript. TypeScript checking/building still uses `tsc`, explicitly executed with Bun. The existing `node:` compatibility APIs (including SQLite and the test imports) are supported by the pinned runtime; they do not launch Node.js. Python tools retain their separate virtual environment.
 
 ## Discord Developer Portal
 
@@ -29,11 +33,11 @@ Use Node 22.12 or newer (tested runtime pinned in .nvmrc). Dependencies are inst
 Then, in WSL:
 
 ```sh
-npm run check
-npm test
-npm run commands:json
-npm run commands:deploy:dev
-npm run dev
+bun run check
+bun run test
+bun run commands:json
+bun run commands:deploy:dev
+bun run dev
 ```
 
 Wait for the login message, then run `/ping` in the test server; expect `pong! 🏓`. Ctrl+C stops the bot. Live login and registration require your real development credentials.
@@ -44,6 +48,6 @@ Add command modules under `src/commands/` and import them into the list in `src/
 
 `commands:deploy:dev` manually replaces the dev app's complete command set in the configured test guild. It skips if JSON matches the last successful local snapshot. It does not reconcile out-of-band Discord edits; delete the matching `.cache/commands-APP-GUILD.json` to intentionally resync. Failed API writes do not advance the snapshot. Keep one registration process active at a time.
 
-`npm run build` creates `dist/`; `npm start` runs it, using development config by default. Production is explicitly selected with `BOT_ENV=production npm start` and a separate `.env.production` file. That file must contain a different production application's token and ID; do not reuse the dev application. Production application creation and deployment can wait. Environment files are isolated: inherited credential variables are intentionally ignored. Production command registration is a separate explicit `npm run commands:deploy:production` action; never run it for the dev app.
+`bun run build` creates `dist/`; `bun run start` runs it, using development config by default. Production is explicitly selected with `BOT_ENV=production bun run start` and a separate `.env.production` file. That file must contain a different production application's token and ID; do not reuse the dev application. Production application creation and deployment can wait. Environment files are isolated: inherited credential variables are intentionally ignored. Production command registration is a separate explicit `bun run commands:deploy:production` action; never run it for the dev app.
 
 Existing GitHub remote: https://github.com/mikumikudayoo/math-bot.git. Review changes before committing/pushing. No CI deployment, PM2, VPS configuration or tunnels are installed by this foundation.

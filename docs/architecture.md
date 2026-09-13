@@ -1,6 +1,8 @@
 # Architecture and next milestones
 
 ## Implemented
+The package manager and JavaScript/TypeScript runtime are Bun, pinned in `.bun-version` and `package.json`. Releases install `bun.lock` with `--frozen-lockfile`. The compatible `node:sqlite` adapter and existing database schema remain unchanged; Python workers use their separate virtual environment.
+
 Discord.js + TypeScript with a shared slash-command registry and separate bot/study processes. Commands include /ping, /ask, /calculate, /plot, /python, /cancel, /ai, /filter and /reaction-role. The loopback HTTP service authenticates the bot with a separate secret. SQLite persists admission state, accepted jobs, bounded reply chains, output bindings, filter rules, audit entries and reaction-role ownership.
 
 The scheduler supports configurable concurrency, coach priority/reserved capacity with optional borrowing and no preemption. Accepted work survives disable and restart. Calculator/SymPy and plotting use a restricted AST parser and resource-limited Python subprocesses. The configurable model adapter supports native image inputs, bounded tool loops, public HTTPS fetch and optional Brave search. Arbitrary Python requires the explicitly enabled Docker sandbox; no host execution fallback exists. No inference backend is configured yet.

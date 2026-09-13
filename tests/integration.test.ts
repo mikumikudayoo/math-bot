@@ -26,7 +26,8 @@ test('authenticated HTTP admission, binding, delivery, and persisted disable con
     await call('/delivered',{id:'456789012345678901'});assert.deepEqual(await (await call('/pending')).json(),[]);
   }finally{await app.close();}
 });
-test('model adapter invokes allowed calculator and returns final answer from mock backend',async()=>{
+// Python startup on the Windows-mounted WSL checkout can exceed five seconds.
+test('model adapter invokes allowed calculator and returns final answer from mock backend',{timeout:30000},async()=>{
   let count=0;
   const backend=createServer(async(req,res)=>{
     let body='';for await(const chunk of req)body+=chunk.toString();const input=JSON.parse(body);

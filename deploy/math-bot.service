@@ -7,7 +7,7 @@ Wants=network-online.target math-bot-ai.service
 User=mathbot
 WorkingDirectory=/srv/math-bot/current
 Environment=BOT_ENV=production
-ExecStart=/usr/bin/node dist/index.js
+ExecStart=/usr/local/bin/bun dist/index.js
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
