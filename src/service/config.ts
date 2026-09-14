@@ -21,6 +21,7 @@ export function serviceConfig() {
     concurrency:integer('AI_CONCURRENCY',1,1,16),reserved:integer('COACH_RESERVED_SLOTS',0,0,15),borrow:env.COACH_BORROW_RESERVED === 'true',
     timeoutMs:integer('AI_TIMEOUT_SECONDS',600,10,3600)*1000,maxQueue:integer('AI_MAX_QUEUE',50,1,500),
     backend,model:env.INFERENCE_MODEL ?? '',backendKey:env.INFERENCE_API_KEY ?? '',vision:env.INFERENCE_VISION === 'true',
+    nativeTools:env.INFERENCE_NATIVE_TOOLS === 'true',
     python:env.PYTHON_EXECUTABLE ?? '.venv/bin/python',searchKey:env.BRAVE_SEARCH_API_KEY ?? '',
     sandbox:env.PYTHON_SANDBOX_ENABLED === 'true',sandboxImage:env.PYTHON_SANDBOX_IMAGE ?? 'math-bot-python:local' };
 }

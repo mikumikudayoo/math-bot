@@ -12,7 +12,7 @@ Python tools use `.venv/bin/python`. On a new machine run `bash scripts/setup-py
 
 ## Commands
 
-The study commands `/ask`, `/calculate`, `/plot`, `/python`, `/cancel`, `/queue`, and every `/ai` subcommand require the tester allowlist during private testing. This includes deterministic tools in the shared study suite. `/ping`, `/filter`, and `/reaction-role` retain their existing permissions and do not require tester access.
+The study commands `/ask`, `/calculate`, `/plot`, `/python`, `/cancel`, `/queue`, and every `/ai` subcommand require the tester allowlist during private testing. This includes deterministic tools in the shared study suite. `/ping`, `/filter`, and `/qotd` retain their existing permissions and do not require tester access.
 
 | Command | Purpose |
 | --- | --- |
@@ -24,15 +24,14 @@ The study commands `/ask`, `/calculate`, `/plot`, `/python`, `/cancel`, `/queue`
 | `/queue` | Show your accepted requests, including recoverable request IDs |
 | `/ai enable`, `/ai disable`, `/ai status` | Manage Server permission; persistent assistance admission state |
 | `/filter add`, `/filter remove`, `/filter list` | Manage Messages permission; empty rule list by default |
-| `/reaction-role set`, `/reaction-role sync`, `/reaction-role remove`, `/reaction-role list` | Manage Roles permission; opt-in roles |
 
-Disabling assistance rejects new study jobs (including calculator, plot, and Python). It does not stop accepted queued/running jobs, reactions, or moderation. Jobs and admission state survive service restarts. Interrupted running jobs are requeued; inference is at least once after a crash. Delivery edits a persistent bot message instead of relying on an interaction token that expires. Long answers are attached as text. Reply conversations are restricted to the original user and channel and include up to eight prior turns. Reply to a completed answer.
+Disabling assistance rejects new study jobs (including calculator, plot, and Python). It does not stop accepted queued/running jobs or moderation. Jobs and admission state survive service restarts. Interrupted running jobs are requeued; inference is at least once after a crash. Delivery edits a persistent bot message instead of relying on an interaction token that expires. Long answers are attached as text. Reply conversations are restricted to the original user and channel and include up to eight prior turns. Reply to a completed answer.
 
 ## Discord permissions and message features
 
-For the new commands grant Send Messages, View Channel, Read Message History, and Attach Files in the relevant channels. Reaction roles additionally require Add Reactions and Manage Roles; put the bot's highest role above Science Geek. Do not grant Administrator.
+For the new commands grant Send Messages, View Channel, Read Message History, and Attach Files in the relevant channels. Do not grant Administrator.
 
-Reply-chain conversations and server-wide filtering require **Message Content Intent** in the Developer Portal, followed by `MESSAGE_FEATURES_ENABLED=true` in `.env.development` and a bot restart. Reaction roles work without Message Content Intent. Filtering covers new and edited messages, exempts bots and members with Manage Messages, matches whole words/phrases with Unicode normalization, and writes audit entries in SQLite. Set `MOD_LOG_CHANNEL_ID` for Discord notifications. It fails open if its service is down; it is not a replacement for Discord AutoMod. No screenshot word list was imported.
+Reply-chain conversations and server-wide filtering require **Message Content Intent** in the Developer Portal, followed by `MESSAGE_FEATURES_ENABLED=true` in `.env.development` and a bot restart. Filtering covers new and edited messages, exempts bots and members with Manage Messages, matches whole words/phrases with Unicode normalization, and writes audit entries in SQLite. Set `MOD_LOG_CHANNEL_ID` for Discord notifications. It fails open if its service is down; it is not a replacement for Discord AutoMod. No screenshot word list was imported.
 
 ## Private AI testing
 
@@ -58,31 +57,9 @@ After configuration/code changes:
 3. To apply the reduced command visibility, manually run `bun run commands:deploy:dev` for the test server, or `bun run commands:deploy:production` only when deliberately updating production. No command registration occurs on startup. The allowlist enforces access even if old public command definitions are still registered.
 4. Apply tester-specific command overrides in each server as described above. Future allowlist-only changes need a bot restart and corresponding Discord overrides for new non-admin testers, but no command re-registration.
 
-## Science Geek reaction role
-
-Use `/reaction-role set message:<existing message link> role:@Science Geek emoji:🥼`. The default emoji is 🥼, so that option may be omitted. This is self-attestation of HKISO/IESO participation; the bot does not verify competition records.
-
-The bot adds the reaction and reconciles all existing reactors, paginating beyond 100 users. It reconciles again after reaction changes, at startup, and every minute. `/reaction-role sync message:<message ID>` requests another reconciliation.
-
-| Existing state | Result |
-| --- | --- |
-| Reacted, already has role | No role write; existing assignment is not claimed by the bot |
-| Reacted, missing role | Bot grants role and records ownership |
-| No reaction, manually/pre-existing role | Preserved |
-| Removed reaction, bot-owned role | Removed |
-| Duplicate event/restart | Same state is reconciled; no duplicate assignment |
-| Bot-owned role missing, reaction remains | Role is restored |
-| Member left | No grant; stale ownership record cleared |
-| Deleted/inaccessible message or failed pagination | No mass removal; reconciliation retries |
-| Missing permissions or changed hierarchy | No privilege escalation; error logged and retried |
-| All reactions cleared | Only bot-owned assignments removed |
-| Mapping removed | All current roles preserved; ownership tracking ends |
-
-One message and one role per mapping are allowed; a role cannot be managed by two messages. Repeating identical setup preserves ownership. Privileged/managed/everyone roles are rejected. A moderator cannot configure a role above their own highest role. Existing assignments are preserved conservatively: the bot cannot infer historical ownership or detect an administrator re-granting an already-present role. If administrators want to override a bot-owned role permanently, remove the mapping or the user's reaction before making a manual assignment.
-
 ## Model and queue configuration
 
-Edit `.env.ai.development`: `INFERENCE_BASE_URL` is a trusted OpenAI-compatible chat-completions endpoint (often ending in /v1), `INFERENCE_MODEL` identifies the candidate, and `INFERENCE_API_KEY` is optional for authenticated backends. No model has been chosen. No connection to the music AI is made. Local HTTP inference is allowed only on loopback; remote/home backends require HTTPS and should require authentication. Do not expose the study service port publicly; it binds only to loopback and uses its own shared secret.
+Edit `.env.ai.development`: `INFERENCE_BASE_URL` is a trusted OpenAI-compatible chat-completions endpoint (often ending in /v1), `INFERENCE_MODEL` identifies the candidate, and `INFERENCE_API_KEY` is optional for authenticated backends. The reported production candidate is Phi-4-mini-instruct-GGUF Q4_K_M through llama.cpp; keep benchmarking its quality. See [reliability](reliability.md) for orchestration settings. No connection to the music AI is made. Local HTTP inference is allowed only on loopback; remote/home backends require HTTPS and should require authentication. Do not expose the study service port publicly; it binds only to loopback and uses its own shared secret.
 
 `AI_CONCURRENCY` defaults to 1. `COACH_RESERVED_SLOTS` must be below total concurrency; default 0. Enable reserved-slot borrowing explicitly if wanted. Coach jobs take the next eligible slot without preempting ordinary work. Set `COACH_ROLE_IDS` or `COACH_USER_IDS` in the bot file. At most two accepted jobs per user/server and one active job per user/server are allowed. The global queue has a configurable limit and job timeout.
 
@@ -102,4 +79,4 @@ Docker is not installed by this change. Build the local image with `docker build
 
 `bun run benchmark` tests the configured candidate with basic math/science/English prompts and saves timing and answers under `data/benchmarks`. This is a starting harness, not a quality ranking; manually review answers, add your worksheets/vision tests, measure peak RAM and test concurrent requests on the VPS. The optional home GTX 1080 uses the same configurable endpoint contract; no tunnel is created.
 
-SQLite contains prompts, answers, job state, reaction ownership and moderation audit data. Back it up with SQLite's backup mechanism (not a blind copy of a live WAL database). No automatic retention purge is enabled yet; decide your server's retention policy before collecting production conversations.
+SQLite contains prompts, answers, job state and moderation audit data. Back it up with SQLite's backup mechanism (not a blind copy of a live WAL database). No automatic retention purge is enabled yet; decide your server's retention policy before collecting production conversations.

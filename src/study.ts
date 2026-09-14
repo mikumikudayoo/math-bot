@@ -3,6 +3,7 @@ import { service } from './ai-client.js';
 import { loadConfig } from './config.js';
 import type { Job, JobKind } from './service/types.js';
 import { authorizeAIInteraction, isAITester } from './ai-access.js';
+import { statusText } from './status.js';
 
 export interface StudyRuntime { config: typeof loadConfig; service: typeof service }
 const defaultRuntime: StudyRuntime = { config: loadConfig, service };
@@ -54,7 +55,7 @@ export function startDelivery(client:Client) {
       const jobs=await service<Job[]>('/pending');
       for(const job of jobs){
         const terminal=['completed','failed','cancelled'].includes(job.state);
-        const content=terminal?job.answer:`${job.state==='queued'?'⏳':'🧠'} ${job.status} · request ${job.id}`;
+        const content=terminal?job.answer:`${statusText(job.status,job.state)} · request ${job.id}`;
         if(previous.get(job.id)===content&&!terminal)continue;
         try{
           const channel=await client.channels.fetch(job.channel);

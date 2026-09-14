@@ -5,14 +5,14 @@ import { loadCommands } from './commands/index.js';
 import { ServiceError } from './ai-client.js';
 import { startDelivery, handleStudyMessage } from './study.js';
 import { moderate } from './moderation.js';
-import { startReactionRoles } from './reaction-roles.js';
 
 async function main() {
   const config = loadConfig();
+  const checkStartup=process.argv.includes('--check-startup');
+  if(checkStartup&&config.mode!=='development')throw new Error('Startup check is development-only.');
   const commands = loadCommands();
-  const client = new Client({ intents: [GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessageReactions,...(config.messageFeatures?[GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent]:[])],
-    partials:[Partials.Message,Partials.Channel,Partials.Reaction],allowedMentions: { parse: [] } });
-  let stopDelivery=()=>{};let stopRoles=()=>{};let stopQotd=()=>{};
+  const client = new Client({ intents: [GatewayIntentBits.Guilds,...(config.messageFeatures?[GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent]:[])],partials:[Partials.Message,Partials.Channel],allowedMentions: { parse: [] } });
+  let stopDelivery=()=>{};let stopQotd=()=>{};
   client.once(Events.ClientReady, ready => {
     if (ready.application.id !== config.applicationId) {
       console.error('Token belongs to a different application. Check the selected environment file.');
@@ -21,7 +21,8 @@ async function main() {
       return;
     }
     console.log(`Logged in as ${ready.user.tag} (${config.mode}).`);
-    stopDelivery=startDelivery(client);stopRoles=startReactionRoles(client);stopQotd=startQotd(client,config.guildId);
+    if(checkStartup){client.destroy();return;}
+    stopDelivery=startDelivery(client);stopQotd=startQotd(client,config.guildId);
   });
   client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
@@ -46,18 +47,23 @@ async function main() {
       } catch { console.error('Could not deliver the command error response.'); }
     }
   });
-  if(config.messageFeatures)client.on(Events.MessageCreate,async message=>{
+  if(config.messageFeatures&&!checkStartup)client.on(Events.MessageCreate,async message=>{
     if(message.author.bot||!message.guildId||(config.guildId&&message.guildId!==config.guildId))return;
     try{if(await moderate(message))return;}catch{console.error('Moderation service unavailable.');}
     try{await handleStudyMessage(message);}catch(error){if(error instanceof ServiceError)await message.reply({content:error.message,allowedMentions:{parse:[],repliedUser:false}}).catch(()=>{});}
   });
-  if(config.messageFeatures)client.on(Events.MessageUpdate,async(_old,message)=>{
+  if(config.messageFeatures&&!checkStartup)client.on(Events.MessageUpdate,async(_old,message)=>{
     if(!message.guildId||(config.guildId&&message.guildId!==config.guildId))return;
     try{const full=message.partial?await message.fetch():message;await moderate(full);}catch{console.error('Could not moderate edited message.');}
   });
   client.on(Events.Error, () => console.error('Discord connection error.'));
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { stopDelivery();stopRoles();stopQotd();client.destroy(); });
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { stopDelivery();stopQotd();client.destroy(); });
   try { await client.login(config.token); }
-  catch { client.destroy(); throw new Error('Discord login failed. Check the bot token and network connection.'); }
+  catch(error) {
+    client.destroy();
+    const code=error&&typeof error==='object'&&'code' in error?String(error.code):'';
+    const detail=checkStartup&&/^[a-z0-9_]{1,50}$/i.test(code)?` (${code})`:'';
+    throw new Error(`Discord login failed${detail}. Check the bot token and network connection.`);
+  }
 }
 main().catch(error => { console.error(error instanceof Error ? error.message : 'Startup failed.'); process.exitCode = 1; });

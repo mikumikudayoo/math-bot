@@ -96,9 +96,9 @@ test('tester reply chains and mention-replies share one submission path',async()
 test('ordinary commands and their existing permissions remain unchanged',async()=>{
   const commands=loadCommands(undefined,()=>({aiTesterUserIds:[]}));const call=interaction(other);
   await commands.get('ping')!.execute(call.value);assert.match(call.replies[0]!.content,/pong/);
-  for(const name of ['ping','filter','reaction-role'])assert.equal(commands.get(name)!.access,undefined);
+  for(const name of ['ping','filter','qotd'])assert.equal(commands.get(name)!.access,undefined);
   assert.equal(commands.get('filter')!.data.toJSON().default_member_permissions,PermissionFlagsBits.ManageMessages.toString());
-  assert.equal(commands.get('reaction-role')!.data.toJSON().default_member_permissions,PermissionFlagsBits.ManageRoles.toString());
+  assert.equal(commands.get('qotd')!.data.toJSON().default_member_permissions,PermissionFlagsBits.ManageGuild.toString());
 });
 test('private command definitions are default-disabled; allowlist is never published in command JSON',()=>{
   const definitions=JSON.parse(commandJSON()) as {name:string;default_member_permissions?:string}[];

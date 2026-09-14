@@ -1,6 +1,6 @@
 # math-bot
 
-Discord.js + TypeScript study bot with a separate authenticated study service, durable queue and conversations, calculator/plotting, model adapter, moderation and reaction roles. See [operations](docs/operations.md) for setup and [architecture](docs/architecture.md) for boundaries. No model or VPS is selected/provisioned.
+Discord.js + TypeScript study bot with a separate authenticated study service, durable queue and conversations, calculator/plotting, model adapter, moderation and QOTD. See [operations](docs/operations.md) for setup and [architecture](docs/architecture.md) for boundaries. See [reliability](docs/reliability.md) for guarded factual retrieval and model compatibility.
 
 For the expanded setup, run `bun run setup:local`, start `bun run service:dev` in one WSL terminal and `bun run dev` in another. Install Python tools with `bash scripts/setup-python.sh` on a fresh machine. Run `bun run commands:deploy:dev` manually after definition changes. The existing checkout's local Python dependencies and service credentials are prepared.
 

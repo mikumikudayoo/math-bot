@@ -43,9 +43,3 @@ test('public network checks reject SSRF and protocol tricks',()=>{
 test('filter whole-word matching does not censor analysis or class',()=>{
   assert.equal(matchesTerm('analysis','anal'),false);assert.equal(matchesTerm('class','ass'),false);assert.equal(matchesTerm('a BAD phrase!','bad phrase'),true);assert.equal(matchesTerm('a.b','a.b'),true);assert.equal(matchesTerm('axb','a.b'),false);
 });
-test('reaction-role mapping and ownership survive restart; repeated setup preserves tracking',()=>{
-  const dir=mkdtempSync(join(tmpdir(),'math-role-'));const path=join(dir,'state.sqlite');let store=new Store(path);
-  const mapping={guild:'g',channel:'c',message:'m',role:'r',emoji:'🥼'};
-  try{store.setReactionRole(mapping);store.grant('m','u',true);store.setReactionRole(mapping);store.close();store=new Store(path);assert.deepEqual(store.grants('m'),['u']);assert.deepEqual(store.reactionRoles().map(x=>({...x})),[mapping]);assert.throws(()=>store.setReactionRole({...mapping,message:'other'}));store.removeReactionRole('g','m');assert.deepEqual(store.grants('m'),[]);}
-  finally{store.close();rmSync(dir,{recursive:true,force:true});}
-});

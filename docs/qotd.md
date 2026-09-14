@@ -111,4 +111,4 @@ bun test
 bun run build
 ```
 
-Tests cover actual synthetic PDF rendering, vector-only diagrams, excluding neighboring questions/answers, multi-page choices, failure flags, no invented choices, crop acknowledgements and tamper checks, replacement revocation, exact/near duplicates, idempotence, no-repeat after reopening, immediate payload construction, reveal timing, local review access controls and development-only reset protection. Private AI access and unrelated moderation/reaction-role tests remain in the full suite.
+Tests cover actual synthetic PDF rendering, vector-only diagrams, excluding neighboring questions/answers, multi-page choices, failure flags, no invented choices, crop acknowledgements and tamper checks, replacement revocation, exact/near duplicates, idempotence, no-repeat after reopening, immediate payload construction, reveal timing, local review access controls and development-only reset protection. Private AI access and unrelated moderation tests remain in the full suite.

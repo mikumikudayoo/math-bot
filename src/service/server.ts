@@ -33,8 +33,6 @@ export function createService(config:ServiceConfig, injected?:Runner) {
         const rows=store.db.prepare("SELECT id,state,status FROM jobs WHERE guild=? AND user=? AND state IN ('queued','running') ORDER BY created").all(guild,user);
         send(200,rows);return;
       }
-      if(req.method==='GET'&&url.pathname==='/reaction-roles'){send(200,store.reactionRoles());return;}
-      if(req.method==='GET'&&url.pathname==='/role-grants'){send(200,store.grants(id(url.searchParams.get('message'),'message')));return;}
       if(req.method==='GET'&&url.pathname==='/parent'){
         const job=store.byMessage(id(url.searchParams.get('guild'),'guild'),id(url.searchParams.get('channel'),'channel'),id(url.searchParams.get('message'),'message'));
         send(200,job??null);return;
@@ -46,18 +44,6 @@ export function createService(config:ServiceConfig, injected?:Runner) {
       const chunks:Buffer[]=[];let bytes=0;for await(const chunk of req){bytes+=chunk.length;if(bytes>20000)throw new UserError('Request too large.');chunks.push(chunk);}
       const body=JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string,unknown>;
       switch(url.pathname){
-        case '/reaction-roles':{
-          if(body.moderator!==true)throw new UserError('Moderator permission required.');
-          const guild=id(body.guild,'guild');const message=id(body.message,'message');
-          if(body.remove===true)store.removeReactionRole(guild,message);
-          else store.setReactionRole({guild,channel:id(body.channel,'channel'),message,role:id(body.role,'role'),emoji:text(body.emoji,'emoji',100)});
-          store.audit(guild,id(body.user,'user'),'reaction role mapping changed');send(200,{ok:true});break;
-        }
-        case '/role-grants':{
-          const message=id(body.message,'message');
-          if(!store.reactionRoles().some(x=>x.message===message))throw new UserError('Reaction role mapping no longer exists.');
-          store.grant(message,id(body.user,'user'),body.owned===true);send(200,{ok:true});break;
-        }
         case '/jobs':{
           const kind=text(body.kind,'kind') as JobKind;
           if(!['ask','calculate','plot','python'].includes(kind))throw new UserError('Unknown request kind.');
