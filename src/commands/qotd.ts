@@ -5,7 +5,7 @@ import { postDaily, qotdStore, revealAnswer } from '../qotd/posting.js';
 export const qotd: Command = {
   data:new SlashCommandBuilder().setName('qotd').setDescription('Manage daily math questions.').setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand(s=>s.setName('post').setDescription('Post today’s approved unused question in this channel.'))
-    .addSubcommand(s=>s.setName('reveal').setDescription('Reveal an official answer after its 24-hour poll window.')
+    .addSubcommand(s=>s.setName('reveal').setDescription('Reveal today’s official answer after the QOTD window.')
       .addIntegerOption(o=>o.setName('post-id').setDescription('Post number shown by history').setMinValue(1).setRequired(true)))
     .addSubcommand(s=>s.setName('history').setDescription('Show recent posts and uncertain reservations.'))
     .addSubcommand(s=>s.setName('schedule').setDescription('Set automatic daily posting (UTC).')

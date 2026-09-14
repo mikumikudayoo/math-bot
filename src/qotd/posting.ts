@@ -3,11 +3,20 @@ import { qotdSettings } from './config.js';
 import { validateCrop } from './crops.js';
 import { QotdStore, type Question } from './store.js';
 let singleton: QotdStore | undefined;
+
+function manilaDay(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
 export function qotdStore() {
   if (!singleton) singleton = new QotdStore(qotdSettings().database);
   return singleton;
 }
-export function questionMessage(q: Question, day = new Date().toISOString().slice(0,10), roleId?:string): MessageCreateOptions {
+export function questionMessage(q: Question, day = manilaDay(), roleId?:string): MessageCreateOptions {
   if (!q.cropReviewed || q.state !== 'approved') throw new Error('The student crop must be explicitly reviewed and approved.');
   validateCrop(q.crop);
   if (roleId && !/^\d{17,20}$/.test(roleId)) throw new Error('Invalid QOTD role ID.');
@@ -33,7 +42,7 @@ export async function postDaily(
       autoArchiveDuration?: 60 | 1440 | 4320 | 10080;
     }) => Promise<unknown>;
   }>,
-  day = new Date().toISOString().slice(0,10),
+  day = manilaDay(),
   roleId?: string,
 ) {
   const selected = store.claim(guild,channel,day);
@@ -122,7 +131,7 @@ export function startQotd(client: Client, allowedGuild?: string) {
       const store = qotdStore();
       const now = new Date();
       const utcHour = now.getUTCHours();
-      const today = now.toISOString().slice(0,10);
+      const today = manilaDay(now);
 
       const schedules = store.db
         .prepare('SELECT * FROM qotd_schedule')
