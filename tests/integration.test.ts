@@ -8,7 +8,7 @@ import { Store } from '../src/service/store.js';
 import type { ServiceConfig } from '../src/service/config.js';
 import type { Job } from '../src/service/types.js';
 
-const config:ServiceConfig={mode:'development',secret:'test-only-secret-with-at-least-32-characters',port:8787,database:':memory:',concurrency:1,reserved:0,borrow:false,timeoutMs:10000,maxQueue:20,backend:'',model:'',backendKey:'',vision:false,python:'.venv/bin/python',searchKey:'',sandbox:false,sandboxImage:'math-bot-python:local'};
+const config:ServiceConfig={mode:'development',secret:'test-only-secret-with-at-least-32-characters',port:8787,database:':memory:',concurrency:1,reserved:0,borrow:false,timeoutMs:10000,maxQueue:20,backend:'',model:'',backendKey:'',vision:false,python:process.env.PYTHON_EXECUTABLE ?? '.venv/bin/python',searchKey:'',sandbox:false,sandboxImage:'math-bot-python:local'};
 const guild='123456789012345678',channel='234567890123456789',user='345678901234567890';
 test('authenticated HTTP admission, binding, delivery, and persisted disable contract',async()=>{
   const app=createService(config,async job=>({answer:`answer to ${job.prompt}`}));
