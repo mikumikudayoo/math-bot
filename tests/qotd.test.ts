@@ -100,21 +100,21 @@ test('failed sends consume a reservation and are never retried automatically', a
   const store = new QotdStore(':memory:');
   try {
     seed(store); approveAll(store); let calls=0;
-    await assert.rejects(postDaily(store,'g','c',async()=>{calls++;throw new Error('timeout after delivery');},'2026-01-01'),/remains consumed/);
-    await postDaily(store,'g','c',async()=>{calls++;return {id:'unexpected'};},'2026-01-01');
+    await assert.rejects(postDaily(store,'g','c',async()=>{calls++;throw new Error('timeout after delivery');},'2026-01-01',undefined,Date.parse('2026-01-01T08:00:00+08:00')),/remains consumed/);
+    await postDaily(store,'g','c',async()=>{calls++;return {id:'unexpected'};},'2026-01-01',undefined,Date.parse('2026-01-01T08:00:00+08:00'));
     assert.equal(calls,1); assert.equal(store.history('g')[0]!.state,'uncertain');
   } finally { store.close(); }
 });
-test('only MCQs create Discord polls; public payload never contains official solution', async () => {
+test('all question types use private answer buttons; public payload never contains official solution', async () => {
   const store=new QotdStore(':memory:');
   try {
     seed(store); approveAll(store); const qs=store.list('approved');
     const mcq=questionMessage(qs.find(q=>q.kind==='mcq')!); const open=questionMessage(qs.find(q=>q.kind==='open')!);
-    assert.equal(mcq.poll!.answers.length,3); assert.equal(open.poll,undefined);
+    assert.equal(mcq.poll,undefined); assert.equal(mcq.components!.length,1); assert.equal(open.poll,undefined);
     assert.ok(!JSON.stringify(mcq).includes('The second door is green'));
     const long={...qs.find(q=>q.kind==='mcq')!,text:'a'.repeat(2500),choices:[{label:'A',text:'x'.repeat(100)},{label:'B',text:'y'}]};
-    assert.equal(questionMessage(long).poll!.answers[0]!.text,'A');
-    approveAll(store); await postDaily(store,'g','c',async()=>({id:'message-1'}),'2026-01-01');
+    assert.equal(questionMessage(long).poll,undefined);
+    approveAll(store); await postDaily(store,'g','c',async()=>({id:'message-1'}),'2026-01-01',undefined,Date.parse('2026-01-01T08:00:00+08:00'));
     assert.equal(store.history('g')[0]!.state,'posted'); assert.equal(store.history('g')[0]!.message,'message-1');
   } finally { store.close(); }
 });

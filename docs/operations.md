@@ -12,7 +12,9 @@ Python tools use `.venv/bin/python`. On a new machine run `bash scripts/setup-py
 
 ## Commands
 
-The study commands `/ask`, `/calculate`, `/plot`, `/python`, `/cancel`, `/queue`, and every `/ai` subcommand require the tester allowlist during private testing. This includes deterministic tools in the shared study suite. `/ping`, `/filter`, and `/qotd` retain their existing permissions and do not require tester access.
+QOTD now uses one private answer modal from the main question message, with final-answer replacement until 21:59:59 Manila and deterministic results at 22:00. `/qotd leaderboard` and `/qotd stats [user]` are public; other QOTD actions still require Manage Server. See [the QOTD runbook](qotd.md) for grading/scoring configuration, solution crops, participant mention consent, additive SQLite v2-to-v3 migration, uncertain-delivery recovery and the manual VPS rollout checklist. Redeploy slash definitions manually for the new subcommands/permissions. Preserve the database and assets; do not run a reset as part of this upgrade.
+
+The study commands `/ask`, `/calculate`, `/plot`, `/python`, `/cancel`, `/queue`, and every `/ai` subcommand require the tester allowlist during private testing. This includes deterministic tools in the shared study suite. `/ping`, `/filter`, and `/qotd` do not require tester access; QOTD's public and moderator permissions are described above.
 
 | Command | Purpose |
 | --- | --- |

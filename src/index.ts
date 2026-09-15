@@ -5,6 +5,9 @@ import { loadCommands } from './commands/index.js';
 import { ServiceError } from './ai-client.js';
 import { startDelivery, handleStudyMessage } from './study.js';
 import { moderate } from './moderation.js';
+import { handleQotdComponent } from './qotd/components.js';
+import { Competition } from './qotd/competition.js';
+import { qotdStore } from './qotd/posting.js';
 
 async function main() {
   const config = loadConfig();
@@ -25,6 +28,10 @@ async function main() {
     stopDelivery=startDelivery(client);stopQotd=startQotd(client,config.guildId);
   });
   client.on(Events.InteractionCreate, async interaction => {
+    if ((interaction.isButton() || interaction.isModalSubmit()) && interaction.customId.startsWith('qotd:')) {
+      await handleQotdComponent(interaction,new Competition(qotdStore()),config.guildId);
+      return;
+    }
     if (!interaction.isChatInputCommand()) return;
     try {
       if (config.guildId && interaction.guildId !== config.guildId) {

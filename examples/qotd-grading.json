@@ -1,0 +1,16 @@
+{
+  "grading": {
+    "mode": "numeric_with_unit",
+    "value": "3",
+    "units": ["cm"],
+    "unitRequired": true,
+    "fractions": true
+  },
+  "scoring": {
+    "strategy": "linear-time",
+    "version": 1,
+    "basePoints": 10,
+    "speedBonus": 2,
+    "bonusWindowSeconds": 3600
+  }
+}

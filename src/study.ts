@@ -4,9 +4,11 @@ import { loadConfig } from './config.js';
 import type { Job, JobKind } from './service/types.js';
 import { authorizeAIInteraction, isAITester } from './ai-access.js';
 import { statusText } from './status.js';
+import { Competition } from './qotd/competition.js';
+import { qotdStore } from './qotd/posting.js';
 
-export interface StudyRuntime { config: typeof loadConfig; service: typeof service }
-const defaultRuntime: StudyRuntime = { config: loadConfig, service };
+export interface StudyRuntime { config: typeof loadConfig; service: typeof service; isQotdDiscussion?: (guild:string,channel:string)=>boolean }
+const defaultRuntime: StudyRuntime = { config: loadConfig, service, isQotdDiscussion:(guild,channel)=>new Competition(qotdStore()).isDiscussion(guild,channel) };
 export function coach(user:string,roles:string[],c=loadConfig()){return c.coachUsers.includes(user)||roles.some(r=>c.coachRoles.includes(r));}
 export async function submit(interaction:ChatInputCommandInteraction,kind:JobKind,prompt:string,image?:string,runtime:StudyRuntime=defaultRuntime) {
   const config=runtime.config();
@@ -29,6 +31,7 @@ export async function handleStudyMessage(message:Message,runtime:StudyRuntime=de
   const config=runtime.config();
   if(!config.messageFeatures||message.author.bot||!message.guildId||
     (config.guildId&&message.guildId!==config.guildId)||!isAITester(message.author.id,config))return;
+  if(runtime.isQotdDiscussion?.(message.guildId,message.channelId))return;
   const botId=message.client.user?.id;
   const mention=botId?message.content.match(new RegExp(`^\\s*<@!?${botId}>\\s*([\\s\\S]*)$`)):null;
   const prompt=(mention?mention[1]??'':message.content).trim();

@@ -81,39 +81,33 @@ test('image replacement revokes approval without changing official fields or use
     store.review(q.id,'approved','operator',true,true);assert.equal(store.claim('guild','channel','2026-01-02'),null);
   }finally{store.close();await f.close();}
 });
-test('immediate daily posting shows crops, label-only polls and only the configured role mention',async()=>{
+test('immediate daily posting shows crops, private button and only the configured role mention',async()=>{
   const f=await fixture();const store=new QotdStore(':memory:');try{
     store.import('source','x.pdf','source.pdf',3,f.parsed);
     for(const q of store.list())store.review(q.id,'approved','operator',true,true);
     const role='123456789012345678';const mcq=store.list('approved').find(q=>q.kind==='mcq')!;
     const payload=questionMessage(mcq,'2026-09-13',role);
-    assert.equal(payload.content,`<@&${role}> **New Question of the Day!**\n*Submit your answer below!*`);
-    assert.deepEqual(payload.allowedMentions,{parse:[],roles:[role]});assert.deepEqual(payload.poll!.answers.map(a=>a.text),['A','B','C']);
+    assert.ok(payload.content!.startsWith(`<@&${role}> **New Question of the Day!**`));
+    assert.deepEqual(payload.allowedMentions,{parse:[],roles:[role]});assert.equal(payload.poll,undefined);assert.equal(payload.components!.length,1);
     assert.equal(payload.files!.length,mcq.crop.images.length);assert.ok(!JSON.stringify(payload).includes(mcq.text));assert.ok(!JSON.stringify(payload).includes(mcq.officialSolution));
     const open=store.list('approved').find(q=>q.kind==='open')!;assert.equal(questionMessage(open).poll,undefined);
     const sent: import('discord.js').MessageCreateOptions[] = [];
     await postDaily(store,'guild','channel',async p=>{
       sent.push(p);
       return {id:`message-${sent.length}`};
-    });
+    },'2026-09-13',undefined,Date.parse('2026-09-13T08:00:00+08:00'));
 
     assert.ok(sent[0]!.files?.length);
 
-    if (sent.length === 2) {
-      assert.ok(sent[1]!.poll);
-      assert.equal(sent[1]!.files,undefined);
-      assert.ok(sent[1]!.poll!.answers.length >= 2);
-    } else {
-      assert.equal(sent.length,1);
-      assert.equal(sent[0]!.poll,undefined);
-    }
+    assert.equal(sent.length,1);
+    assert.equal(sent[0]!.poll,undefined);
 
     const afterFirstPost=sent.length;
 
     await postDaily(store,'guild','channel',async p=>{
       sent.push(p);
       return{id:'unexpected'};
-    });
+    },'2026-09-13',undefined,Date.parse('2026-09-13T08:00:00+08:00'));
 
     assert.equal(sent.length,afterFirstPost);
   }finally{store.close();await f.close();}
@@ -149,14 +143,15 @@ test('explicit local reset discards only isolated QOTD state; refuses unrelated 
   }finally{rmSync(dir,{recursive:true,force:true});}
 });
 
-test('answer reveals wait for the poll window, use official fields and never send twice',async()=>{
+test('answer reveals wait until 22 Manila, use official fields and never send twice',async()=>{
   const f=await fixture();const store=new QotdStore(':memory:');try{
     store.import('source','x.pdf','source.pdf',3,f.parsed);for(const q of store.list())store.review(q.id,'approved','operator',true,true);
-    await postDaily(store,'guild','channel',async()=>({id:'question-message'}));
+    const opened=Date.parse('2026-09-13T08:00:00+08:00');
+    await postDaily(store,'guild','channel',async()=>({id:'question-message'}),'2026-09-13',undefined,opened);
     const row=store.history('guild')[0]!;const id=Number(row.id);let sent=0;
-    const send=async(payload:import('discord.js').MessageCreateOptions)=>{sent++;assert.ok(payload.content!.includes(store.get(String(row.question))!.officialAnswer));return{id:'answer-message'};};
-    await assert.rejects(revealAnswer(store,'guild',id,'operator',send),/24 hours/);assert.equal(sent,0);
-    await revealAnswer(store,'guild',id,'operator',send,Number(row.posted_at)+24*60*60*1000);
-    await assert.rejects(revealAnswer(store,'guild',id,'operator',send,Number(row.posted_at)+25*60*60*1000),/already reserved/);assert.equal(sent,1);
+    const send=async(payload:import('discord.js').MessageCreateOptions)=>{sent++;if(sent===1)assert.ok(payload.content!.includes(store.get(String(row.question))!.officialAnswer));return{id:'answer-message'};};
+    await assert.rejects(revealAnswer(store,'guild',id,'operator',send,opened),/not due/);assert.equal(sent,0);
+    await revealAnswer(store,'guild',id,'operator',send,opened+14*60*60*1000);
+    await revealAnswer(store,'guild',id,'operator',send,opened+15*60*60*1000);assert.equal(sent,2);
   }finally{store.close();await f.close();}
 });

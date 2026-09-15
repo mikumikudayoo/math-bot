@@ -65,7 +65,6 @@ client.once('ready', async () => {
       client.user!.id,
       payload => channel.send(payload),
       Date.now(),
-      true,
     );
 
     console.log(`✓ ${result}`);

@@ -2,8 +2,12 @@ import { qotdSettings } from '../qotd/config.js';
 import { ChannelType, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import type { Command } from './types.js';
 import { postDaily, qotdStore, revealAnswer } from '../qotd/posting.js';
+import { Competition } from '../qotd/competition.js';
+import { leaderboardText, statsText } from '../qotd/standings.js';
 export const qotd: Command = {
-  data:new SlashCommandBuilder().setName('qotd').setDescription('Manage daily math questions.').setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+  data:new SlashCommandBuilder().setName('qotd').setDescription('Daily math questions and results.')
+    .addSubcommand(s=>s.setName('leaderboard').setDescription('Show total, monthly and weekly QOTD standings.'))
+    .addSubcommand(s=>s.setName('stats').setDescription('Show QOTD participation and scores.').addUserOption(o=>o.setName('user').setDescription('Whose stats to show (defaults to you)')))
     .addSubcommand(s=>s.setName('post').setDescription('Post today’s approved unused question in this channel.'))
     .addSubcommand(s=>s.setName('reveal').setDescription('Reveal today’s official answer after the QOTD window.')
       .addIntegerOption(o=>o.setName('post-id').setDescription('Post number shown by history').setMinValue(1).setRequired(true)))
@@ -17,12 +21,17 @@ export const qotd: Command = {
       .addStringOption(o=>o.setName('question').setDescription('Full question ID from history').setRequired(true))
       .addBooleanOption(o=>o.setName('confirm').setDescription('Confirm you checked the channel and want to permit a repeat').setRequired(true))),
   async execute(i) {
-    if (!i.inGuild() || !i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+    const action = i.options.getSubcommand();
+    const isPublic = action === 'leaderboard' || action === 'stats';
+    if (!i.inGuild() || (!isPublic && !i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))) {
       await i.reply({content:'manage server permission is required.',flags:MessageFlags.Ephemeral});return;
     }
-    await i.deferReply({flags:MessageFlags.Ephemeral});
-    const store = qotdStore(); const action = i.options.getSubcommand();
-    if (action === 'post') {
+    await i.deferReply(isPublic ? {} : {flags:MessageFlags.Ephemeral});
+    const store = qotdStore();
+    if (isPublic) {
+      const competition = new Competition(store);
+      await i.editReply({content:action==='leaderboard' ? leaderboardText(competition,i.guildId!) : statsText(competition,i.guildId!,i.options.getUser('user')?.id ?? i.user.id),allowedMentions:{parse:[]}});
+    } else if (action === 'post') {
       const channel = i.channel;
       if (!channel?.isSendable()) throw new Error('Use a sendable server channel.');
       await i.editReply(await postDaily(store,i.guildId!,i.channelId,payload=>channel.send(payload),undefined,(store.db.prepare('SELECT role FROM qotd_schedule WHERE guild=?').get(i.guildId!)?.role as string | undefined) ?? qotdSettings().role));
@@ -31,7 +40,7 @@ export const qotd: Command = {
       if(!entry)throw new Error('Unknown QOTD post.');
       const channel=await i.client.channels.fetch(String(entry.channel));
       if(!channel || !('guildId' in channel) || channel.guildId!==i.guildId || !channel.isSendable())throw new Error('Original QOTD channel is unavailable.');
-      await i.editReply(await revealAnswer(store,i.guildId!,id,i.user.id,payload=>channel.send(payload),Date.now(),process.env.BOT_ENV==='development'));
+      await i.editReply(await revealAnswer(store,i.guildId!,id,i.user.id,payload=>channel.send(payload)));
     } else if (action === 'history') {
       const rows = store.history(i.guildId!);
       await i.editReply(rows.slice(0,10).map(r=>`#${r.id} · ${r.day} · ${r.state} · ${r.question}${r.message ? `\nhttps://discord.com/channels/${i.guildId}/${r.channel}/${r.message}` : ''}`).join('\n') || 'no qotd history yet.');

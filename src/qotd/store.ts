@@ -1,3 +1,4 @@
+import { migrateCompetition } from './competition.js';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -61,11 +62,11 @@ export class QotdStore {
       )
       .get();
 
-    if ((existing && version !== 2) || version > 2) {
+    if ((existing && version !== 2 && version !== 3) || version > 3) {
       this.db.close();
 
       throw new Error(
-        'Legacy QOTD database: run the explicit local development reset. No automatic migration is supported.',
+        'Legacy or unsupported QOTD schema. Restore a compatible v2/v3 backup; never reset production state to bypass migration.',
       );
     }
 
@@ -172,8 +173,9 @@ export class QotdStore {
       CREATE INDEX IF NOT EXISTS qotd_review_claims_expires
         ON qotd_review_claims(expires_at);
 
-      PRAGMA user_version=2;
+
     `);
+    migrateCompetition(this.db);
   }
 
   close() {
@@ -940,87 +942,6 @@ export class QotdStore {
         WHERE guild=? AND id=?
       `)
       .get(guild, id);
-  }
-
-  claimReveal(
-    guild: string,
-    id: number,
-    actor: string,
-    now = Date.now(),
-    allowEarly = false,
-  ) {
-    return this.transaction(() => {
-      const row = this.historyEntry(
-        guild,
-        id,
-      );
-
-      if (
-        !row ||
-        row.state !== 'posted' ||
-        !row.posted_at ||
-        (
-          !allowEarly &&
-          Number(row.posted_at) +
-            24 * 60 * 60 * 1000 >
-            now
-        )
-      ) {
-        throw new Error(
-          'Reveal is available only 24 hours after a confirmed post, after its poll closes.',
-        );
-      }
-
-      if (
-        this.db
-          .prepare(`
-            SELECT 1
-            FROM qotd_reveals
-            WHERE history=?
-          `)
-          .get(id)
-      ) {
-        throw new Error(
-          'This reveal is already reserved or sent. Check the channel before taking further action.',
-        );
-      }
-
-      this.db
-        .prepare(`
-          INSERT INTO qotd_reveals
-          VALUES(?,'reserved',NULL)
-        `)
-        .run(id);
-
-      this.audit(
-        actor,
-        `official answer reveal reserved history=${id} guild=${guild}`,
-      );
-
-      return this.get(
-        String(row.question),
-      )!;
-    });
-  }
-
-  finishReveal(
-    id: number,
-    message: string | null,
-  ) {
-    this.db
-      .prepare(`
-        UPDATE qotd_reveals
-        SET state=?,
-            message=?
-        WHERE history=?
-      `)
-      .run(
-        message
-          ? 'posted'
-          : 'uncertain',
-        message,
-        id,
-      );
   }
 
   history(guild: string) {

@@ -21,6 +21,7 @@
     "setup:local": "bun src/scripts/setup-local.ts",
     "benchmark": "bun src/scripts/benchmark.ts",
     "import:solmans": "bun src/scripts/import-solmans.ts",
+    "qotd:configure": "bun src/scripts/qotd-configure.ts",
     "qotd:review": "bun src/scripts/qotd-review.ts",
     "qotd:review-ui": "bun src/scripts/qotd-review-ui.ts",
     "qotd:reset-local": "bun src/scripts/qotd-reset-local.ts",

@@ -56,4 +56,4 @@ Existing GitHub remote: https://github.com/mikumikudayoo/math-bot.git. Review ch
 
 ## Daily questions and solution manuals
 
-See [the QOTD runbook](docs/qotd.md) for recursive PDF import with Bun, source review/approval, private diagram fallbacks, Discord scheduling, and persistent no-repeat history. Imports start pending review. No production deployment is automatic.
+See [the QOTD runbook](docs/qotd.md) for recursive PDF imports, reviewed source crops, modal-only private answers, deterministic grading, configurable scoring and persistent leaderboards. Latest answer and timestamp win; submissions close at 21:59:59 Manila and reveal at 22:00. `/qotd leaderboard` and `/qotd stats` are public. Imports stay pending until approved, no-repeat history survives re-imports, and the v2-to-v3 migration preserves existing state. Slash commands need manual redeployment; the runbook includes the VPS checklist. No production deployment is automatic.
