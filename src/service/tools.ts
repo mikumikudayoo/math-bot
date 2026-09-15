@@ -37,15 +37,30 @@ export async function sandboxPython(config:ServiceConfig,code:string,signal:Abor
     await new Promise<void>(done=>{const cleanup=spawn('docker',['rm','-f',name],{stdio:'ignore'});const timer=setTimeout(()=>{cleanup.kill('SIGKILL');done();},5000);cleanup.on('error',()=>{clearTimeout(timer);done();});cleanup.on('close',()=>{clearTimeout(timer);done();});});
   }
 }
-export async function search(config:ServiceConfig,query:string,signal:AbortSignal) {
+export async function search(config:Pick<ServiceConfig,'searchKey'>,query:string,signal:AbortSignal,request:typeof fetch=fetch) {
   if(!config.searchKey)throw new UserError('Web search is not configured yet. You can supply a public HTTPS source URL.');
-  const url=new URL('https://api.search.brave.com/res/v1/web/search');url.searchParams.set('q',query.slice(0,500));url.searchParams.set('count','5');
-  const response=await fetch(url,{signal:AbortSignal.any([signal,AbortSignal.timeout(15000)]),headers:{'X-Subscription-Token':config.searchKey},redirect:'error'});
+  const response=await request('https://api.tavily.com/search',{
+    method:'POST',signal:AbortSignal.any([signal,AbortSignal.timeout(15000)]),redirect:'error',
+    headers:{'Content-Type':'application/json',Authorization:`Bearer ${config.searchKey}`},
+    body:JSON.stringify({query:query.slice(0,500),topic:'general',search_depth:'basic',auto_parameters:false,
+      max_results:5,include_answer:false,include_raw_content:false,include_images:false}),
+  });
   if(!response.ok)throw new UserError('Web search provider is unavailable.');
   const reader=response.body?.getReader();if(!reader)throw new UserError('Empty search response.');
   const chunks:Uint8Array[]=[];let bytes=0;
   try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.length;if(bytes>1_000_000)throw new UserError('Search response exceeds size limit.');chunks.push(value);}}finally{await reader.cancel();}
-  const body=JSON.parse(Buffer.concat(chunks).toString('utf8')) as {web?:{results?:{title:string;url:string;description:string}[]}};
-  return (body.web?.results??[]).slice(0,5).filter(x=>{try{publicURL(x.url);return true;}catch{return false;}}).map(x=>({title:x.title.slice(0,300),url:x.url,description:x.description.slice(0,1000)}));
+  let body:unknown;
+  try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new UserError('Invalid search response.');}
+  if(!body||typeof body!=='object'||!('results' in body)||!Array.isArray(body.results))throw new UserError('Invalid search response.');
+  const results:{title:string;url:string;description:string}[]=[];
+  const seen=new Set<string>();
+  for(const item of body.results){
+    if(!item||typeof item!=='object'||typeof item.title!=='string'||typeof item.url!=='string'||typeof item.content!=='string'||!item.content.trim())continue;
+    try{publicURL(item.url);}catch{continue;}
+    if(seen.has(item.url))continue;
+    seen.add(item.url);results.push({title:item.title.slice(0,300),url:item.url,description:item.content.slice(0,1000)});
+    if(results.length===5)break;
+  }
+  return results;
 }
 export { fetchText };

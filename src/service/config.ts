@@ -22,7 +22,7 @@ export function serviceConfig() {
     timeoutMs:integer('AI_TIMEOUT_SECONDS',600,10,3600)*1000,maxQueue:integer('AI_MAX_QUEUE',50,1,500),
     backend,model:env.INFERENCE_MODEL ?? '',backendKey:env.INFERENCE_API_KEY ?? '',vision:env.INFERENCE_VISION === 'true',
     nativeTools:env.INFERENCE_NATIVE_TOOLS === 'true',
-    python:env.PYTHON_EXECUTABLE ?? '.venv/bin/python',searchKey:env.BRAVE_SEARCH_API_KEY ?? '',
+    python:env.PYTHON_EXECUTABLE ?? '.venv/bin/python',searchKey:env.TAVILY_API_KEY ?? '',
     sandbox:env.PYTHON_SANDBOX_ENABLED === 'true',sandboxImage:env.PYTHON_SANDBOX_IMAGE ?? 'math-bot-python:local' };
 }
 export type ServiceConfig = ReturnType<typeof serviceConfig>;
