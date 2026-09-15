@@ -71,7 +71,13 @@ Edit `.env.ai.development`: `INFERENCE_BASE_URL` is a trusted OpenAI-compatible 
 
 Docker is not installed by this change. Build the local image with `docker build -t math-bot-python:local python`, then set `PYTHON_SANDBOX_ENABLED=true` only after validating the isolation on your host. The runtime denies network, host mounts and capabilities and uses a non-root UID, read-only filesystem, CPU/memory/process/output/time limits and a temporary filesystem. No unsandboxed fallback exists. The model tool list does not expose arbitrary Python; `/python` is explicit. The default image has only the Python standard library. Containers share the host kernel: use a separate hardened worker/VM for hostile public workloads. The production service template does not grant access to a Docker socket; provision a separately reviewed sandbox worker before enabling there.
 
-## Manual VPS rollout (not performed)
+## Current legacy production: /opt/math-bot + PM2
+
+The current app directory is `/opt/math-bot`, using Bun and `python3`. PM2 processes run under Unix user `mathbot`; use that account and its existing process identities for authorized updates. Current production does not use `/srv/math-bot/current` or systemd. Keep `PYTHON_EXECUTABLE=python3` for current production; local WSL validation may use `.venv/bin/python`.
+
+Recommended current reminder storage is `REMINDER_DB_PATH=/opt/math-bot/data/reminders.production.sqlite`. Retain this directory across in-place updates and ensure `mathbot` can write it. Preserve existing AI/QOTD database and asset settings. Do not overwrite live secrets with example files. Updates and command registration remain manual; the future release script below is not the current PM2 update procedure.
+
+## Future target: /srv/math-bot exact-SHA manual rollout (not yet in use)
 
 1. Provision Oracle ARM VPS and a `mathbot` service user, Bun matching .bun-version, Python/venv and Git. Benchmark models on its actual 3 cores / ~23 GB RAM before choosing one.
 2. Prepare `/srv/math-bot/repo` as a clone of the GitHub source of truth; `/srv/math-bot/shared` holds production environment files and persistent data. Use a distinct production Discord application and service secret. Set production bot URL to port 8788, AI port 8788, and database to `/srv/math-bot/shared/data/production.sqlite`.

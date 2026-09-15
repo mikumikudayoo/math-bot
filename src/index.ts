@@ -1,4 +1,5 @@
 import { startQotd } from './qotd/posting.js';
+import { startReminders } from './reminders/scheduler.js';
 import { Client, Events, GatewayIntentBits, MessageFlags, Partials } from 'discord.js';
 import { loadConfig } from './config.js';
 import { loadCommands } from './commands/index.js';
@@ -15,7 +16,7 @@ async function main() {
   if(checkStartup&&config.mode!=='development')throw new Error('Startup check is development-only.');
   const commands = loadCommands();
   const client = new Client({ intents: [GatewayIntentBits.Guilds,...(config.messageFeatures?[GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent]:[])],partials:[Partials.Message,Partials.Channel],allowedMentions: { parse: [] } });
-  let stopDelivery=()=>{};let stopQotd=()=>{};
+  let stopDelivery=()=>{};let stopQotd=()=>{};let stopReminders=()=>{};
   client.once(Events.ClientReady, ready => {
     if (ready.application.id !== config.applicationId) {
       console.error('Token belongs to a different application. Check the selected environment file.');
@@ -26,6 +27,7 @@ async function main() {
     console.log(`Logged in as ${ready.user.tag} (${config.mode}).`);
     if(checkStartup){client.destroy();return;}
     stopDelivery=startDelivery(client);stopQotd=startQotd(client,config.guildId);
+    stopReminders=startReminders(client,config.reminderDatabase,config.guildId);
   });
   client.on(Events.InteractionCreate, async interaction => {
     if ((interaction.isButton() || interaction.isModalSubmit()) && interaction.customId.startsWith('qotd:')) {
@@ -64,7 +66,7 @@ async function main() {
     try{const full=message.partial?await message.fetch():message;await moderate(full);}catch{console.error('Could not moderate edited message.');}
   });
   client.on(Events.Error, () => console.error('Discord connection error.'));
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { stopDelivery();stopQotd();client.destroy(); });
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { stopDelivery();stopQotd();stopReminders();client.destroy(); });
   try { await client.login(config.token); }
   catch(error) {
     client.destroy();

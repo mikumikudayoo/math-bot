@@ -14,6 +14,8 @@ Delivery uses its existing four-second polling and unchanged-status suppression.
 
 ## Manual rollout checks
 
+Current production uses `/opt/math-bot`, Bun, `python3`, and PM2 under `mathbot`. For current updates, use the existing PM2 process identities in that account. References below to the exact-SHA release procedure apply only to the future `/srv/math-bot` architecture, not the current installation. See [operations](operations.md).
+
 The search adapter calls the official [Tavily Search API](https://docs.tavily.com/documentation/api-reference/endpoint/search) directly with Bun's fetch. It uses basic general search, at most five results, no automatic parameter upgrades, generated answers, raw content or images, and no automatic retries. Tavily `content` becomes the existing bounded `description` evidence field; generated answers are never consumed. Existing host search budgets and exact-name queries remain unchanged. Automated provider tests use only mocked requests and fixture credentials; they do not verify live Tavily authentication.
 
 Production needs `TAVILY_API_KEY` in the existing `.env.ai.production` secret file (shared production environment mechanism). Keep its value private. After a deliberate manual release/restart of the study service, run one tester-only factual question and confirm cited results, then ordinary conversation and the stuffed-toy problem and confirm no search usage for those prompts. Check Tavily's usage dashboard for unexpected repeated requests. In development, also test a missing/invalid key and confirm explicit refusal. No Discord command update is needed for this provider change.

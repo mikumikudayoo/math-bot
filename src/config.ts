@@ -16,6 +16,7 @@ export function parseConfig(env: NodeJS.ProcessEnv, mode: string) {
   if (aiTesterUserIds.some(id => !/^\d{17,20}$/.test(id))) throw new Error('AI_TESTER_USER_IDS must be a comma-separated list of Discord user IDs.');
   return {
     mode,
+    reminderDatabase: env.REMINDER_DB_PATH?.trim() || `data/reminders.${mode}.sqlite`,
     token: required('DISCORD_TOKEN'),
     applicationId: snowflake('DISCORD_APPLICATION_ID'),
     guildId: mode === 'development' ? snowflake('DISCORD_GUILD_ID') : undefined,

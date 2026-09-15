@@ -127,6 +127,8 @@ Then the scheduler or `/qotd reveal post-id:POST_ID` resumes unsent parts withou
 
 ## Manual VPS rollout checklist (not automatic)
 
+Current production is `/opt/math-bot` with Bun, `python3`, and PM2 under `mathbot`. Apply stop/restart steps through that account's existing PM2 processes. The local Python virtualenv mentioned below is for WSL validation; current production uses `python3`. The future `/srv/math-bot` exact-SHA release layout is documented separately in [operations](operations.md); do not migrate QOTD paths as part of a current in-place update.
+
 1. Finish/reveal the old day's QOTD; stop the bot and review processes. Back up the persistent QOTD SQLite database consistently (including WAL if not cleanly stopped) and its complete asset directory. Keep secrets private.
 2. Review/apply this code; retain the persistent `QOTD_DB_PATH` and `QOTD_ASSET_DIR` paths and separate dev/production data. Do not reset, overwrite or move production state into an ephemeral release folder.
 3. With Bun 1.4.2, run `bun install --frozen-lockfile`, `bun run check`, `bun test`, and `bun run build`. The full suite also needs the existing Python virtualenv. No dependencies were changed by this upgrade.

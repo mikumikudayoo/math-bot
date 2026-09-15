@@ -24,6 +24,8 @@ Manual command registration compares JSON snapshots per app and scope, for both 
 - Separate server-wide moderation/filter module, independent of AI invocation. No screenshot word-list import. Use deliberate whole-word/phrase rules and contextual review; protect legitimate educational language.
 
 ## Infrastructure decisions
-Planned Oracle ARM/Ampere VPS: 3 CPU cores, approximately 23 GB RAM and 200 GB storage. Quality over speed. Continue to benchmark candidate reasoning and vision models on the actual VPS for answer quality, RAM, context limits and concurrency before choosing. Do not assume any VPS, model, Discord application, PM2 process or tunnel exists.
+
+Current legacy production is `/opt/math-bot` with Bun, `python3`, and PM2 processes owned by `mathbot`. The `/srv/math-bot` exact-SHA release layout and systemd templates below are future targets, not the current installation. See [operations](operations.md) for the separate procedures.
+Planned Oracle ARM/Ampere VPS: 3 CPU cores, approximately 23 GB RAM and 200 GB storage. Quality over speed. Continue to benchmark candidate reasoning and vision models on the actual VPS for answer quality, RAM, context limits and concurrency before choosing. The future layout has not yet replaced the current PM2 installation.
 
 GitHub is the intended source of truth. Local changes require review, commit and push. No automatic production deployment. The manual VPS script selects an explicit revision, installs/builds, validates, restarts and supports rollback; validate it on the actual provisioned server before production use. Production uses a distinct Discord application and secrets. Model quality, native vision performance, queue tuning and home GPU connectivity still require real backend/VPS testing. Docker sandbox runtime validation awaits Docker installation. No live inference or production deployment is claimed.
