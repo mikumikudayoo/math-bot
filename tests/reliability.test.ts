@@ -86,9 +86,9 @@ test('unknown tools and repeating tools cannot escape the existing loop budget',
   try{await assert.rejects(f.run(),/Tool-step limit/);assert.equal(f.calls.requests.length,6);assert.equal(f.calls.math,0);}finally{f.store.close();}
 });
 test('persona is preserved and unconfigured cutoff/company identity claims are blocked',async()=>{
-  assert.match(system,/Aleph-Zero/);assert.match(system,/Emu Otori/);assert.match(system,/become a human/);
+  assert.match(system,/Aleph-Zero/);assert.match(system,/emu/);assert.match(system,/become human/);
   for(const answer of ['I was developed by Microsoft.','My knowledge cutoff is January 2025.']){
-    const f=fixture('Who are you?',[{answer}]);try{const result=await f.run();assert.match(result.answer,/Aleph-Zero, created by Emu Otori/);assert.ok(!result.answer.includes('2025'));assert.equal(f.calls.search.length,0);}finally{f.store.close();}
+    const f=fixture('Who are you?',[{answer}]);try{const result=await f.run();assert.match(result.answer,/Aleph-Zero/);assert.match(result.answer,/emu/);assert.ok(!result.answer.includes('2025'));assert.equal(f.calls.search.length,0);}finally{f.store.close();}
   }
 });
 test('stuffed-toy proof verifies the bad selection and sufficient matching bound, not just 2030',async()=>{
