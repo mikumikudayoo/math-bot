@@ -18,3 +18,7 @@ solmans/
 *.sqlite-wal
 *.sqlite-shm
 .venv-router/
+
+# Local router benchmark results
+router-holdout-*-result.txt
+router-holdout-*-postfix*.txt

@@ -1,0 +1,120 @@
+{"category":"casual","prompt":"bro im cooked 😭","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"casual","prompt":"LMAOOO","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"casual","prompt":"ok bet","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"casual","prompt":"good morning :3","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"casual","prompt":"nahhh that's wild","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"casual","prompt":"tysm!!","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"casual","prompt":"wait what 💀","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"casual","prompt":"im back","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"identity","prompt":"what's your name","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"identity","prompt":"who made you","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"identity","prompt":"what are you supposed to help with","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"identity","prompt":"do you have a dream","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"identity","prompt":"are you Aleph-Zero","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"identity","prompt":"what server are you for","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"identity","prompt":"who is your creator","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"identity","prompt":"what can you do here","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"easy_internal","prompt":"what does coefficient mean in algebra","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"easy_internal","prompt":"define photosynthesis in one sentence","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"easy_internal","prompt":"what is a metaphor","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"easy_internal","prompt":"what does immutable mean in programming","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"easy_internal","prompt":"why do eclipses happen","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"easy_internal","prompt":"what is the quadratic formula used for","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"easy_internal","prompt":"what does API stand for","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"easy_internal","prompt":"what's the difference between mass and weight","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"calculation","prompt":"what is 47 * 19","reasoning":["fast"],"knowledge":["internal"],"tool":["calculate"]}
+{"category":"calculation","prompt":"18% of 250 please","reasoning":["fast"],"knowledge":["internal"],"tool":["calculate"]}
+{"category":"calculation","prompt":"sqrt of 1849","reasoning":["fast"],"knowledge":["internal"],"tool":["calculate"]}
+{"category":"calculation","prompt":"convert 3.5 hours to minutes","reasoning":["fast"],"knowledge":["internal"],"tool":["calculate"]}
+{"category":"calculation","prompt":"what's 2^12","reasoning":["fast"],"knowledge":["internal"],"tool":["calculate"]}
+{"category":"calculation","prompt":"if 8 notebooks cost 360 pesos how much each","reasoning":["fast"],"knowledge":["internal"],"tool":["calculate"]}
+{"category":"calculation","prompt":"calculate 7/12 + 5/18","reasoning":["fast"],"knowledge":["internal"],"tool":["calculate"]}
+{"category":"calculation","prompt":"what is 15 choose 2","reasoning":["fast"],"knowledge":["internal"],"tool":["calculate"]}
+{"category":"reasoning","prompt":"prove that the sum of two odd integers is even","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"reasoning","prompt":"derive the distance formula from the Pythagorean theorem","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"reasoning","prompt":"explain why this argument is circular reasoning","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"reasoning","prompt":"show why there are infinitely many primes","reasoning":["deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"reasoning","prompt":"find the flaw in this proof sketch and explain it","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"reasoning","prompt":"why does completing the square actually work","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"reasoning","prompt":"compare two solution methods and tell me where each one breaks","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"reasoning","prompt":"walk through the invariant in this puzzle instead of just answering","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"competition","prompt":"in a contest problem, how do i prove the worst case is maximal","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"competition","prompt":"help me solve this olympiad-style divisibility problem step by step","reasoning":["deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"competition","prompt":"this geometry problem probably needs an auxiliary line, how do i spot one","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"competition","prompt":"can you explain the extremal principle with a contest example","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"competition","prompt":"i think induction works here but the inductive step is weird, help","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"competition","prompt":"how should i attack a hard counting problem with cases","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"competition","prompt":"this number theory problem asks for all integers satisfying a condition, where do i start","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"competition","prompt":"help me reason through a nontrivial pigeonhole argument","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"science","prompt":"why does salt lower the freezing point of water","reasoning":["standard"],"knowledge":["internal"],"tool":["none"]}
+{"category":"science","prompt":"explain how natural selection changes allele frequencies","reasoning":["standard"],"knowledge":["internal"],"tool":["none"]}
+{"category":"science","prompt":"derive the relation between force, mass, and acceleration conceptually","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"science","prompt":"why does increasing temperature speed up many reactions","reasoning":["standard"],"knowledge":["internal"],"tool":["none"]}
+{"category":"science","prompt":"how does a transformer change voltage","reasoning":["standard"],"knowledge":["internal"],"tool":["none"]}
+{"category":"science","prompt":"explain why the sky is blue without handwaving","reasoning":["standard"],"knowledge":["internal"],"tool":["none"]}
+{"category":"science","prompt":"what would happen to an orbit if velocity suddenly increased","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"science","prompt":"compare mitosis and meiosis focusing on why the differences matter","reasoning":["standard"],"knowledge":["internal"],"tool":["none"]}
+{"category":"writing","prompt":"rewrite this sentence to sound more formal: we gotta fix this fast","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"writing","prompt":"give me three cleaner ways to phrase 'the results were bad'","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"writing","prompt":"make this paragraph more concise without changing the meaning","reasoning":["fast","standard"],"knowledge":["internal"],"tool":["none"]}
+{"category":"writing","prompt":"help me improve the flow of this introduction","reasoning":["standard"],"knowledge":["internal"],"tool":["none"]}
+{"category":"writing","prompt":"turn these bullet points into a short paragraph","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"writing","prompt":"make this explanation sound less repetitive","reasoning":["fast","standard"],"knowledge":["internal"],"tool":["none"]}
+{"category":"writing","prompt":"write a neutral thesis statement about school uniforms","reasoning":["fast","standard"],"knowledge":["internal"],"tool":["none"]}
+{"category":"writing","prompt":"help me organize this essay into a clearer argument","reasoning":["standard"],"knowledge":["internal"],"tool":["none"]}
+{"category":"coding","prompt":"why is this async function returning before my loop finishes","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"coding","prompt":"debug why this event listener seems to fire twice","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"coding","prompt":"explain what this TypeScript generic is doing","reasoning":["standard"],"knowledge":["internal"],"tool":["none"]}
+{"category":"coding","prompt":"my recursion never terminates, help me reason through it","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"coding","prompt":"why does this promise chain swallow the error","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"coding","prompt":"help me refactor this function without changing behavior","reasoning":["standard"],"knowledge":["internal"],"tool":["none"]}
+{"category":"coding","prompt":"what's wrong with this binary search logic","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"coding","prompt":"why does this state update use the old value","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"fresh","prompt":"what's the latest stable Node.js version","reasoning":["fast"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"fresh","prompt":"is GitHub having an outage right now","reasoning":["fast"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"fresh","prompt":"what changed in the newest TypeScript release","reasoning":["fast","standard"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"fresh","prompt":"who currently holds the men's 100m world record","reasoning":["fast"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"fresh","prompt":"what is the current exchange rate for USD to PHP","reasoning":["fast"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"fresh","prompt":"is Discord status reporting any problems today","reasoning":["fast"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"fresh","prompt":"what's the newest stable Python release","reasoning":["fast"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"fresh","prompt":"what happened in today's major AI news","reasoning":["standard"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"verification","prompt":"please fact-check this claim for me","reasoning":["fast","standard"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"verification","prompt":"can you verify whether this statistic is accurate","reasoning":["fast","standard"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"verification","prompt":"find a reliable source confirming this theorem statement","reasoning":["fast","standard"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"verification","prompt":"check online whether this release date is real","reasoning":["fast"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"verification","prompt":"verify this quote and tell me who actually said it","reasoning":["fast","standard"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"verification","prompt":"i need a citation for this historical claim","reasoning":["fast","standard"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"verification","prompt":"look up whether this organization actually exists","reasoning":["fast"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"verification","prompt":"can you confirm this number using a source","reasoning":["fast","standard"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"obscure","prompt":"what does the old computing term 'blinkenlights' refer to","reasoning":["fast","standard"],"knowledge":["web_if_uncertain","web_required"],"tool":["none"]}
+{"category":"obscure","prompt":"where did the phrase 'yak shaving' come from","reasoning":["fast","standard"],"knowledge":["web_if_uncertain","web_required"],"tool":["none"]}
+{"category":"obscure","prompt":"what is the history of the term 'foo' in programming examples","reasoning":["fast","standard"],"knowledge":["web_if_uncertain","web_required"],"tool":["none"]}
+{"category":"obscure","prompt":"who first used the phrase 'software crisis'","reasoning":["fast","standard"],"knowledge":["web_if_uncertain","web_required"],"tool":["none"]}
+{"category":"obscure","prompt":"what's the origin of the term 'bikeshedding'","reasoning":["fast","standard"],"knowledge":["web_if_uncertain","web_required"],"tool":["none"]}
+{"category":"obscure","prompt":"what does 'cargo cult programming' originally refer to","reasoning":["fast","standard"],"knowledge":["web_if_uncertain","web_required"],"tool":["none"]}
+{"category":"obscure","prompt":"where did the term 'rubber duck debugging' originate","reasoning":["fast","standard"],"knowledge":["web_if_uncertain","web_required"],"tool":["none"]}
+{"category":"obscure","prompt":"what's the background of the phrase 'works on my machine'","reasoning":["fast","standard"],"knowledge":["web_if_uncertain","web_required"],"tool":["none"]}
+{"category":"lexical_trap","prompt":"what does current mean in electricity","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"lexical_trap","prompt":"what is a source file","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"lexical_trap","prompt":"what does proof mean in typography","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"lexical_trap","prompt":"what is a release build","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"lexical_trap","prompt":"what does online mean in graph algorithms","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"lexical_trap","prompt":"what is a web in graph theory","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"lexical_trap","prompt":"what does latest mean in a list of timestamps","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"lexical_trap","prompt":"what is a citation in academic writing","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"mixed","prompt":"look up the latest Rust version and explain whether upgrading could break my project","reasoning":["standard","deep"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"mixed","prompt":"find the current deadline, then calculate how many days are left","reasoning":["fast","standard"],"knowledge":["web_required"],"tool":["calculate","none"]}
+{"category":"mixed","prompt":"what changed in the newest Bun release and why might that affect package installs","reasoning":["standard","deep"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"mixed","prompt":"search for the official statement and summarize the reasoning behind it","reasoning":["standard"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"mixed","prompt":"check today's outage reports and explain whether this error could be related","reasoning":["standard","deep"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"mixed","prompt":"find the source of this claim but don't analyze whether it's true","reasoning":["fast","standard"],"knowledge":["web_required"],"tool":["none"]}
+{"category":"mixed","prompt":"what is the newest stable version, but don't search the web","reasoning":["fast"],"knowledge":["internal"],"tool":["none"]}
+{"category":"mixed","prompt":"calculate this locally and don't look anything up: 1234 * 5678","reasoning":["fast"],"knowledge":["internal"],"tool":["calculate"]}
+{"category":"human_weird","prompt":"why does it magically work after i reopen the app 😭","reasoning":["standard"],"knowledge":["internal"],"tool":["none"]}
+{"category":"human_weird","prompt":"this code was fine five minutes ago and now it's cursed, help","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"human_weird","prompt":"dont google it, just help me reason through why this loop freezes","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"human_weird","prompt":"i changed one tiny thing and now everything exploded 💀","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"human_weird","prompt":"can u tell me why this keeps duplicating stuff, im losing it","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"human_weird","prompt":"this worked yesterday, no web pls, what should i inspect first","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
+{"category":"human_weird","prompt":"why is my output different every run bro","reasoning":["standard"],"knowledge":["internal"],"tool":["none"]}
+{"category":"human_weird","prompt":"help me untangle this bug without searching anything","reasoning":["standard","deep"],"knowledge":["internal"],"tool":["none"]}
