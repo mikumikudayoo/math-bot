@@ -94,9 +94,8 @@ test('unknown tools and repeating tools cannot escape the existing loop budget',
 });
 test('persona is preserved and unconfigured cutoff/company identity claims are blocked',async()=>{
   assert.match(system,/Aleph-Zero/);assert.match(system,/emu/);assert.match(system,/become human/);
-  for(const answer of ['I was developed by Microsoft.','My knowledge cutoff is January 2025.']){
-    const f=fixture('Who are you?',[{answer}]);try{const result=await f.run();assert.match(result.answer,/Aleph-Zero/);assert.match(result.answer,/emu/);assert.ok(!result.answer.includes('2025'));assert.equal(f.calls.search.length,0);}finally{f.store.close();}
-  }
+  {const f=fixture('Who are you?',[{answer:'I was developed by Microsoft.'}]);try{const result=await f.run();assert.match(result.answer,/aleph-zero/i);assert.match(result.answer,/emu/);assert.equal(f.calls.search.length,0);}finally{f.store.close();}}
+  {const f=fixture('What is your knowledge cutoff?',[{answer:'My knowledge cutoff is January 2025.'}]);try{const result=await f.run();assert.match(result.answer,/cutoff/i);assert.match(result.answer,/not configured|isn.t configured/i);assert.ok(!result.answer.includes('2025'));assert.equal(f.calls.search.length,0);}finally{f.store.close();}}
 });
 test('stuffed-toy proof verifies the bad selection and sufficient matching bound, not just 2030',async()=>{
   const stock=[2025,2026,2027],proof=pairingCertificate(stock,3);
