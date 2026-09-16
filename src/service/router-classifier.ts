@@ -46,6 +46,9 @@ Important:
 - Requests for sources, fact-checking, exhaustive factual lists, or obscure factual attribution have high verificationNeed.
 - Difficult timeless proofs can have high reasoning while freshness and externalKnowledge remain low.
 
+For this classification task, do not reason step by step. Output the JSON object immediately.
+/no_think
+
 Calibration examples:
 
 "hello!"
@@ -112,7 +115,7 @@ export async function classifyPrompt(
         { role: 'system', content: ROUTER_SYSTEM },
         { role: 'user', content: prompt.slice(0, 4000) },
       ],
-      max_tokens: 160,
+      max_tokens: 300,
       temperature: 0,
     }),
   });
@@ -134,5 +137,12 @@ export async function classifyPrompt(
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/, '');
 
-  return parseRoutingSignals(JSON.parse(cleaned));
+  try {
+    return parseRoutingSignals(JSON.parse(cleaned));
+  } catch (error) {
+    throw new Error(
+      `router returned invalid JSON: ${JSON.stringify(content.slice(0, 1000))}`,
+      { cause: error },
+    );
+  }
 }
