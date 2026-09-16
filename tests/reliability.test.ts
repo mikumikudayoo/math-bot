@@ -6,6 +6,7 @@ import { maximumDifferentPairs,pairingCertificate,verifyPairingCertificate } fro
 import { Store } from '../src/service/store.js';
 import { statusText } from '../src/status.js';
 import type { ServiceConfig } from '../src/service/config.js';
+import { routePrompt } from '../src/service/route-prompt.js';
 
 const config:ServiceConfig={mode:'development',secret:'fixture-only-not-a-production-secret',port:8787,database:':memory:',concurrency:1,reserved:0,borrow:false,timeoutMs:10000,maxQueue:20,backend:'http://localhost:9999/v1',model:'fixture-only',backendKey:'',vision:false,nativeTools:false,python:'.venv/bin/python',searchKey:'fixture',sandbox:false,sandboxImage:'unused'};
 const pax='What is the Pax Silica situation in the Philippines?';
@@ -16,6 +17,12 @@ function fixture(prompt:string,answers:unknown[],options:{evidence?:string;searc
   const store=new Store(':memory:');const calls:{search:string[];requests:Record<string,unknown>[];statuses:string[];math:number}={search:[],requests:[],statuses:[],math:0};
   const text=options.evidence??'Pax Silica discussions concern the Philippines. This is a synthetic test source, not live reporting.';
   const io:InferenceDependencies={
+    // Exercise the real router with fixture sensor signals; no local sensor daemon is needed.
+    route:(prompt)=>routePrompt(prompt,{signals:async clauses=>clauses.map(clause=>{
+      const fact=/Pax Silica|Eternal Towers of Hell|Hatsune Miku/.test(clause);
+      const uncertain=/flibber/.test(clause);
+      return {reasoning:0,freshness:0,externalKnowledge:fact?1:uncertain?0.6:0,verificationNeed:fact?1:uncertain?0.6:0,ambiguity:0,calculation:0};
+    })}),
     search:async(_c,query)=>{calls.search.push(query);if(options.searchFail)throw new Error('offline');return options.empty?[]:[{title:'Test source',url:'https://example.com/source',description:text}];},
     fetchText:async()=>({url:'https://example.com/source',text}),
     mathTool:async()=>{calls.math++;return {answer:'5'};},

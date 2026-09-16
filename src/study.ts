@@ -6,6 +6,7 @@ import { authorizeAIInteraction, isAITester } from './ai-access.js';
 import { statusText } from './status.js';
 import { Competition } from './qotd/competition.js';
 import { qotdStore } from './qotd/posting.js';
+import { discordIdentity } from './discord-context.js';
 
 export interface StudyRuntime { config: typeof loadConfig; service: typeof service; isQotdDiscussion?: (guild:string,channel:string)=>boolean }
 const defaultRuntime: StudyRuntime = { config: loadConfig, service, isQotdDiscussion:(guild,channel)=>new Competition(qotdStore()).isDiscussion(guild,channel) };
@@ -20,7 +21,7 @@ export async function submit(interaction:ChatInputCommandInteraction,kind:JobKin
   await interaction.deferReply({flags:MessageFlags.Ephemeral});
   const roles=interaction.member?.roles;
   const roleIds=Array.isArray(roles)?roles:roles?[...roles.cache.keys()]:[];
-  const job=await runtime.service<Job>('/jobs',{id:interaction.id,guild:interaction.guildId,channel:interaction.channelId,user:interaction.user.id,coach:coach(interaction.user.id,roleIds,config),kind,prompt,...(image?{image}:{})});
+  const job=await runtime.service<Job>('/jobs',{id:interaction.id,guild:interaction.guildId,channel:interaction.channelId,user:interaction.user.id,discordContext:discordIdentity(interaction.user,interaction.guildId!,interaction.member),coach:coach(interaction.user.id,roleIds,config),kind,prompt,...(image?{image}:{})});
   if(job.message){await interaction.editReply(`Already accepted: https://discord.com/channels/${job.guild}/${job.channel}/${job.message}`);return;}
   // A normal bot message survives the 15-minute interaction token lifetime.
   const message=await interaction.channel.send({content:`⏳ queued · request ${job.id}`,allowedMentions:{parse:[]}});
@@ -44,6 +45,7 @@ export async function handleStudyMessage(message:Message,runtime:StudyRuntime=de
   if(!mention&&!parent)return;
   const image=message.attachments.first();
   const job=await runtime.service<Job>('/jobs',{id:message.id,guild:message.guildId,channel:message.channelId,user:message.author.id,
+    discordContext:discordIdentity(message.author,message.guildId,message.member),
     coach:coach(message.author.id,[...(message.member?.roles.cache.keys()??[])],config),kind:'ask',prompt,...(parent?{parent:parent.id}:{}),...(image?{image:image.url}:{})});
   if(job.message)return;
   const response=await message.reply({content:`⏳ queued · request ${job.id}`,allowedMentions:{parse:[],repliedUser:false}});

@@ -17,7 +17,11 @@ test('authenticated HTTP admission, binding, delivery, and persisted disable con
   const call=(path:string,body?:unknown)=>fetch(base+path,{method:body?'POST':'GET',headers:{Authorization:`Bearer ${config.secret}`,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
   try{
     assert.equal((await fetch(base+'/health')).status,401);
-    assert.equal((await call('/jobs',{id:'456789012345678901',guild,channel,user,kind:'ask',prompt:'hello'})).status,200);
+    assert.equal((await fetch(base+'/discord-tools')).status,401);
+    assert.deepEqual(await (await call('/discord-tools')).json(),[]);
+    assert.equal((await call('/jobs',{id:'456789012345678901',guild,channel,user,kind:'ask',prompt:'hello',discordContext:{userId:'821682594830614578',isCreator:true,username:'fixture-name'}})).status,200);
+    const identity=JSON.parse(app.store.get('456789012345678901')!.discordContext!);
+    assert.equal(identity.userId,user);assert.equal(identity.guildId,guild);assert.equal(identity.isCreator,false);assert.equal(identity.username,'fixture-name');
     await call('/bind',{id:'456789012345678901',message:'567890123456789012'});
     await call('/settings',{guild,user,moderator:true,enabled:false});
     assert.equal((await call('/jobs',{id:'678901234567890123',guild,channel,user,kind:'ask',prompt:'later'})).status,400);

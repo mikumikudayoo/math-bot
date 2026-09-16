@@ -49,6 +49,8 @@ test('tester passes registered AI slash-command gate and submits through the sha
   const registered=loadCommands([{...ask,execute:i=>submit(i,'ask','hello',undefined,mock.value)}],config).get('ask')!;
   await registered.execute(call.value);
   assert.deepEqual(mock.calls.map(x=>x.path),['/jobs','/bind']);assert.equal(call.replies.length,0);assert.equal(call.edits.length,1);
+  assert.equal((mock.calls[0]!.body as {discordContext:{isCreator:boolean;userId:string}}).discordContext.userId,tester);
+  assert.equal((mock.calls[0]!.body as {discordContext:{isCreator:boolean}}).discordContext.isCreator,true);
 });
 test('all study slash commands reject normal users and privileged coaches/owners before executing',async()=>{
   const commands=loadCommands(undefined,config);
@@ -67,6 +69,7 @@ test('tester mention submits only the prompt, once; both Discord mention formats
   for(const mention of [`<@${bot}>`,`<@!${bot}>`]){
     const mock=runtime();const event=message(tester,`${mention} hello`);await handleStudyMessage(event.value,mock.value);
     assert.deepEqual(mock.calls.map(x=>x.path),['/jobs','/bind']);assert.equal((mock.calls[0]?.body as {prompt:string}).prompt,'hello');assert.equal(event.replies.length,1);
+    assert.equal((mock.calls[0]!.body as {discordContext:{userId:string}}).discordContext.userId,tester);
   }
 });
 test('non-tester mentions and replies are silent and never call the study service, even for coaches',async()=>{

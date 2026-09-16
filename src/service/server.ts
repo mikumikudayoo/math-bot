@@ -7,6 +7,8 @@ import { serviceConfig, type ServiceConfig } from './config.js';
 import { Store } from './store.js';
 import { Scheduler, type Runner } from './scheduler.js';
 import { runner } from './inference.js';
+import { DiscordBroker } from './discord-broker.js';
+import { currentUser } from '../discord-context.js';
 import { UserError, type Submission, type JobKind } from './types.js';
 
 function text(value:unknown,name:string,max=100):string {
@@ -16,13 +18,15 @@ function id(value:unknown,name:string){const s=text(value,name);if(!/^\d{17,20}$
 export function createService(config:ServiceConfig, injected?:Runner) {
   mkdirSync(dirname(config.database),{recursive:true});
   const store=new Store(config.database);
-  const scheduler=new Scheduler(store,config,injected??runner(config,store));
+  const discord=new DiscordBroker();
+  const scheduler=new Scheduler(store,config,injected??runner(config,store,{discord:(job,tool,args,signal)=>discord.request(job,tool,args,signal)}));
   const server=createServer(async(req,res)=>{
     const send=(code:number,body:unknown)=>{res.writeHead(code,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(body));};
     const provided=Buffer.from(req.headers.authorization??'');const expected=Buffer.from(`Bearer ${config.secret}`);
     if(provided.length!==expected.length||!timingSafeEqual(provided,expected)){send(401,{error:'Unauthorized'});return;}
     try{
       const url=new URL(req.url??'/','http://localhost');
+      if(req.method==='GET'&&url.pathname==='/discord-tools'){send(200,discord.take());return;}
       if(req.method==='GET'&&url.pathname==='/health'){send(200,{ok:true,modelConfigured:!!(config.backend&&config.model),vision:config.vision,sandbox:config.sandbox});return;}
       if(req.method==='GET'&&url.pathname==='/pending'){
         const order=store.queued().map(x=>x.id);
@@ -44,6 +48,7 @@ export function createService(config:ServiceConfig, injected?:Runner) {
       const chunks:Buffer[]=[];let bytes=0;for await(const chunk of req){bytes+=chunk.length;if(bytes>20000)throw new UserError('Request too large.');chunks.push(chunk);}
       const body=JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string,unknown>;
       switch(url.pathname){
+        case '/discord-tools':send(200,{ok:discord.finish(text(body.id,'id'),body.result)});break;
         case '/jobs':{
           const kind=text(body.kind,'kind') as JobKind;
           if(!['ask','calculate','plot','python'].includes(kind))throw new UserError('Unknown request kind.');
@@ -52,6 +57,7 @@ export function createService(config:ServiceConfig, injected?:Runner) {
           const input:Submission={id:id(body.id,'id'),guild:id(body.guild,'guild'),channel:id(body.channel,'channel'),user:id(body.user,'user'),
             coach:body.coach===true,kind,prompt:text(body.prompt,'prompt',8000),
             ...(body.parent?{parent:id(body.parent,'parent')}:{}),...(body.image?{image:text(body.image,'image',2000)}:{})};
+          input.discordContext=JSON.stringify(currentUser(input.user,input.guild,body.discordContext));
           const job=store.admit(input,config.maxQueue);scheduler.tick();send(200,job);break;
         }
         case '/bind':store.bind(id(body.id,'id'),id(body.message,'message'));send(200,{ok:true});break;
@@ -80,7 +86,7 @@ export function createService(config:ServiceConfig, injected?:Runner) {
   });
   server.requestTimeout=15000;server.headersTimeout=10000;
   server.once('listening',()=>{store.recover();scheduler.tick();});
-  return {server,store,scheduler,async close(){scheduler.stop();await new Promise<void>(resolve=>server.close(()=>resolve()));while(scheduler.active.size)await new Promise(r=>setTimeout(r,20));store.close();}};
+  return {server,store,scheduler,async close(){scheduler.stop();discord.close();await new Promise<void>(resolve=>server.close(()=>resolve()));while(scheduler.active.size)await new Promise(r=>setTimeout(r,20));store.close();}};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{

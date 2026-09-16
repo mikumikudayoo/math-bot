@@ -16,6 +16,7 @@ export class Store {
       CREATE INDEX IF NOT EXISTS job_message ON jobs(guild, channel, message);
       CREATE TABLE IF NOT EXISTS rules(id INTEGER PRIMARY KEY, guild TEXT NOT NULL, term TEXT NOT NULL, action TEXT NOT NULL, UNIQUE(guild, term));
       CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, guild TEXT NOT NULL, actor TEXT NOT NULL, event TEXT NOT NULL, created INTEGER NOT NULL);`);
+    if(!this.db.prepare('PRAGMA table_info(jobs)').all().some(row=>row.name==='discordContext'))this.db.exec("ALTER TABLE jobs ADD COLUMN discordContext TEXT NOT NULL DEFAULT '{}'");
   }
   get(id: string): Job | undefined { return this.db.prepare('SELECT * FROM jobs WHERE id=?').get(id) as unknown as Job | undefined; }
   enabled(guild: string) { return (this.db.prepare('SELECT enabled FROM settings WHERE guild=?').get(guild)?.enabled ?? 1) === 1; }
@@ -49,6 +50,7 @@ export class Store {
       }
       this.db.prepare(`INSERT INTO jobs(id,guild,channel,user,coach,kind,prompt,parent,image,state,status,created)
         VALUES(?,?,?,?,?,?,?,?,?,'queued','queued',?)`).run(input.id,input.guild,input.channel,input.user,+input.coach,input.kind,input.prompt,input.parent ?? null,input.image ?? null,Date.now());
+      this.db.prepare('UPDATE jobs SET discordContext=? WHERE id=?').run(input.discordContext??'{}',input.id);
       this.db.exec('COMMIT'); return this.get(input.id)!;
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
