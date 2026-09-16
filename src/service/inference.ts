@@ -6,6 +6,7 @@ import { mathTool, sandboxPython, search, fetchText, subprocess } from './tools.
 import { resolve } from 'node:path';
 import { retrievalPolicy, establishesEntities, expressesUncertainty, groundedAnswer, UNVERIFIED, type Evidence } from './retrieval-policy.js';
 import { solvePairingPrompt } from './pairing.js';
+import { routePrompt } from './route-prompt.js';
 
 export const system = `You are Aleph-Zero, the study assistant for the Mathematikaws Discord server.
 
@@ -65,7 +66,12 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
     // Short factual follow-ups inherit the original subject; history never supplies evidence.
     const contextPrompt=history.length&&/\b(it|they|them|those|that|more|else|now|there)\b/i.test(job.prompt)
       ? `${history.at(-1)!.prompt}\nFollow-up: ${job.prompt}` :job.prompt;
-    let policy=retrievalPolicy(contextPrompt);
+    const route = await routePrompt(contextPrompt);
+    let policy = {
+      ...retrievalPolicy(contextPrompt),
+      required: route.knowledge === 'web_required',
+    };
+    const webAllowed = route.knowledge !== 'internal';
     let toolCalls=0,searchCalls=0,retrievalSucceeded=false;
     let artifact:string|undefined;
     const evidence:Evidence[]=[];
@@ -126,7 +132,11 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
       signal.throwIfAborted();status(evidence.length?'preparing answer':'thinking');
       const response=await io.complete(`${config.backend}/chat/completions`,{method:'POST',signal,redirect:'error',
         headers:{'Content-Type':'application/json',...(config.backendKey?{Authorization:`Bearer ${config.backendKey}`}:{})},
-        body:JSON.stringify({model:config.model,messages,...(config.nativeTools?{tools:tools.filter(t=>t.function.name!=='search'||!!config.searchKey),tool_choice:'auto'}:{}),max_tokens:768,temperature:0.2})});
+        body:JSON.stringify({model:config.model,messages,...(config.nativeTools?{tools:tools.filter(t=>{
+          if((t.function.name==='search'||t.function.name==='fetch')&&!webAllowed)return false;
+          if(t.function.name==='search'&&!config.searchKey)return false;
+          return true;
+        }),tool_choice:'auto'}:{}),max_tokens:768,temperature:0.2})});
       if(!response.ok)throw new UserError(`Inference backend returned HTTP ${response.status}. Ask a moderator to check its configuration.`);
       const reader=response.body?.getReader();if(!reader)throw new UserError('Empty inference response.');
       let raw='';let bytes=0;const decoder=new TextDecoder();
@@ -151,7 +161,7 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
         const answer=typeof envelope?.answer==='string'?envelope.answer.trim():content;
         if(!answer)throw new UserError('Inference backend returned an empty answer.');
         const uncertainty=expressesUncertainty(answer)&&!/^(hi|hello|thanks|thank you)\b/i.test(job.prompt)&&!/[+*/=]|\b(solve|calculate|equation|prove|proof)\b/i.test(job.prompt);
-        if(uncertainty||/https?:\/\/|www\./i.test(answer)){
+        if(webAllowed&&(uncertainty||/https?:\/\/|www\./i.test(answer))){
           policy={...policy,required:true,reason:'model uncertainty or attempted citation'};
           if(!await retrieve()){status('preparing answer');return {answer:UNVERIFIED};}continue;
         }
@@ -177,6 +187,12 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
         try{
           if(typeof call.function?.arguments!=='string'||call.function.arguments.length>8000)throw new UserError('Invalid tool arguments.');
           const args=JSON.parse(call.function.arguments) as Record<string,unknown>;
+          if(
+            !webAllowed &&
+            (call.function.name === 'search' || call.function.name === 'fetch')
+          ) {
+            throw new UserError('Web access is disabled for this request.');
+          }
           switch(call.function.name){
             case 'calculate':case 'plot':{
               status(call.function.name==='plot'?'plotting':'calculating');

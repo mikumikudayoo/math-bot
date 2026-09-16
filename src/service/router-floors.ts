@@ -2,7 +2,7 @@ import type { RouteDecision } from './router.js';
 
 export interface RoutingFloors {
   reasoning?: 'standard' | 'deep';
-  knowledge?: 'web_required';
+  knowledge?: 'web_if_uncertain' | 'web_required';
   reasons: string[];
 }
 
@@ -10,6 +10,11 @@ const reasoningRank = {
   fast: 0,
   standard: 1,
   deep: 2,
+} as const;
+const knowledgeRank = {
+  internal: 0,
+  web_if_uncertain: 1,
+  web_required: 2,
 } as const;
 
 export function routingFloors(prompt: string): RoutingFloors {
@@ -28,6 +33,15 @@ export function routingFloors(prompt: string): RoutingFloors {
   if (substantialReasoning) {
     reasoning = 'standard';
     reasons.push('explicit substantial-reasoning request');
+  }
+
+  // Existence claims about an unfamiliar subject may need external verification.
+  const uncertainExistence =
+    /\b(?:does|do)\s+.+?\s+exist(?:s)?\b/i.test(p) ||
+    /\bis\s+there\s+(?:such\s+)?(?:a|an)\s+.+\b/i.test(p);
+  if (uncertainExistence) {
+    knowledge = 'web_if_uncertain';
+    reasons.push('uncertain existence claim');
   }
 
   // Queries whose answer inherently depends on current external state.
@@ -61,9 +75,16 @@ export function applyRoutingFloors(
     reasoning = floors.reasoning;
   }
 
+  let knowledge = decision.knowledge;
+  if (
+    floors.knowledge &&
+    knowledgeRank[knowledge] < knowledgeRank[floors.knowledge]
+  ) {
+    knowledge = floors.knowledge;
+  }
   return {
     ...decision,
     reasoning,
-    ...(floors.knowledge ? { knowledge: floors.knowledge } : {}),
+    knowledge,
   };
 }
