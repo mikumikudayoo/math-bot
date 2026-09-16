@@ -17,3 +17,4 @@ solmans/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+.venv-router/
