@@ -1,59 +1,85 @@
 import { describe, expect, test } from 'bun:test';
-import { fastSignals } from '../src/service/fast-router.js';
-import { fuzzyRoute } from '../src/service/router.js';
 
-describe('fast routing sensors', () => {
-  test('simple arithmetic bypasses AI routing', () => {
-    const result = fastSignals('3 * 8');
-    expect(result.confident).toBe(true);
-    expect(fuzzyRoute(result.signals!).tool).toBe('calculate');
-  });
+import { fastRoute } from '../src/service/fast-router.js';
 
-  test('current weather requires web', () => {
-    const result = fastSignals('what is the current weather in Manila?');
-    expect(result.confident).toBe(true);
-    expect(fuzzyRoute(result.signals!).knowledge).toBe('web_required');
-  });
+describe('fastRoute', () => {
+  test('raw arithmetic can bypass semantic routing', () => {
+    const result = fastRoute('37 * 14');
 
-  test('explicit search requires web', () => {
-    const result = fastSignals('look up Hatsune Miku');
-    expect(result.confident).toBe(true);
-    expect(fuzzyRoute(result.signals!).knowledge).toBe('web_required');
-  });
+    expect(result.kind).toBe('final');
 
-  test('assistant identity stays internal', () => {
-    for (const prompt of [
-      'who are you',
-      'what is your dream',
-      'tell me about yourself',
-    ]) {
-      const result = fastSignals(prompt);
-      expect(result.confident).toBe(true);
-      expect(fuzzyRoute(result.signals!).knowledge).toBe('internal');
+    if (result.kind === 'final') {
+      expect(result.decision).toMatchObject({
+        reasoning: 'fast',
+        knowledge: 'internal',
+        tool: 'calculate',
+      });
     }
   });
 
-  test('proper nouns alone do not trigger a confident route', () => {
-    expect(
-      fastSignals("HELLO! I'm Emu Otori! Emu means SMILE!!").confident
-    ).toBe(false);
+  test('explicit search forces only web knowledge', () => {
+    const result = fastRoute(
+      'search for a proof that infinitely many primes exist',
+    );
+
+    expect(result).toEqual({
+      kind: 'override',
+      reason: 'explicit web request',
+      overrides: {
+        knowledge: 'web_required',
+      },
+    });
   });
 
-  test('ambiguous factual requests defer to semantic classifier', () => {
-    expect(
-      fastSignals("Who provides Hatsune Miku's voice?").confident
-    ).toBe(false);
+  test('verification forces only web knowledge', () => {
+    const result = fastRoute(
+      'verify whether this theorem is correctly stated and explain its proof',
+    );
 
-    expect(
-      fastSignals(
-        'Describe all Eternal Towers of Hell difficulties, including noncanon ones.'
-      ).confident
-    ).toBe(false);
+    expect(result.kind).toBe('override');
+
+    if (result.kind === 'override') {
+      expect(result.overrides.knowledge).toBe('web_required');
+    }
   });
 
-  test('math wording is not guessed from isolated keywords', () => {
+  test('latest alone is not treated as guaranteed freshness', () => {
     expect(
-      fastSignals('Solve all integer solutions of x + 2 = 3.').confident
-    ).toBe(false);
+      fastRoute('what does latest mean in this sentence?').kind,
+    ).toBe('semantic');
+  });
+
+  test('weather queries defer to semantic routing', () => {
+    expect(
+      fastRoute("what's the weather tomorrow in Quezon City?").kind,
+    ).toBe('semantic');
+  });
+
+  test('assistant identity can bypass semantic routing', () => {
+    const result = fastRoute('who are you');
+
+    expect(result.kind).toBe('final');
+
+    if (result.kind === 'final') {
+      expect(result.decision.knowledge).toBe('internal');
+    }
+  });
+
+  test('simple conversation can bypass semantic routing', () => {
+    expect(fastRoute('hello!').kind).toBe('final');
+  });
+
+  test('proper nouns alone do not trigger a shortcut', () => {
+    expect(
+      fastRoute("Who provides Hatsune Miku's voice?").kind,
+    ).toBe('semantic');
+  });
+
+  test('mixed reasoning and current wording stays semantic', () => {
+    expect(
+      fastRoute(
+        'explain what current means in an electrical circuit',
+      ).kind,
+    ).toBe('semantic');
   });
 });

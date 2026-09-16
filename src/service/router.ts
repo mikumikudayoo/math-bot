@@ -28,6 +28,13 @@ function high(x: number, start = 0.55, full = 0.85) {
   return (x - start) / (full - start);
 }
 
+function elevated(x: number, start = 0.4, full = 0.8) {
+  x = clamp(x);
+  if (x <= start) return 0;
+  if (x >= full) return 1;
+  return (x - start) / (full - start);
+}
+
 function medium(x: number) {
   x = clamp(x);
   return Math.max(0, 1 - Math.abs(x - 0.5) / 0.35);
@@ -46,12 +53,15 @@ export function fuzzyRoute(raw: RoutingSignals): RouteDecision {
   // Fuzzy rule aggregation. Multiple rules may fire simultaneously.
   const web = Math.max(
     high(s.freshness),
-    Math.min(high(s.externalKnowledge), high(s.verificationNeed)),
+    Math.min(
+      elevated(s.externalKnowledge),
+      elevated(s.verificationNeed),
+    ),
     Math.min(high(s.externalKnowledge), high(s.ambiguity)),
   );
 
   const online = Math.max(
-    high(s.reasoning),
+    high(s.reasoning, 0.45, 0.80),
     Math.min(medium(s.reasoning), high(s.ambiguity)),
   );
 
@@ -67,7 +77,7 @@ export function fuzzyRoute(raw: RoutingSignals): RouteDecision {
       'fast',
 
     knowledge:
-      web >= 0.65 ? 'web_required' :
+      web >= 0.6 ? 'web_required' :
       web >= 0.25 ? 'web_if_uncertain' :
       'internal',
 
