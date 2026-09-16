@@ -41,7 +41,7 @@ test('required retrieval failure, empty results and entity mismatch refuse witho
   }
 });
 test('a failed voluntary search cannot fall back to a guessed final answer',async()=>{
-  const f=fixture('hello',[{tool:'search',arguments:{query:'example'}},{answer:'invented fact'}],{searchFail:true});
+  const f=fixture('does flibber exist?',[{tool:'search',arguments:{query:'flibber'}},{answer:'invented fact'}],{searchFail:true});
   try{assert.equal((await f.run()).answer,UNVERIFIED);assert.ok(f.calls.search.length<=2);}finally{f.store.close();}
 });
 test('math vocabulary cannot exempt current factual questions from retrieval',()=>{
