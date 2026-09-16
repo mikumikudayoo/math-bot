@@ -164,4 +164,28 @@ describe('routePrompt', () => {
     expect(decision.knowledge).toBe('internal');
   });
 
+
+  test('full prompt semantics survive clause splitting', async () => {
+    const prompt =
+      "this code was fine five minutes ago and now it's cursed, help";
+
+    let seen: string[] = [];
+
+    const decision = await routePrompt(prompt, {
+      signals: async (inputs) => {
+        seen = inputs;
+
+        return inputs.map((input) =>
+          input === prompt
+            ? signals({ reasoning: 0.9 })
+            : signals({ reasoning: 0.1 }),
+        );
+      },
+    });
+
+    expect(seen[0]).toBe(prompt);
+    expect(seen.length).toBeGreaterThan(1);
+    expect(decision.reasoning).toBe('deep');
+  });
+
 });

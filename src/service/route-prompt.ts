@@ -50,10 +50,15 @@ export async function routePrompt(
     throw new Error('Cannot route an empty prompt.');
   }
 
-  const getSignals = dependencies.signals ?? routerSignals;
-  const clauseSignals = await getSignals(clauses);
+  const semanticInputs = [
+    prompt,
+    ...clauses.filter((clause) => clause !== prompt),
+  ];
 
-  if (clauseSignals.length !== clauses.length) {
+  const getSignals = dependencies.signals ?? routerSignals;
+  const clauseSignals = await getSignals(semanticInputs);
+
+  if (clauseSignals.length !== semanticInputs.length) {
     throw new Error(
       'Router sensor returned the wrong number of signal sets.',
     );
