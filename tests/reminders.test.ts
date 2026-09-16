@@ -89,6 +89,7 @@ test('all reminder actions reject normal users before accessing storage; moderat
   }
   const s=new ReminderStore(':memory:');let result='';
   try{const command=makeReminderCommand(()=>s);await command.execute({inGuild:()=>true,guildId:guild,memberPermissions:{has:(p:bigint)=>p===PermissionFlagsBits.ManageGuild},options:{getSubcommand:()=> 'list'},deferReply:async()=>{},editReply:async(p:{content:string})=>{result=p.content;}} as unknown as ChatInputCommandInteraction);assert.equal(result,'no reminders yet.');
+    s.create(input,actor,now);await command.execute({inGuild:()=>true,guildId:guild,memberPermissions:{has:(p:bigint)=>p===PermissionFlagsBits.ManageGuild},options:{getSubcommand:()=> "list"},deferReply:async()=>{},editReply:async(p:{content:string})=>{result=p.content;}} as unknown as ChatInputCommandInteraction);assert.ok(result.includes(input.details));assert.ok(result.includes(`<#${input.channel}>`));
     assert.equal(loadCommands().get('reminder')!.access,undefined);assert.equal(command.data.toJSON().default_member_permissions,PermissionFlagsBits.ManageGuild.toString());
   }finally{s.close();}
 });

@@ -32,7 +32,7 @@ export function makeReminderCommand(getStore:()=>ReminderStore=()=>reminderStore
         const store=getStore(),guild=i.guildId!,action=i.options.getSubcommand();
         if(action==='list'){
           const rows=store.list(guild);
-          const text=rows.map(r=>`${r.id} · ${r.template} · ${r.state} · <t:${Math.floor(r.due/1000)}:R>`).join('\n');
+          const text=rows.map(r=>`${r.template} · ${r.state} · <t:${Math.floor(r.due/1000)}:R>\n${r.details}\n<#${r.channel}>\nID: ${r.id}`).join('\n\n');
           if(text.length>1900)await i.editReply({content:'reminders (first 50):',files:[{attachment:Buffer.from(text),name:'reminders.txt'}],allowedMentions:{parse:[]}});
           else await reply(text||'no reminders yet.');return;
         }
