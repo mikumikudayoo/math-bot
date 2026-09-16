@@ -66,7 +66,7 @@ export function fuzzyRoute(raw: RoutingSignals): RouteDecision {
   );
 
   const calculate = Math.min(
-    high(s.calculation, 0.6, 0.9),
+    high(s.calculation, 0.5, 0.85),
     1 - high(s.reasoning),
   );
 

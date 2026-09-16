@@ -83,3 +83,53 @@ describe('fastRoute', () => {
     ).toBe('semantic');
   });
 });
+
+describe('explicit routing constraints', () => {
+  test('do not search forces internal knowledge', () => {
+    const result = fastRoute(
+      "i swear this worked yesterday but don't search, just look at the code i sent",
+    );
+
+    expect(result.kind).toBe('override');
+
+    if (result.kind === 'override') {
+      expect(result.overrides.knowledge).toBe('internal');
+    }
+  });
+
+  test('without looking it up forces internal knowledge', () => {
+    const result = fastRoute(
+      "prove this without looking it up",
+    );
+
+    expect(result.kind).toBe('override');
+
+    if (result.kind === 'override') {
+      expect(result.overrides.knowledge).toBe('internal');
+    }
+  });
+
+  test('explicit positive search still requires web', () => {
+    const result = fastRoute(
+      "search for this theorem and explain the proof",
+    );
+
+    expect(result.kind).toBe('override');
+
+    if (result.kind === 'override') {
+      expect(result.overrides.knowledge).toBe('web_required');
+    }
+  });
+
+  test('negative web instruction wins even when search word appears', () => {
+    const result = fastRoute(
+      "don't search online, explain it yourself",
+    );
+
+    expect(result.kind).toBe('override');
+
+    if (result.kind === 'override') {
+      expect(result.overrides.knowledge).toBe('internal');
+    }
+  });
+});

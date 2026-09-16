@@ -1,7 +1,12 @@
 import type { RouteDecision } from './router.js';
+import {
+  routingConstraints,
+  type RoutingConstraints,
+} from './router-constraints.js';
 
 export interface RouteOverrides {
   knowledge?: RouteDecision['knowledge'];
+  tool?: RouteDecision['tool'];
 }
 
 export type FastRouteResult =
@@ -32,24 +37,45 @@ const finalRoute = (
   scores,
 });
 
+function constraintOverride(
+  constraints: RoutingConstraints,
+): FastRouteResult | undefined {
+  if (!constraints.knowledge && !constraints.tool) {
+    return undefined;
+  }
+
+  const overrides: RouteOverrides = {};
+
+  if (constraints.knowledge) {
+    overrides.knowledge = constraints.knowledge;
+  }
+
+  if (constraints.tool) {
+    overrides.tool = constraints.tool;
+  }
+
+  return {
+    kind: 'override',
+    reason:
+      constraints.reasons.join(', ') ||
+      'deterministic routing constraint',
+    overrides,
+  };
+}
+
 export function fastRoute(prompt: string): FastRouteResult {
   const p = prompt.trim();
 
-  // Explicit requests for external verification/search are guarantees.
-  // They force only the knowledge dimension; reasoning is still semantic.
-  if (
-    /\b(search(?: the web)?|look up|lookup|fact[- ]?check|verify|sources?|citations?|find (?:a |reliable )?source)\b/i.test(p)
-  ) {
-    return {
-      kind: 'override',
-      reason: 'explicit web request',
-      overrides: {
-        knowledge: 'web_required',
-      },
-    };
+  // User instructions and deterministic policy constraints come first.
+  const constrained = constraintOverride(
+    routingConstraints(p),
+  );
+
+  if (constrained) {
+    return constrained;
   }
 
-  // Extremely obvious raw calculations can skip semantic classification.
+  // Pure raw arithmetic can finish immediately.
   if (/^[\d\s()+*/.^%=-]+$/.test(p)) {
     return {
       kind: 'final',
@@ -67,7 +93,7 @@ export function fastRoute(prompt: string): FastRouteResult {
     };
   }
 
-  // Internal assistant identity is deterministic.
+  // Internal assistant identity.
   if (
     /^(?:who are you|what are you|what(?:'s| is) your (?:name|dream)|who (?:made|created) you|tell me about yourself)[?.!]*$/i.test(p)
   ) {
@@ -87,7 +113,7 @@ export function fastRoute(prompt: string): FastRouteResult {
     };
   }
 
-  // Very simple conversation can skip the classifier.
+  // Extremely simple conversation.
   if (
     /^(?:hi|hello|hey|thanks|thank you|good morning|good afternoon|good evening|good night)[!?. ]*$/i.test(p)
   ) {
