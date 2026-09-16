@@ -16,13 +16,13 @@ export function namedEntities(prompt: string): string[] {
 }
 export function retrievalPolicy(prompt:string):RetrievalPolicy {
   const exhaustive=/\b(all|every|complete list|exhaustive|including non[- ]?canon|non[- ]?canonical)\b/i.test(prompt);
-  const math=/\b(solve|calculate|equation|integer|polynomial|prove|proof|pairs|pigeonhole|stuffed toys|differentiate|integrate|sum|product|difference|quotient|plus|minus|times|multiplied|divided)\b/i.test(prompt);
+  const math=/\b(solve|calculate|equation|integer|polynomial|prove|proof|pairs|pigeonhole|stuffed toys|differentiate|integrate)\b/i.test(prompt);
   const explicit=/\b(search|look up|verify|sources?|citations?|fact[- ]?check)\b/i.test(prompt);
   const current=/\b(latest|today|currently|current|recent|news|situation|now|this (?:week|month|year)|price|weather|schedule|election|president|CEO)\b/i.test(prompt);
   const factual=/\b(who|when|where|which|voice|creator|founded|released|statistics|population|difficulties|lore|noncanon|location)\b/i.test(prompt)||/^(?:what (?:is|are)|tell me about|describe|list)\b/i.test(prompt);
   const entities=namedEntities(prompt);
   const safe=timeless.test(prompt.trim());
-  const required=explicit||current||(!math&&(exhaustive||(!safe&&factual)));
+  const required=explicit||(!safe&&(current||(!math&&(exhaustive||factual||entities.length>0))));
   const protectedNames=entities;
   // Include exact quoted names first so query truncation never loses them.
   const exact=protectedNames.map(name=>`"${name.replace(/"/g,'')}"`).join(' ');

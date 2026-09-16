@@ -56,10 +56,7 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
     const pairing=solvePairingPrompt(job.prompt);
     if(pairing){status('calculating');status('preparing answer');return {answer:pairing};}
     if(!config.backend||!config.model)throw new UserError('No inference backend is configured yet. Calculator and plotting work independently of a model.');
-    const messages:Message[]=[{
-      role:'system',
-      content:system+(config.nativeTools?'':'\n\n'+JSON_PROTOCOL)
-    }];
+    const messages:Message[]=[{role:'system',content:system+'\n\n'+GROUNDING_PROTOCOL+(config.nativeTools?'':'\n\n'+JSON_PROTOCOL)}];
     const history=store.history(job);
     for(const row of history)messages.push({role:'user',content:row.prompt.slice(0,2000)},{role:'assistant',content:row.answer.slice(0,3000)});
     // Short factual follow-ups inherit the original subject; history never supplies evidence.
@@ -83,7 +80,7 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
     };
     let evidenceMessage:Message|undefined;
     const publishEvidence=()=>{
-      const content=GROUNDING_PROTOCOL+'\n\n'+JSON.stringify({type:'RETRIEVED_EVIDENCE',originalQuestion:job.prompt,exactEntities:policy.entities,exhaustive:policy.exhaustive,sources:evidence});
+      const content=JSON.stringify({type:'RETRIEVED_EVIDENCE',originalQuestion:job.prompt,exactEntities:policy.entities,exhaustive:policy.exhaustive,sources:evidence});
       if(evidenceMessage)evidenceMessage.content=content;
       else{evidenceMessage={role:'user',content};messages.push(evidenceMessage);}
     };
@@ -158,16 +155,7 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
         if(/(?:my|a) (?:training |knowledge )?cutoff|I (?:was|am) (?:created|developed|made) by (?:Microsoft|OpenAI|Anthropic|Google)/i.test(answer)){
           status('preparing answer');return {answer:"I'm Aleph-Zero, created by Emu Otori. My model's knowledge-cutoff date is not configured."};
         }
-        if(envelope&&typeof envelope.answer!=='string'){
-  console.warn('Unsupported model response envelope', {
-    round,
-    keys:Object.keys(envelope),
-    answerType:typeof envelope.answer,
-    toolType:typeof envelope.tool,
-    contentLength:content.length,
-  });
-  throw new UserError('The model returned an unsupported response format.');
-}
+        if(envelope&&typeof envelope.answer!=='string')throw new UserError('The model returned an unsupported response format.');
         status('preparing answer');return {answer:answer.slice(0,20000),...(artifact?{artifact}:{})};
       }
       if(calls.length>4)throw new UserError('The model requested too many tools at once.');
