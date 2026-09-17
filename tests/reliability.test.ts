@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runner,system,type InferenceDependencies } from '../src/service/inference.js';
-import { retrievalPolicy,groundedAnswer,UNVERIFIED } from '../src/service/retrieval-policy.js';
+import { retrievalPolicy,groundedAnswer,UNVERIFIED_REPLIES } from '../src/service/retrieval-policy.js';
 import { maximumDifferentPairs,pairingCertificate,verifyPairingCertificate } from '../src/service/pairing.js';
 import { Store } from '../src/service/store.js';
 import { statusText } from '../src/status.js';
@@ -39,24 +39,24 @@ test('routing requires exact Pax Silica, niche exhaustive towers, and voice-prov
 });
 test('Pax cannot become Paxil/paroxetine; required search executes before a model final is possible',async()=>{
   const f=fixture(pax,['Paxil is paroxetine.','Paxil is paroxetine.']);
-  try{assert.equal((await f.run()).answer,UNVERIFIED);assert.equal(f.calls.search.length,1);assert.ok(f.calls.search[0]!.includes('"Pax Silica"'));assert.equal(f.calls.requests.length,2);assert.equal(f.calls.statuses[0],'searching');}
+  try{assert.ok(UNVERIFIED_REPLIES.includes((await f.run()).answer));assert.equal(f.calls.search.length,1);assert.ok(f.calls.search[0]!.includes('"Pax Silica"'));assert.equal(f.calls.requests.length,2);assert.equal(f.calls.statuses[0],'searching');}
   finally{f.store.close();}
 });
 test('required retrieval failure, empty results and entity mismatch refuse without invoking the model',async()=>{
   for(const options of [{searchFail:true},{empty:true},{evidence:'Paxil is a medicine also called paroxetine, available in many countries.'}]){
-    const f=fixture(pax,['Fabricated answer'],options);try{assert.equal((await f.run()).answer,UNVERIFIED);assert.equal(f.calls.requests.length,0);}finally{f.store.close();}
+    const f=fixture(pax,['Fabricated answer'],options);try{assert.ok(UNVERIFIED_REPLIES.includes((await f.run()).answer));assert.equal(f.calls.requests.length,0);}finally{f.store.close();}
   }
 });
 test('a failed voluntary search cannot fall back to a guessed final answer',async()=>{
   const f=fixture('does flibber exist?',[{tool:'search',arguments:{query:'flibber'}},{answer:'invented fact'}],{searchFail:true});
-  try{assert.equal((await f.run()).answer,UNVERIFIED);assert.ok(f.calls.search.length<=2);}finally{f.store.close();}
+  try{assert.ok(UNVERIFIED_REPLIES.includes((await f.run()).answer));assert.ok(f.calls.search.length<=2);}finally{f.store.close();}
 });
 test('math vocabulary cannot exempt current factual questions from retrieval',()=>{
   assert.ok(retrievalPolicy('Calculate the current price of gold in Manila.').required);
 });
 test('niche exhaustive request cannot invent game lore when search is unavailable',async()=>{
   const f=fixture(towers,['Eternal Tower Legends has invented difficulties.'],{searchFail:true});
-  try{assert.equal((await f.run()).answer,UNVERIFIED);assert.equal(f.calls.requests.length,0);assert.ok(f.calls.search[0]!.includes('"Eternal Towers of Hell"'));}finally{f.store.close();}
+  try{assert.ok(UNVERIFIED_REPLIES.includes((await f.run()).answer));assert.equal(f.calls.requests.length,0);assert.ok(f.calls.search[0]!.includes('"Eternal Towers of Hell"'));}finally{f.store.close();}
 });
 test('grounded response uses exact source text and host URLs, never unsupported model prose',async()=>{
   const quote="Hatsune Miku's voice provider is Saki Fujita. This is a synthetic test excerpt.";
@@ -67,7 +67,7 @@ test('fabricated quotations and citations fail validation; insufficient evidence
   const policy=retrievalPolicy(pax),evidence=[{id:1,url:'https://example.com/source',text:'Pax Silica concerns the Philippines in this synthetic example.'}];
   assert.equal(groundedAnswer({claims:[{source:7,quote:evidence[0]!.text}]},evidence,policy),null);
   assert.equal(groundedAnswer({claims:[{source:1,quote:'Pax Silica signed a fabricated agreement with the Philippines.'}]},evidence,policy),null);
-  assert.equal(groundedAnswer({insufficient:true},evidence,policy),UNVERIFIED);
+  assert.ok(UNVERIFIED_REPLIES.includes(groundedAnswer({insufficient:true},evidence,policy)));
 });
 test('verified exhaustive lists are explicitly limited and cannot claim completeness',async()=>{
   const quote='Eternal Towers of Hell difficulties are discussed here; unofficial lists may differ.';
@@ -82,7 +82,7 @@ test('timeless prompts and ordinary conversation make zero search calls',async()
 });
 test('uncertain draft is discarded and verification is host-enforced',async()=>{
   const f=fixture('does flibber exist?',[{answer:'I think it is an ancient kingdom.'}],{searchFail:true});
-  try{assert.equal((await f.run()).answer,UNVERIFIED);assert.equal(f.calls.search.length,1);assert.equal(f.calls.requests.length,1);}finally{f.store.close();}
+  try{assert.ok(UNVERIFIED_REPLIES.includes((await f.run()).answer));assert.equal(f.calls.search.length,1);assert.equal(f.calls.requests.length,1);}finally{f.store.close();}
 });
 test('JSON tool protocol works without native tools; action status reflects actual tool',async()=>{
   const f=fixture('Calculate 2+3.',[{tool:'calculate',arguments:{expression:'2+3'}},{answer:'2 + 3 = 5.'}]);

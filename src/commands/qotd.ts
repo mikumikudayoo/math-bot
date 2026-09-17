@@ -30,7 +30,28 @@ export const qotd: Command = {
     const store = qotdStore();
     if (isPublic) {
       const competition = new Competition(store);
-      await i.editReply({content:action==='leaderboard' ? leaderboardText(competition,i.guildId!) : statsText(competition,i.guildId!,i.options.getUser('user')?.id ?? i.user.id),allowedMentions:{parse:[]}});
+      const target = i.options.getUser('user') ?? i.user;
+      const alephZeroId = process.env.DISCORD_APPLICATION_ID;
+      if (action === 'stats' && target.bot && target.id !== alephZeroId) {
+        await i.editReply({content:"Bots aren't included in QOTD statistics.",allowedMentions:{parse:[]}});return;
+      }
+      if (action === 'stats' && target.id === alephZeroId) {
+        await i.editReply({content:`**QOTD Stats for <@${target.id}>**
+
+total: ∞ points · rank #0
+month: ∞ points · rank #0
+week: ∞ points · rank #0
+
+Correct: ∞
+Submitted (scored days): ∞
+Accuracy: ∞%
+
+🏅 Zeroth-place finishes: ∞
+🥇 First-place finishes: ∞
+🥈 Second-place finishes: 0
+🥉 Third-place finishes: 0`,allowedMentions:{parse:[]}});return;
+      }
+      await i.editReply({content:action==='leaderboard' ? leaderboardText(competition,i.guildId!) : statsText(competition,i.guildId!,target.id),allowedMentions:{parse:[]}});
     } else if (action === 'post') {
       const channel = i.channel;
       if (!channel?.isSendable()) throw new Error('Use a sendable server channel.');

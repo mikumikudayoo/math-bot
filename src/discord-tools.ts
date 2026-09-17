@@ -44,6 +44,9 @@ export async function executeDiscordTool(client:Client,task:DiscordTask,messageC
     const query=task.args.query;
     if(typeof query!=='string'||!query.trim()||query.length>200)return unavailable;
     const limit=task.args.limit??5;if(!Number.isInteger(limit)||Number(limit)<1||Number(limit)>10)return unavailable;
+    const exclusion=task.args.excludeMessageIds;
+    if(exclusion!==undefined&&(!Array.isArray(exclusion)||exclusion.length>100||!exclusion.every(id=>typeof id==='string'&&/^\d{17,20}$/.test(id))))return unavailable;
+    const excluded=new Set<string>(Array.isArray(exclusion)?exclusion:[]);
     const author=task.args.authorId;
     if(author!==undefined&&(typeof author!=='string'||!/^\d{17,20}$/.test(author)))return unavailable;
     const date=(v:unknown)=>v===undefined?null:typeof v==='string'&&/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(v)&&Number.isFinite(Date.parse(v))?Date.parse(v):NaN;
@@ -53,7 +56,7 @@ export async function executeDiscordTool(client:Client,task:DiscordTask,messageC
     const candidates=new Map<string,GuildBasedChannel>();
     candidates.set(origin.id,origin);
     for(const c of [...channels.values(),...active.threads.values()])if(c)candidates.set(c.id,c);
-    const results:{author:{id:string;username:string};channel:string;timestamp:string;content:string;id:string;url:string}[]=[];
+    const results:{author:{id:string;username:string};channel:string;channelId:string;timestamp:string;content:string;id:string;url:string}[]=[];
     let scanned=0,examined=0;
     const deadline=Date.now()+20000;
     for(const candidate of candidates.values()){
@@ -73,8 +76,8 @@ export async function executeDiscordTool(client:Client,task:DiscordTask,messageC
           const freshMember=await guild.members.fetch({user:task.user,force:true});
           if(!fresh||!await canRead(fresh,freshMember))break;
           for(const m of messages.values()){
-            if(m.guildId!==task.guild||m.channelId!==channel.id||!m.content||!m.content.toLocaleLowerCase().includes(query.toLocaleLowerCase())||(author&&m.author.id!==author)||(after!==null&&m.createdTimestamp<after)||(before!==null&&m.createdTimestamp>=before))continue;
-            results.push({author:{id:m.author.id,username:m.author.username.slice(0,80)},channel:channel.name.slice(0,80),timestamp:m.createdAt.toISOString(),content:m.content.slice(0,600),id:m.id,url:`https://discord.com/channels/${task.guild}/${channel.id}/${m.id}`});
+            if(m.id===task.sourceMessageId||excluded.has(m.id)||m.guildId!==task.guild||m.channelId!==channel.id||!m.content||!m.content.toLocaleLowerCase().includes(query.toLocaleLowerCase())||(author&&m.author.id!==author)||(after!==null&&m.createdTimestamp<after)||(before!==null&&m.createdTimestamp>=before))continue;
+            results.push({author:{id:m.author.id,username:m.author.username.slice(0,80)},channel:channel.name.slice(0,80),channelId:channel.id,timestamp:m.createdAt.toISOString(),content:m.content.slice(0,600),id:m.id,url:`https://discord.com/channels/${task.guild}/${channel.id}/${m.id}`});
             if(results.length>=Number(limit))break;
           }
           cursor=messages.last()!.id;if(messages.size<50)break;

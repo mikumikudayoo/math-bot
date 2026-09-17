@@ -44,7 +44,7 @@ export async function handleStudyMessage(message:Message,runtime:StudyRuntime=de
   }
   if(!mention&&!parent)return;
   const image=message.attachments.first();
-  const job=await runtime.service<Job>('/jobs',{id:message.id,guild:message.guildId,channel:message.channelId,user:message.author.id,
+  const job=await runtime.service<Job>('/jobs',{id:message.id,sourceMessageId:message.id,guild:message.guildId,channel:message.channelId,user:message.author.id,
     discordContext:discordIdentity(message.author,message.guildId,message.member),
     coach:coach(message.author.id,[...(message.member?.roles.cache.keys()??[])],config),kind:'ask',prompt,...(parent?{parent:parent.id}:{}),...(image?{image:image.url}:{})});
   if(job.message)return;

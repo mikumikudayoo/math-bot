@@ -2,6 +2,7 @@ export type JobState = 'queued' | 'running' | 'completed' | 'failed' | 'cancelle
 export type JobKind = 'ask' | 'calculate' | 'plot' | 'python';
 export interface Submission {
   discordContext?: string;
+  sourceMessageId?: string;
   id: string; guild: string; channel: string; user: string; coach: boolean;
   kind: JobKind; prompt: string; parent?: string; image?: string;
 }

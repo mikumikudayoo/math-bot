@@ -37,13 +37,23 @@ export function establishesEntities(evidence:Evidence[],entities:string[]) {
   const normalize=(text:string)=>text.toLocaleLowerCase().replace(/\s+/g,' ').trim();
   return entities.every(entity=>evidence.some(e=>normalize(e.text).includes(normalize(entity))));
 }
-export const UNVERIFIED = "I couldn't verify this from the available sources, so I won't guess. Please share a reliable source or clarify the exact name.";
+export const UNVERIFIED_REPLIES = [
+  "couldn't verify that, and i'm not gonna make something up :3 got a source or a more specific name?",
+  "couldn't verify that one. got a source or a more specific name?",
+  "yeah i couldn't confirm that :< got anything more specific?",
+  "found nothing i'd trust enough to answer from. got a source?",
+  "nope, couldn't verify that. give me a source or a more specific name and i'll try again",
+];
+
+export function unverified(): string {
+  return UNVERIFIED_REPLIES[Math.floor(Math.random() * UNVERIFIED_REPLIES.length)]!;
+}
 
 /** Render only exact, traceable evidence selections. Free model prose/URLs cannot escape this boundary. */
 export function groundedAnswer(value:unknown,evidence:Evidence[],policy:RetrievalPolicy):string|null {
   if(!value||typeof value!=='object')return null;
   const result=value as {insufficient?:unknown;claims?:unknown};
-  if(result.insufficient===true)return UNVERIFIED;
+  if(result.insufficient===true)return unverified();
   if(!Array.isArray(result.claims)||!result.claims.length||result.claims.length>6)return null;
   const lines:string[]=[];const excerpts:Evidence[]=[];
   for(const claim of result.claims){

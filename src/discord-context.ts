@@ -11,7 +11,7 @@ export function discordIdentity(user:{id:string;username?:string;globalName?:str
   return currentUser(user.id,guildId,{username:user.username,displayName:m.displayName??m.nickname??m.nick??user.globalName??user.username,nickname:m.nickname??m.nick});
 }
 export type DiscordTool='discord_search'|'discord_member';
-export interface DiscordTask {id:string;job:string;user:string;guild:string;channel:string;tool:DiscordTool;args:Record<string,unknown>}
+export interface DiscordTask {id:string;job:string;user:string;guild:string;channel:string;sourceMessageId?:string;tool:DiscordTool;args:Record<string,unknown>}
 export function discordIntent(prompt:string):DiscordTool|null {
   if(/\b(?:what did (?:i|we|emu|<@!?\d+>) say|did anyone mention|find the message|search (?:this |the |our )?(?:server|discord|messages)|(?:server|discord) (?:history|search))\b/i.test(prompt))return 'discord_search';
   if(/\b(?:(?:my|your|their|his|her) (?:discord )?(?:profile|nickname|roles|user id)|(?:discord|server|member) (?:profile|nickname|roles)|who am i|am i (?:emu|your creator))\b/i.test(prompt))return 'discord_member';
