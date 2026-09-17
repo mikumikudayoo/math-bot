@@ -42,11 +42,22 @@ test('Discord metadata persists across store reopen and retains the trusted job 
     assert.equal(JSON.parse(s.get('j')!.discordContext!).username,'asker');assert.equal(s.get('j')!.user,uid);
   }finally{s.close();rmSync(dir,{recursive:true,force:true});}
 });
-test('missing Discord executor cannot fabricate a member profile',async()=>{
+test('basic requester identity does not require a Discord member lookup',async()=>{
   const s=new Store(':memory:');try{
-    const job=s.admit({id:'j',guild:gid,channel:cid,user:uid,coach:false,kind:'ask',prompt:'who am i?'},10);
-    const run=runner(config,s,{complete:async()=>Response.json({choices:[{message:{content:'You are emu.'}}]})});
-    assert.equal((await run(job,AbortSignal.timeout(10000),()=>{})).answer,'Discord lookup is unavailable right now.');
+    const job=s.admit({id:'j',guild:gid,channel:cid,user:CREATOR_ID,coach:false,kind:'ask',prompt:'who am i?',discordContext:JSON.stringify(currentUser(CREATOR_ID,gid,{username:'fyuc'}))},10);
+    let discordCalls=0;
+    const run=runner(config,s,{
+      complete:async(_url,init)=>{
+        const body=JSON.parse(String(init.body));
+        const context=body.messages.find((m:any)=>typeof m.content==='string'&&m.content.includes('Trusted current Discord requester'));
+        assert.ok(context.content.includes('The person speaking to you right now is emu'));
+        assert.ok(context.content.includes('"isCreator":true'));
+        return Response.json({choices:[{message:{content:'you are emu.'}}]});
+      },
+      discord:async()=>{discordCalls++;return {error:'should not be called'};}
+    });
+    assert.equal((await run(job,AbortSignal.timeout(10000),()=>{})).answer,'you are emu.');
+    assert.equal(discordCalls,0);
   }finally{s.close();}
 });
 test('accessible history is returned, hidden channels and cross-guild content are never searched or leaked',async()=>{

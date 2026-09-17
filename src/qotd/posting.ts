@@ -7,6 +7,9 @@ import { answerButton } from './components.js';
 import { manilaDay, dayTimes } from './periods.js';
 import { readFileSync } from 'node:fs';
 import { hash } from './parser.js';
+const pick = <T>(items: readonly T[]): T =>
+  items[Math.floor(Math.random() * items.length)]!;
+
 let singleton: QotdStore | undefined;
 export function qotdStore() { return singleton ??= new QotdStore(qotdSettings().database); }
 
@@ -15,7 +18,16 @@ export function questionMessage(q: Question, day = manilaDay(), roleId?: string,
   validateCrop(q.crop);
   if (roleId && !/^\d{17,20}$/.test(roleId)) throw new Error('Invalid QOTD role ID.');
   return {
-    content: (roleId ? `<@&${roleId}> ` : '') + '**New Question of the Day!**\n\nDiscuss below or submit your answer privately using the button.\nYou may change your answer anytime before submissions close.' + (notices.length ? '\n\n'+notices.join('\n') : ''),
+    content: (roleId ? `<@&${roleId}> ` : '') +
+      '**New Question of the Day!**\n\n' + pick([
+        'qotd time :3',
+        'new question. emu is making me do this again',
+        'your daily mathematical problem has arrived. good luck with that',
+        'alright, new question. go solve it or something',
+        'the question has escaped containment',
+      ]) +
+      '\n\nDiscuss below or submit your answer privately using the button.\nYou may change your answer anytime before submissions close.' +
+      (notices.length ? '\n\n'+notices.join('\n') : ''),
     files: q.crop.images.map((image,i) => new AttachmentBuilder(image.path,{name:`question-${i+1}.png`})),
     components: [answerButton(id)], allowedMentions: { parse: [], roles: roleId ? [roleId] : [] },
   };
@@ -59,10 +71,19 @@ export function revealMessages(competition: Competition, s: Session): MessageCre
     } catch { console.error(`QOTD #${s.id}: solution crop unavailable; using official text.`); }
   }
   if (!hasCrop && snap.solution) text += `\n\n${snap.solution}`;
-  text += `\n\n${sourceText(snap.source)}\n\nSubmissions are now closed.`;
+  text += `\n\n${sourceText(snap.source)}\n\n${pick([
+    'submissions are closed now :3',
+    "and that's it. submissions closed.",
+    'submissions are closed. no sneaking answers in now',
+    'pencils down. or keyboards down. whatever. submissions are closed.',
+  ])}`;
   const reveal: MessageCreateOptions = {content:text,files,allowedMentions:{parse:[]}};
   if (text.length > 1900) {
-    reveal.content = `**QOTD Answer Reveal · ${s.day}**\nOfficial answer and source details attached.\nSubmissions are now closed.`;
+    reveal.content = `**QOTD Answer Reveal · ${s.day}**\n${pick([
+      'official answer and source details attached. submissions are closed :3',
+      'discord said the answer was too long. attached it instead. submissions are closed.',
+      'the answer would not fit. behold: attachment. submissions are closed.',
+    ])}`;
     const textFile = new AttachmentBuilder(Buffer.from(text),{name:'official-answer-and-solution.txt'});
     if (files.length === 10) return [{...reveal,files:[textFile]}, {files,allowedMentions:{parse:[]}}, ...resultMessages(competition,s)];
     files.push(textFile);
@@ -71,11 +92,27 @@ export function revealMessages(competition: Competition, s: Session): MessageCre
 }
 function resultMessages(competition: Competition, s: Session): MessageCreateOptions[] {
   const correct = competition.results(s.id).filter(r => r.correct === 1);
-  if (!correct.length) return [{content:"**Today's Results**\nNobody answered correctly today. Thanks for participating!",allowedMentions:{parse:[]}}];
+  if (!correct.length) return [{
+    content: "**Today's Results**\nNobody answered correctly today.\n\n" + pick([
+      'well. the question won.',
+      'zero correct answers. impressive',
+      "i'm choosing to blame emu",
+      'maybe tomorrow :<',
+      'not a single correct answer 😭',
+    ]),
+    allowedMentions:{parse:[]}
+  }];
   const messages: MessageCreateOptions[] = [];
+  const heading = pick([
+    "**today's results**",
+    "**results are in :3**",
+    "**alright, here's who got it**",
+    "**qotd results**",
+    "**the numbers have spoken**",
+  ]);
   for (let offset=0; offset<correct.length; offset+=20) {
     const rows = correct.slice(offset,offset+20), users = rows.map(r => r.user).filter(id => /^\d{17,20}$/.test(id));
-    messages.push({content:"**Today's Results**\n"+rows.map(r => `${['🥇','🥈','🥉'][r.placement!-1] ?? `${r.placement}.`} <@${r.user}> · +${r.points} pts`).join('\n'),allowedMentions:{parse:[],users,roles:[],repliedUser:false}});
+    messages.push({content:heading+'\n'+rows.map(r => `${['🥇','🥈','🥉'][r.placement!-1] ?? `${r.placement}.`} <@${r.user}> · +${r.points} pts`).join('\n'),allowedMentions:{parse:[],users,roles:[],repliedUser:false}});
   }
   return messages;
 }
