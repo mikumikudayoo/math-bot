@@ -6,6 +6,10 @@ import { executeDiscordTool,canRead } from '../src/discord-tools.js';
 import { DiscordBroker } from '../src/service/discord-broker.js';
 import { Store } from '../src/service/store.js';
 import { runner } from '../src/service/inference.js';
+import { routePrompt } from '../src/service/route-prompt.js';
+// Identity unit tests exercise host context, not a live MiniLM process. Keep the
+// real TS policy pipeline and provide deterministic internal sensor signals.
+const identityRoute:typeof routePrompt=(prompt)=>routePrompt(prompt,{signals:async clauses=>clauses.map(()=>({reasoning:0,freshness:0,externalKnowledge:0,ambiguity:0,verificationNeed:0,calculation:0}))});
 import type { ServiceConfig } from '../src/service/config.js';
 import { mkdtempSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -47,6 +51,7 @@ test('basic requester identity does not require a Discord member lookup',async()
     const job=s.admit({id:'j',guild:gid,channel:cid,user:CREATOR_ID,coach:false,kind:'ask',prompt:'who am i?',discordContext:JSON.stringify(currentUser(CREATOR_ID,gid,{username:'fyuc'}))},10);
     let discordCalls=0;
     const run=runner(config,s,{
+      route:identityRoute,
       complete:async(_url,init)=>{
         const body=JSON.parse(String(init.body));
         const context=body.messages.find((m:any)=>typeof m.content==='string'&&m.content.includes('Trusted current Discord requester'));
@@ -130,7 +135,7 @@ test('trusted context reaches model; internal Discord tool calls cannot enable w
 test('native mode exposes Discord tools on internal routes and creator context is host computed',async()=>{
   const s=new Store(':memory:');let count=0;
   try{const job=s.admit({id:'j',guild:gid,channel:cid,user:CREATOR_ID,coach:false,kind:'ask',prompt:'who am i?'},10);
-    const run=runner({...config,nativeTools:true},s,{discord:async()=>({type:'DISCORD_MEMBER_DATA',userId:CREATOR_ID,isCreator:true}),complete:async(_url,init)=>{
+    const run=runner({...config,nativeTools:true},s,{route:identityRoute,discord:async()=>({type:'DISCORD_MEMBER_DATA',userId:CREATOR_ID,isCreator:true}),complete:async(_url,init)=>{
       const body=JSON.parse(String(init.body));assert.ok(body.tools.some((t:any)=>t.function.name==='discord_member'));assert.ok(!body.tools.some((t:any)=>t.function.name==='search'||t.function.name==='fetch'));
       assert.ok(body.messages.some((m:any)=>String(m.content).includes('"isCreator":true')));
       return Response.json({choices:[{message:++count===1?{content:null,tool_calls:[{id:'member',type:'function',function:{name:'discord_member',arguments:'{}'}}]}:{content:'you are emu; i am Aleph-Zero.'}}]});

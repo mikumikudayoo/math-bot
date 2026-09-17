@@ -1,3 +1,4 @@
+import { isModerator } from '../admin/auth.js';
 import { PermissionFlagsBits, SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { service } from '../ai-client.js';
 import type { Command } from './types.js';
@@ -7,7 +8,7 @@ export const filter:Command={
     .addSubcommand(o=>o.setName('remove').setDescription('Remove a rule.').addIntegerOption(x=>x.setName('id').setDescription('Rule ID').setRequired(true).setMinValue(1)))
     .addSubcommand(o=>o.setName('list').setDescription('Show rules.')),
   async execute(i){
-    if(!i.inGuild()||!i.memberPermissions?.has(PermissionFlagsBits.ManageMessages)){await i.reply({content:'Manage Messages permission is required.',flags:MessageFlags.Ephemeral});return;}
+    if(!isModerator(i,PermissionFlagsBits.ManageMessages)){await i.reply({content:'Manage Messages permission is required.',flags:MessageFlags.Ephemeral});return;}
     await i.deferReply({flags:MessageFlags.Ephemeral});const action=i.options.getSubcommand();
     if(action==='list'){
       const settings=await service<{rules:{id:number;term:string;action:string}[]}>(`/settings?guild=${i.guildId}`);

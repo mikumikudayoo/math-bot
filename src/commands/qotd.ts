@@ -1,5 +1,6 @@
+import { isModerator } from '../admin/auth.js';
 import { qotdSettings } from '../qotd/config.js';
-import { ChannelType, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+import { ChannelType, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import type { Command } from './types.js';
 import { postDaily, qotdStore, revealAnswer } from '../qotd/posting.js';
 import { Competition } from '../qotd/competition.js';
@@ -23,7 +24,7 @@ export const qotd: Command = {
   async execute(i) {
     const action = i.options.getSubcommand();
     const isPublic = action === 'leaderboard' || action === 'stats';
-    if (!i.inGuild() || (!isPublic && !i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))) {
+    if (!i.inGuild() || (!isPublic && !isModerator(i))) {
       await i.reply({content:'manage server permission is required.',flags:MessageFlags.Ephemeral});return;
     }
     await i.deferReply(isPublic ? {} : {flags:MessageFlags.Ephemeral});

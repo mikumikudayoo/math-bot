@@ -1,5 +1,8 @@
 import { qotd } from './qotd.js';
 import { reminder } from './reminder.js';
+import { sql } from './sql.js';
+import { testers } from './testers.js';
+import { qotdAdmin } from './qotd-admin.js';
 import ping from './ping.js';
 import { ask, calculate, plot, python, cancel, queue, ai } from './study.js';
 import { filter } from './filter.js';
@@ -7,7 +10,7 @@ import type { Command } from './types.js';
 import { loadConfig } from '../config.js';
 import { authorizeAIInteraction, type AIAccessConfig } from '../ai-access.js';
 
-export function loadCommands(modules: readonly Command[] = [ping,ask,calculate,plot,python,cancel,queue,ai,filter,qotd,reminder], config: () => AIAccessConfig = loadConfig) {
+export function loadCommands(modules: readonly Command[] = [ping,ask,calculate,plot,python,cancel,queue,ai,filter,qotd,reminder,sql,testers,qotdAdmin], config: () => AIAccessConfig = loadConfig) {
   const commands = new Map<string, Command>();
   for (const command of modules) {
     const { name } = command.data.toJSON();

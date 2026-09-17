@@ -8,7 +8,7 @@ Discord.js + TypeScript study bot with a separate authenticated study service, d
 
 For the expanded setup, run `bun run setup:local`, start `bun run service:dev` in one WSL terminal and `bun run dev` in another. Install Python tools with `bash scripts/setup-python.sh` on a fresh machine. Run `bun run commands:deploy:dev` manually after definition changes. The existing checkout's local Python dependencies and service credentials are prepared.
 
-Study/AI functionality is private by default: set `AI_TESTER_USER_IDS=821682594830614578` in the bot's environment file to permit the tester. Empty or missing allowlists deny everyone, including admins and coaches. Comma-separated IDs support additional testers. Ordinary commands keep their existing permissions. For mentions/reply chains, also enable Message Content Intent and `MESSAGE_FEATURES_ENABLED=true`. See [private testing setup](docs/operations.md#private-ai-testing) for Discord command visibility and restart steps.
+Study/AI functionality is private by default: set `AI_TESTER_USER_IDS=821682594830614578` in the bot's environment file to permit the tester. Static IDs merge with persistent owner-managed `/ai-testers` entries; when both are empty, nobody is admitted, including admins and coaches. Comma-separated IDs support additional static testers. Ordinary commands keep their existing permissions. For mentions/reply chains, also enable Message Content Intent and `MESSAGE_FEATURES_ENABLED=true`. See [private testing setup](docs/operations.md#private-ai-testing) for Discord command visibility and restart steps, and [admin tools](docs/admin-tools.md) for runtime tester management.
 
 ## WSL development
 
@@ -59,5 +59,10 @@ Add command modules under `src/commands/` and import them into the list in `src/
 Existing GitHub remote: https://github.com/mikumikudayoo/math-bot.git. Review changes before committing/pushing. No CI deployment, PM2, VPS configuration or tunnels are installed by this foundation.
 
 ## Daily questions and solution manuals
+
+See [private admin tools](docs/admin-tools.md) for QOTD corrections, bounded raw
+SQL, audit storage and owner-managed AI testers. See the [Aleph dataset spec](training/aleph/aleph-spec.md)
+for synthetic personality training preparation and the [separate router proposal](docs/router-training-plan.md).
+These workflows do not deploy or train anything automatically.
 
 See [the QOTD runbook](docs/qotd.md) for recursive PDF imports, reviewed source crops, modal-only private answers, deterministic grading, configurable scoring and persistent leaderboards. Latest answer and timestamp win; submissions close at 21:59:59 Manila and reveal at 22:00. `/qotd leaderboard` and `/qotd stats` are public. Imports stay pending until approved, no-repeat history survives re-imports, and the v2-to-v3 migration preserves existing state. Slash commands need manual redeployment; the runbook includes the VPS checklist. No production deployment is automatic.

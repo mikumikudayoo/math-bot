@@ -3,7 +3,7 @@
 ## Implemented
 The package manager and JavaScript/TypeScript runtime are Bun, pinned in `.bun-version` and `package.json`. Releases install `bun.lock` with `--frozen-lockfile`. The compatible `node:sqlite` adapter and existing database schema remain unchanged; Python workers use their separate virtual environment.
 
-Private testing adds a Discord-side `AI_TESTER_USER_IDS` gate for the entire study suite, mentions and reply conversations. Missing/empty lists deny everyone; admin, owner and coach permissions cannot bypass it. Command metadata drives both runtime gating and default-disabled Discord visibility. Service authentication and accepted-job semantics remain separate and unchanged. Ordinary moderation/QOTD commands are not gated.
+Private testing adds a Discord-side gate for the entire study suite, mentions and reply conversations. Effective admission merges `AI_TESTER_USER_IDS` with persistent owner-managed testers in the separate admin database; both empty denies everyone. Admin, owner and coach permissions cannot bypass admission. Command metadata drives both runtime gating and default-disabled Discord visibility. Service authentication and accepted-job semantics remain separate and unchanged. Ordinary moderation/QOTD commands are not gated. See [admin tools](admin-tools.md) for runtime management and audit boundaries.
 
 Discord.js + TypeScript with a shared slash-command registry and separate bot/study processes. Commands include /ping, /ask, /calculate, /plot, /python, /cancel, /ai, /filter and /qotd. The loopback HTTP service authenticates the bot with a separate secret. SQLite persists admission state, accepted jobs, bounded reply chains, output bindings, filter rules, audit entries.
 

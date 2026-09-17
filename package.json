@@ -25,7 +25,10 @@
     "qotd:review": "bun src/scripts/qotd-review.ts",
     "qotd:review-ui": "bun src/scripts/qotd-review-ui.ts",
     "qotd:reset-local": "bun src/scripts/qotd-reset-local.ts",
-    "qotd:reveal-dev": "BOT_ENV=development bun src/scripts/qotd-reveal-dev.ts"
+    "qotd:reveal-dev": "BOT_ENV=development bun src/scripts/qotd-reveal-dev.ts",
+    "aleph:generate": "bun src/scripts/aleph-dataset.ts generate",
+    "aleph:validate": "bun src/scripts/aleph-dataset.ts validate",
+    "aleph:split": "bun src/scripts/aleph-dataset.ts split"
   },
   "dependencies": {
     "@napi-rs/canvas": "1.0.9",

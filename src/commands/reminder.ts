@@ -1,3 +1,4 @@
+import { isModerator } from '../admin/auth.js';
 import { ChannelType,MessageFlags,PermissionFlagsBits,SlashCommandBuilder,type SlashCommandSubcommandBuilder } from 'discord.js';
 import type { Command } from './types.js';
 import { loadConfig } from '../config.js';
@@ -23,7 +24,7 @@ export function makeReminderCommand(getStore:()=>ReminderStore=()=>reminderStore
       .addSubcommand(s=>fields(s.setName('edit').setDescription('Edit a pending reminder; reset recurrence anchor.').addStringOption(o=>o.setName('id').setDescription('Reminder ID').setRequired(true)),false).addBooleanOption(o=>o.setName('clear-role').setDescription('Remove the configured role mention')))
       .addSubcommand(s=>s.setName('cancel').setDescription('Cancel a pending reminder.').addStringOption(o=>o.setName('id').setDescription('Reminder ID').setRequired(true))),
     async execute(i){
-      if(!i.inGuild()||!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)){
+      if(!isModerator(i,PermissionFlagsBits.ManageGuild)){
         await i.reply({content:'manage server permission is required.',flags:MessageFlags.Ephemeral});return;
       }
       await i.deferReply({flags:MessageFlags.Ephemeral});

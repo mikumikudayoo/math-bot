@@ -1,4 +1,8 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
+import { mkdtempSync,rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { AdminStore } from '../src/admin/store.js';
 import assert from 'node:assert/strict';
 import { MessageFlags, PermissionFlagsBits, type ChatInputCommandInteraction, type Message } from 'discord.js';
 import { parseConfig } from '../src/config.js';
@@ -8,7 +12,9 @@ import { ask } from '../src/commands/study.js';
 import { submit, handleStudyMessage, type StudyRuntime } from '../src/study.js';
 
 const tester='821682594830614578', other='123456789012345678', bot='234567890123456789', guild='345678901234567890';
-const env={DISCORD_TOKEN:'test-only',DISCORD_APPLICATION_ID:bot,DISCORD_GUILD_ID:guild,AI_TESTER_USER_IDS:tester,MESSAGE_FEATURES_ENABLED:'true',COACH_USER_IDS:other};
+const temp=mkdtempSync(join(tmpdir(),'ai-access-'));
+after(()=>rmSync(temp,{recursive:true,force:true}));
+const env={DISCORD_TOKEN:'test-only',DISCORD_APPLICATION_ID:bot,DISCORD_GUILD_ID:guild,AI_TESTER_USER_IDS:tester,MESSAGE_FEATURES_ENABLED:'true',COACH_USER_IDS:other,ADMIN_DB_PATH:join(temp,'admin.sqlite')};
 const config=()=>parseConfig(env,'development');
 function interaction(userId:string,privileged=false){
   const replies:{content:string;flags?:number}[]=[];const edits:unknown[]=[];
@@ -107,4 +113,17 @@ test('private command definitions are default-disabled; allowlist is never publi
   const definitions=JSON.parse(commandJSON()) as {name:string;default_member_permissions?:string}[];
   for(const name of ['ask','calculate','plot','python','cancel','queue','ai'])assert.equal(definitions.find(x=>x.name===name)?.default_member_permissions,'0');
   assert.notEqual(definitions.find(x=>x.name==='ping')?.default_member_permissions,'0');assert.ok(!commandJSON().includes(tester));
+});
+
+test('runtime testers pass both slash gates and mentions; removal denies the next prompt',async()=>{
+  const path=join(temp,'runtime.sqlite'),store=new AdminStore(path),mock=runtime({aiTesterUserIds:[],adminDatabase:path});
+  try {
+    store.changeTester(tester,other,true);
+    const registered=loadCommands([{...ask,execute:i=>submit(i,'ask','hi',undefined,mock.value)}],mock.value.config).get('ask')!;
+    await registered.execute(interaction(other).value);await handleStudyMessage(message(other).value,mock.value);
+    assert.equal(mock.calls.filter(c=>c.path==='/jobs').length,2);
+    store.changeTester(tester,other,false);const count=mock.calls.length;
+    const denied=interaction(other,true);await registered.execute(denied.value);await handleStudyMessage(message(other).value,mock.value);
+    assert.equal(mock.calls.length,count);assert.equal(denied.replies[0]?.content,PRIVATE_AI_MESSAGE);
+  } finally {store.close();}
 });

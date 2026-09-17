@@ -1,3 +1,4 @@
+import { isModerator } from '../admin/auth.js';
 import { PermissionFlagsBits, SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { submit } from '../study.js';
 import { service } from '../ai-client.js';
@@ -46,7 +47,7 @@ export const ai:Command={
     .addSubcommand(o=>o.setName('disable').setDescription('Reject future requests; accepted requests still finish.'))
     .addSubcommand(o=>o.setName('status').setDescription('Show availability.')),
   async execute(i){
-    if(!i.inGuild()||!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)){await i.reply({content:'Manage Server permission is required.',flags:MessageFlags.Ephemeral});return;}
+    if(!isModerator(i,PermissionFlagsBits.ManageGuild)){await i.reply({content:'Manage Server permission is required.',flags:MessageFlags.Ephemeral});return;}
     await i.deferReply({flags:MessageFlags.Ephemeral});const action=i.options.getSubcommand();
     if(action==='status'){
       const [settings,health]=await Promise.all([service<{enabled:boolean}>(`/settings?guild=${i.guildId}`),service<{modelConfigured:boolean}>('/health')]);
