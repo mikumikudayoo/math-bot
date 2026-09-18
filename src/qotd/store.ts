@@ -1,3 +1,4 @@
+import { migrateProblems } from '../problems/schema.js';
 import { migrateCompetition } from './competition.js';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
@@ -66,7 +67,7 @@ export class QotdStore {
       this.db.close();
 
       throw new Error(
-        'Legacy or unsupported QOTD schema. Restore a compatible v2/v3 backup; never reset production state to bypass migration.',
+        'Legacy or unsupported MPoTD schema. Restore a compatible v2/v3 backup; never reset production state to bypass migration.',
       );
     }
 
@@ -159,7 +160,7 @@ export class QotdStore {
        * Collaborative crop-review locks.
        *
        * This is intentionally separate from qotd_questions so an existing
-       * version-2 QOTD bank can gain collaborative review without a reset.
+       * version-2 MPoTD bank can gain collaborative review without a reset.
        */
       CREATE TABLE IF NOT EXISTS qotd_review_claims(
         question TEXT PRIMARY KEY
@@ -176,6 +177,7 @@ export class QotdStore {
 
     `);
     migrateCompetition(this.db);
+    migrateProblems(this.db);
   }
 
   close() {
@@ -815,7 +817,7 @@ export class QotdStore {
 
   /*
    * ------------------------------------------------------------
-   * Existing daily QOTD posting claims
+   * Existing daily MPoTD posting claims
    * ------------------------------------------------------------
    */
 
@@ -847,6 +849,7 @@ export class QotdStore {
           FROM qotd_questions q
           WHERE state='approved'
             AND crop_reviewed=1
+            AND NOT EXISTS(SELECT 1 FROM problem_catalog p WHERE p.question=q.id)
             AND (? IS NULL OR json_extract(q.payload, '$.kind') = ?)
             AND NOT EXISTS(
               SELECT 1

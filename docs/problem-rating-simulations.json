@@ -1,0 +1,185 @@
+{
+  "seed": 20260918,
+  "results": [
+    {
+      "scenario": "Equal ability and difficulty",
+      "assigned": 1000,
+      "scored": 1000,
+      "abandoned": 0,
+      "correct": 508,
+      "final": 1180.91,
+      "tailMean": 1199.72,
+      "tailSd": 24.91
+    },
+    {
+      "scenario": "Strong player / easy problems",
+      "assigned": 1000,
+      "scored": 1000,
+      "abandoned": 0,
+      "correct": 994,
+      "final": 1727.67,
+      "tailMean": 1713.52,
+      "tailSd": 8.48
+    },
+    {
+      "scenario": "Weak player / difficult problems",
+      "assigned": 1000,
+      "scored": 1000,
+      "abandoned": 0,
+      "correct": 10,
+      "final": 820.96,
+      "tailMean": 839.98,
+      "tailSd": 11.51
+    },
+    {
+      "scenario": "Repeat bank (31 problems)",
+      "assigned": 1000,
+      "scored": 1000,
+      "abandoned": 0,
+      "correct": 491,
+      "final": 1232.61,
+      "tailMean": 1230.02,
+      "tailSd": 8.16
+    },
+    {
+      "scenario": "Memorized bank farming",
+      "assigned": 1000,
+      "scored": 1000,
+      "abandoned": 0,
+      "correct": 1000,
+      "final": 1876.19,
+      "tailMean": 1868.02,
+      "tailSd": 4.84
+    },
+    {
+      "scenario": "Initial difficulty overestimated by 400",
+      "assigned": 1000,
+      "scored": 1000,
+      "abandoned": 0,
+      "correct": 499,
+      "final": 1546.88,
+      "tailMean": 1523.41,
+      "tailSd": 54.08
+    },
+    {
+      "scenario": "High solve rate",
+      "assigned": 1000,
+      "scored": 1000,
+      "abandoned": 0,
+      "correct": 968,
+      "final": 1866.85,
+      "tailMean": 1871.93,
+      "tailSd": 10.73
+    },
+    {
+      "scenario": "Abandon every incorrect attempt",
+      "assigned": 1000,
+      "scored": 499,
+      "abandoned": 501,
+      "correct": 499,
+      "final": 1979.34,
+      "tailMean": 1960.35,
+      "tailSd": 11.48
+    },
+    {
+      "scenario": "Sparse activity: 5 attempts",
+      "assigned": 5,
+      "scored": 5,
+      "abandoned": 0,
+      "correct": 3,
+      "final": 1213.32,
+      "tailMean": 1214.32,
+      "tailSd": 10.81
+    },
+    {
+      "scenario": "Moderate activity: 50 attempts",
+      "assigned": 50,
+      "scored": 50,
+      "abandoned": 0,
+      "correct": 42,
+      "final": 1425.83,
+      "tailMean": 1355.57,
+      "tailSd": 64.83
+    },
+    {
+      "scenario": "Frequent activity: 500 attempts",
+      "assigned": 500,
+      "scored": 500,
+      "abandoned": 0,
+      "correct": 426,
+      "final": 1552.89,
+      "tailMean": 1548.02,
+      "tailSd": 21.99
+    }
+  ],
+  "smallPopulation": [
+    {
+      "scenario": "Small population player 1",
+      "assigned": 20,
+      "scored": 20,
+      "abandoned": 0,
+      "correct": 6,
+      "final": 1119.12,
+      "tailMean": 1144.16,
+      "tailSd": 22.73
+    },
+    {
+      "scenario": "Small population player 2",
+      "assigned": 20,
+      "scored": 20,
+      "abandoned": 0,
+      "correct": 9,
+      "final": 1159.36,
+      "tailMean": 1207.4,
+      "tailSd": 28.7
+    },
+    {
+      "scenario": "Small population player 3",
+      "assigned": 20,
+      "scored": 20,
+      "abandoned": 0,
+      "correct": 14,
+      "final": 1264.31,
+      "tailMean": 1273.71,
+      "tailSd": 23.6
+    },
+    {
+      "scenario": "Small population player 4",
+      "assigned": 20,
+      "scored": 20,
+      "abandoned": 0,
+      "correct": 14,
+      "final": 1282.23,
+      "tailMean": 1254.29,
+      "tailSd": 17.12
+    },
+    {
+      "scenario": "Small population player 5",
+      "assigned": 20,
+      "scored": 20,
+      "abandoned": 0,
+      "correct": 16,
+      "final": 1326.35,
+      "tailMean": 1279.13,
+      "tailSd": 27.91
+    }
+  ],
+  "assignment": {
+    "population": 97,
+    "assignments": 970,
+    "problems": 62,
+    "min": 3,
+    "max": 29,
+    "untouched": 0
+  },
+  "sparseCalibration": {
+    "difficulty": 1390.5487267304256,
+    "count": 5,
+    "provisional": true,
+    "uncertainty": 163.29931618554522
+  },
+  "surprises": {
+    "strongWrong": -31.683168316831683,
+    "weakCorrect": 31.683168316831683
+  }
+}

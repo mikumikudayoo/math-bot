@@ -1,3 +1,5 @@
+import { problem } from './problem.js';
+import { problemAdmin } from './problem-admin.js';
 import { qotd } from './qotd.js';
 import { reminder } from './reminder.js';
 import { sql } from './sql.js';
@@ -10,7 +12,7 @@ import type { Command } from './types.js';
 import { loadConfig } from '../config.js';
 import { authorizeAIInteraction, type AIAccessConfig } from '../ai-access.js';
 
-export function loadCommands(modules: readonly Command[] = [ping,ask,calculate,plot,python,cancel,queue,ai,filter,qotd,reminder,sql,testers,qotdAdmin], config: () => AIAccessConfig = loadConfig) {
+export function loadCommands(modules: readonly Command[] = [ping,ask,calculate,plot,python,cancel,queue,ai,filter,qotd,reminder,sql,testers,qotdAdmin,problem,problemAdmin], config: () => AIAccessConfig = loadConfig) {
   const commands = new Map<string, Command>();
   for (const command of modules) {
     const { name } = command.data.toJSON();

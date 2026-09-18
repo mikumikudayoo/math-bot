@@ -4,7 +4,7 @@ Moderator-controlled persistent reminders: see [reminder commands and operations
 
 Current production: `/opt/math-bot`, Bun, `python3`, PM2 under `mathbot`. Future target: `/srv/math-bot` exact-SHA manual releases. See [operations](docs/operations.md) for the separate deployment instructions.
 
-Discord.js + TypeScript study bot with a separate authenticated study service, durable queue and conversations, calculator/plotting, model adapter, moderation and QOTD. See [operations](docs/operations.md) for setup and [architecture](docs/architecture.md) for boundaries. See [reliability](docs/reliability.md) for guarded factual retrieval and model compatibility.
+Discord.js + TypeScript study bot with a separate authenticated study service, durable queue and conversations, calculator/plotting, model adapter, moderation and MPoTD. See [operations](docs/operations.md) for setup and [architecture](docs/architecture.md) for boundaries. See [reliability](docs/reliability.md) for guarded factual retrieval and model compatibility.
 
 For the expanded setup, run `bun run setup:local`, start `bun run service:dev` in one WSL terminal and `bun run dev` in another. Install Python tools with `bash scripts/setup-python.sh` on a fresh machine. Run `bun run commands:deploy:dev` manually after definition changes. The existing checkout's local Python dependencies and service credentials are prepared.
 
@@ -60,9 +60,11 @@ Existing GitHub remote: https://github.com/mikumikudayoo/math-bot.git. Review ch
 
 ## Daily questions and solution manuals
 
-See [private admin tools](docs/admin-tools.md) for QOTD corrections, bounded raw
+See [private admin tools](docs/admin-tools.md) for MPoTD corrections, bounded raw
 SQL, audit storage and owner-managed AI testers. See the [Aleph dataset spec](training/aleph/aleph-spec.md)
 for synthetic personality training preparation and the [separate router proposal](docs/router-training-plan.md).
 These workflows do not deploy or train anything automatically.
 
-See [the QOTD runbook](docs/qotd.md) for recursive PDF imports, reviewed source crops, modal-only private answers, deterministic grading, configurable scoring and persistent leaderboards. Latest answer and timestamp win; submissions close at 21:59:59 Manila and reveal at 22:00. `/qotd leaderboard` and `/qotd stats` are public. Imports stay pending until approved, no-repeat history survives re-imports, and the v2-to-v3 migration preserves existing state. Slash commands need manual redeployment; the runbook includes the VPS checklist. No production deployment is automatic.
+See [the MPoTD runbook](docs/qotd.md) for recursive PDF imports, reviewed source crops, modal-only private answers, deterministic grading, flat +10 daily scoring and persistent leaderboards. Latest answer and timestamp win; submissions close at 21:59:59 Manila and reveal at 22:00. `/mpotd leaderboard` and `/mpotd stats` are public. Imports stay pending until approved, no-repeat history survives re-imports, and the v2-to-v3 migration preserves existing state. Slash commands need manual redeployment; the runbook includes the VPS checklist. No production deployment is automatic.
+
+See [private problem practice](docs/problem-practice.md) for unrated practice, experimental ratings, recovery, simulations and the manual MPoTD command migration. Rated practice starts disabled.

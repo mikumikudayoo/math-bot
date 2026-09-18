@@ -28,8 +28,8 @@ try {
     atomic(store.db,()=>{
       const result=store.db.prepare("UPDATE qotd_delivery SET state=?,message=? WHERE qotd=? AND part=? AND state='uncertain'").run(sent?'sent':'pending',sent?message:null,Number(id),part);
       if(!result.changes)throw new Error('No uncertain delivery matches.');
-      store.audit(actor,`reconciled QOTD ${id} part ${part}: ${sent?message:'operator confirmed not delivered; retry permitted'}`);
+      store.audit(actor,`reconciled MPoTD ${id} part ${part}: ${sent?message:'operator confirmed not delivered; retry permitted'}`);
     });
-    console.log('Delivery reconciled. Scheduler or /qotd reveal can resume without changing scores.');
+    console.log('Delivery reconciled. Scheduler or /mpotd reveal can resume without changing scores.');
   } else throw new Error('Usage: question ID config.json [--solution-image image.png --ack-solution-review] | delivery POST_ID | reconcile POST_ID PART --message MESSAGE_ID | reconcile POST_ID PART --confirm-not-delivered');
 } catch(error) {console.error(error instanceof Error?error.message:error);process.exitCode=1;} finally {store.close();}

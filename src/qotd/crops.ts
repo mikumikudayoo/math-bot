@@ -8,6 +8,8 @@ import type { ParsedQuestion, QuestionCrop, CropImage } from './types.js';
 const SCALE=3;
 const forbidden=/\b(?:Answer\s*:|Solution\s*[:.]|ANSWER KEY|ANSWERS AND SOLUTIONS|EXPLANATION\s*:)/i;
 const heading=/^(?:(?:VTAMPS|PHIMO).*\bSet\b|LOGICAL THINKING|ALGEBRA|NUMBER THEORY|GEOMETRY|COMBINATORICS|PART\s+\d+\s*:)/i;
+const manualHeading=/^(?:VTAMPS|PHIMO).*\bSet\b/i;
+const solutionTopic=/^(?:LOGICAL THINKING|ALGEBRA|NUMBER THEORY|GEOMETRY|COMBINATORICS|PART\s+\d+\s*:\s*.+)\s*$/i;
 export const failedCrop=(reason:string):QuestionCrop=>({status:'failed',images:[],flags:[reason]});
 export interface CropRegion {page:number;top:number;bottom:number}
 export function cropRegions(q:ParsedQuestion,pages:PdfPage[]):CropRegion[] {
@@ -45,6 +47,43 @@ export function cropRegions(q:ParsedQuestion,pages:PdfPage[]):CropRegion[] {
   if(!regions.length) throw new Error('crop:no-question-region');
   return regions;
 }
+export function solutionRegions(q:ParsedQuestion,pages:PdfPage[]):CropRegion[] {
+  const range=q.solutionRange;
+  if(!range || range.start.page!==q.solutionPage || !q.solutionEndPage) throw new Error('solution-crop:missing-or-inconsistent-anchors');
+  const last=range.end?.page ?? q.solutionEndPage;
+  if(last<range.start.page || last-range.start.page>9 || last>pages.length) throw new Error('solution-crop:invalid-page-range');
+  const regions:CropRegion[]=[];
+  for(let n=range.start.page;n<=last;n++) {
+    const page=pages[n-1]!;
+    if(page.rotation!==0) throw new Error('solution-crop:unsupported-page-geometry');
+    const first=n===range.start.page ? page.lines[range.start.line] : undefined;
+    if(n===range.start.page && (!first || !/^\s*Solution\s*[:.]/i.test(first.text))) throw new Error('solution-crop:marker-mismatch');
+    let top=first ? Math.max(first.top-3,...page.lines.slice(0,range.start.line).filter(l=>l.bottom<=first.top).map(l=>l.bottom+0.5)) : 0;
+    let bottom=range.end?.page===n ? page.lines[range.end.line]?.top : page.height;
+    if(bottom===undefined) throw new Error('solution-crop:end-anchor-missing');
+    // Repeated manual footers can precede a continuation. Trim only the footer,
+    // never the last text line: vectors/formula descenders may extend below it.
+    for(const line of page.lines) {
+      if(!line.text.trim() || line.top<top || line.top>=bottom) continue;
+      const trailingTopic=solutionTopic.test(line.text.trim()) && !page.lines.some(l=>l.top>line.top && l.top<bottom! && l.text.trim() && !manualHeading.test(l.text.trim()) && !solutionTopic.test(l.text.trim()));
+      if(manualHeading.test(line.text.trim()) || trailingTopic) {
+        if(!first && !page.lines.some(l=>l.text.trim() && l.top>=top && l.bottom<=line.top)) top=line.bottom+0.5;
+        else { bottom=line.top; break; }
+      }
+    }
+    if(bottom<=top) continue;
+    if(!Number.isFinite(top)||!Number.isFinite(bottom)) throw new Error('solution-crop:invalid-boundary');
+    const inside=page.lines.filter(l=>l.text.trim() && l.top>=top && l.top<bottom);
+    if(inside.some(l=>/^\s*Answer\s*:/i.test(l.text))) throw new Error('solution-crop:unexpected-next-answer');
+    // Numbered proof steps are allowed. A second Solution marker is not.
+    if(inside.some(l=>l!==first && /^\s*Solution\s*[:.]/i.test(l.text))) throw new Error('solution-crop:multiple-solutions-in-region');
+    // A continuation can contain only a diagram above the next question. Let
+    // raster inspection decide whether it is empty instead of text extraction.
+    regions.push({page:n,top,bottom});
+  }
+  if(!regions.length) throw new Error('solution-crop:empty-region');
+  return regions;
+}
 // Raster ink bounds preserve diagrams/vectors that do not appear in text data.
 // Text anchors establish hard exclusions; raster data trims whitespace within
 // those exclusions and detects ink crossing a cut. Nothing outside is added.
@@ -79,18 +118,32 @@ export class QuestionRenderer {
   }
   async question(q:ParsedQuestion):Promise<QuestionCrop> {
     try {
-      const regions=cropRegions(q,this.pdf.pages);const images:CropImage[]=[];
+      return await this.regions(cropRegions(q,this.pdf.pages),`q${q.number}`,['crop:human-completeness-and-answer-leak-review-required']);
+    }catch(error){return failedCrop(error instanceof Error?error.message:'crop:render-failed');}
+  }
+  async solution(q:ParsedQuestion):Promise<QuestionCrop> {
+    try {
+      return await this.regions(solutionRegions(q,this.pdf.pages),`s${q.number}`,[],true);
+    }catch(error){return failedCrop(error instanceof Error?error.message:'solution-crop:render-failed');}
+  }
+  private async regions(regions:CropRegion[],prefix:string,flags:string[],skipBlankContinuations=false):Promise<QuestionCrop> {
+      const images:CropImage[]=[];
       await mkdir(this.directory,{recursive:true});
       for(const region of regions) {
         const canvas=await this.render(region.page);
-        const [x,y,w,h]=inkBounds(canvas,region.top*SCALE,region.bottom*SCALE);
+        let bounds:[number,number,number,number];
+        try { bounds=inkBounds(canvas,region.top*SCALE,region.bottom*SCALE); }
+        catch(error) {
+          if(skipBlankContinuations && images.length && error instanceof Error && error.message==='crop:no-visible-content') continue;
+          throw error;
+        }
+        const [x,y,w,h]=bounds;
         const result=createCanvas(w,h);result.getContext('2d').drawImage(canvas,x,y,w,h,0,0,w,h);
         const bytes=result.toBuffer('image/png');if(bytes.length>8_000_000)throw new Error('crop:image-too-large');
-        const sha256=hash(bytes);const path=resolve(this.directory,`q${q.number}-${images.length+1}-${sha256.slice(0,16)}.png`);
+        const sha256=hash(bytes);const path=resolve(this.directory,`${prefix}-${images.length+1}-${sha256.slice(0,16)}.png`);
         await writeFile(path,bytes);images.push({path,sha256,page:region.page,rect:[x/SCALE,y/SCALE,w/SCALE,h/SCALE],width:w,height:h});
       }
-      return {status:'generated',images,flags:['crop:human-completeness-and-answer-leak-review-required']};
-    }catch(error){return failedCrop(error instanceof Error?error.message:'crop:render-failed');}
+      return {status:'generated',images,flags};
   }
 }
 export function validateCrop(crop:QuestionCrop) {

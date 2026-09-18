@@ -1,6 +1,6 @@
 # Moderator reminders
 
-Reminders run in the Discord bot process, independently of inference, the AI service, its enable/disable state, tester allowlist and QOTD. All five `/reminder` actions require Manage Server, checked at runtime by Discord permissions. Responses are private to the moderator. Destinations are server text channels that both the moderator and bot can view and send in. Optional roles must belong to the server and be mentionable by the bot. No messages are generated or rewritten by AI.
+Reminders run in the Discord bot process, independently of inference, the AI service, its enable/disable state, tester allowlist and MPoTD. All five `/reminder` actions require Manage Server, checked at runtime by Discord permissions. Responses are private to the moderator. Destinations are server text channels that both the moderator and bot can view and send in. Optional roles must belong to the server and be mentionable by the bot. No messages are generated or rewritten by AI.
 
 ## Commands
 
@@ -26,7 +26,7 @@ The scheduler polls every 15 seconds, processes at most 25 due reminders per tic
 
 ## Persistence and ambiguous delivery
 
-`REMINDER_DB_PATH` is read from the isolated bot environment, defaulting to `data/reminders.development.sqlite` or `data/reminders.production.sqlite`. A bot-owned SQLite connection uses WAL and a busy timeout. Startup creates only `reminders`, its due-time index and `reminder_deliveries` in this database; AI/QOTD schemas and data are untouched. No database is opened merely by loading command definitions.
+`REMINDER_DB_PATH` is read from the isolated bot environment, defaulting to `data/reminders.development.sqlite` or `data/reminders.production.sqlite`. A bot-owned SQLite connection uses WAL and a busy timeout. Startup creates only `reminders`, its due-time index and `reminder_deliveries` in this database; AI/MPoTD schemas and data are untouched. No database is opened merely by loading command definitions.
 
 Claiming uses an immediate transaction and a conditional pending-state update, plus a unique `(reminder, due)` delivery reservation. The claim is durable **before** contacting Discord. Competing connections cannot claim the same occurrence. Discord messages also use a stable per-occurrence nonce with enforcement to reduce duplicates from transport retries. Success and recurrence advancement commit atomically.
 
@@ -38,7 +38,7 @@ Local WSL validation uses the pinned Bun runtime and the installed Python virtua
 
 1. Review/test, commit and push through the normal workflow. Back up persistent data using SQLite-aware backups. No production database was touched during implementation.
 2. For the current /opt/math-bot installation, the recommended bot setting is `REMINDER_DB_PATH=/opt/math-bot/data/reminders.production.sqlite`. Retain /opt/math-bot/data across in-place updates and ensure Unix user mathbot can write it. This is an absolute path independent of PM2 working-directory resolution. Use separate development storage.
-3. Current production uses Bun, python3 and PM2 under Unix user mathbot. During an authorized update, work in /opt/math-bot and use the existing PM2 process identity in that user account; process names are not specified here. Restart only the Discord bot for reminders. Do not use the future /srv release script or systemd instructions on this installation. First startup creates the additive reminder schema; no QOTD reset is required.
+3. Current production uses Bun, python3 and PM2 under Unix user mathbot. During an authorized update, work in /opt/math-bot and use the existing PM2 process identity in that user account; process names are not specified here. Restart only the Discord bot for reminders. Do not use the future /srv release script or systemd instructions on this installation. First startup creates the additive reminder schema; no MPoTD reset is required.
 4. Manually register changed command definitions (development first; production only during the intended rollout). Nothing registers on startup. Production uses `bun run commands:deploy:production` separately from deployment.
 5. In an approved test channel, manually create a near-future reminder without a role, verify timestamps/delivery and cancellation, then test the intended role and staff permissions. Live Discord sends were not performed during implementation.
 

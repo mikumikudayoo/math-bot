@@ -13,17 +13,17 @@ export function resetDevelopmentQotd(path:string,localRoot:string,mode:string,co
   if(process.platform==='linux')for(const pid of readdirSync('/proc').filter(p=>/^\d+$/.test(p)&&Number(p)!==process.pid)) {
     let descriptors:string[];try{descriptors=readdirSync(`/proc/${pid}/fd`);}catch{continue;}
     for(const fd of descriptors){let file:string;try{file=readlinkSync(`/proc/${pid}/fd/${fd}`);}catch{continue;}
-      if([target,target+'-wal',target+'-shm'].includes(file))throw new Error(`Close local QOTD process ${pid} before resetting.`);
+      if([target,target+'-wal',target+'-shm'].includes(file))throw new Error(`Close local MPoTD process ${pid} before resetting.`);
     }
   }
   const db=new DatabaseSync(target);
   let result;
   try {
     const names=db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r=>String(r.name));
-    if(!names.includes('qotd_questions')||names.some(n=>!n.startsWith('qotd_')))throw new Error('This is not an isolated QOTD database; nothing deleted.');
+    if(!names.includes('qotd_questions')||names.some(n=>!n.startsWith('qotd_')))throw new Error('This is not an isolated MPoTD database; nothing deleted.');
     result={reset:true,questions:Number(db.prepare('SELECT count(*) n FROM qotd_questions').get()!.n),approved:Number(db.prepare("SELECT count(*) n FROM qotd_questions WHERE state='approved'").get()!.n),history:Number(db.prepare('SELECT count(*) n FROM qotd_history').get()!.n)};
     const checkpoint=db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
-    if(checkpoint?.busy)throw new Error('QOTD database is busy; close local bot/review processes first.');
+    if(checkpoint?.busy)throw new Error('MPoTD database is busy; close local bot/review processes first.');
   }finally{db.close();}
   for(const file of [target,target+'-wal',target+'-shm'])if(existsSync(file))unlinkSync(file);
   return result;

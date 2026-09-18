@@ -46,7 +46,7 @@ const server = createReviewServer(
 
 console.log(
   [
-    `QOTD crop review: http://${host}:${server.port}`,
+    `MPoTD crop review: http://${host}:${server.port}`,
     `Database: ${settings.database}`,
     `Reviewers: ${reviewers.join(', ')}`,
     `Claim expiry: ${claimTtlMs / 60_000} minutes`,

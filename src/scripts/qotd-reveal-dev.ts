@@ -40,7 +40,7 @@ client.once('ready', async () => {
     const entry = store.historyEntry(guild, id);
 
     if (!entry) {
-      throw new Error(`Unknown QOTD post id ${id}.`);
+      throw new Error(`Unknown MPoTD post id ${id}.`);
     }
 
     const channel = await client.channels.fetch(
@@ -54,7 +54,7 @@ client.once('ready', async () => {
       !channel.isSendable()
     ) {
       throw new Error(
-        'Original QOTD channel is unavailable.',
+        'Original MPoTD channel is unavailable.',
       );
     }
 

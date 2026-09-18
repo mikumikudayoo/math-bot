@@ -1,3 +1,5 @@
+import { handleProblemComponent } from './problems/interactions.js';
+import { ProblemStore } from './problems/store.js';
 import { startQotd } from './qotd/posting.js';
 import { startReminders } from './reminders/scheduler.js';
 import { startDiscordTools } from './discord-tools.js';
@@ -34,6 +36,10 @@ async function main() {
   client.on(Events.InteractionCreate, async interaction => {
     if ((interaction.isButton() || interaction.isModalSubmit()) && interaction.customId.startsWith('qotd:')) {
       await handleQotdComponent(interaction,new Competition(qotdStore()),config.guildId);
+      return;
+    }
+    if ((interaction.isButton() || interaction.isModalSubmit()) && interaction.customId.startsWith('problem:')) {
+      await handleProblemComponent(interaction,new ProblemStore(qotdStore()),config.guildId);
       return;
     }
     if (!interaction.isChatInputCommand()) return;

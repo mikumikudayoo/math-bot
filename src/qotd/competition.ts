@@ -1,16 +1,17 @@
 import { randomBytes } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { QotdStore, Question } from './store.js';
-import type { QuestionCrop, ManualMetadata } from './types.js';
+import type { QuestionCrop, ManualMetadata, SolutionSource } from './types.js';
+import { bindSolutionSource } from './solutions.js';
 import { validateCrop } from './crops.js';
 import { grade, validateGrading, type GradingConfig } from './grading.js';
 import { DEFAULT_SCORING, scoreSubmission, validateScoring, type ScoringConfig, type ScoreContext } from './scoring.js';
 import { dayTimes, periods, manilaDay } from './periods.js';
 
-export const CLOSED = "Submissions for today's QOTD are closed.";
+export const CLOSED = "Submissions for today's MPoTD are closed.";
 export interface PublicSource { competition?: string; edition?: string; year?: number; level?: string; set?: string; number: number; questionPage: number; solutionPage: number | null }
 export interface QuestionSettings { grading: GradingConfig; scoring?: ScoringConfig; difficulty?: string; solutionCrop?: QuestionCrop; publicSource?: PublicSource }
-export interface Snapshot { questionType: string; expectedAnswer: string; solution: string; questionCrop: QuestionCrop; solutionCrop?: QuestionCrop; source: PublicSource; grading: GradingConfig; scoring: ScoringConfig; difficulty?: string }
+export interface Snapshot { questionType: string; expectedAnswer: string; solution: string; questionCrop: QuestionCrop; solutionCrop?: QuestionCrop; solutionSource?: SolutionSource; source: PublicSource; grading: GradingConfig; scoring: ScoringConfig; difficulty?: string }
 export interface Session { id: number; guild: string; channel: string; day: string; message: string | null; historyState: string; openedAt: number; closesAt: number; revealAt: number; revealedAt: number | null; thread: string | null; state: string; disabled: number; scoredAt: number | null; snapshot: Snapshot; notices: string[] }
 export interface Result { user: string; answer: string; submittedAt: number; correct: number | null; placement: number | null; points: number | null; context: string | null }
 
@@ -86,9 +87,11 @@ export class Competition {
       const config: QuestionSettings = saved ? JSON.parse(String(saved.config)) : { grading: { mode: 'exact_text', answers: [q.officialAnswer.trim()] } };
       validateGrading(config.grading);
       const occurrence = this.store.occurrences(q.id)[0];
+      const solutionSource=bindSolutionSource(occurrence,q.officialAnswer,q.officialSolution);
       const source = config.publicSource ?? publicSource(q, occurrence ? JSON.parse(String(occurrence.metadata)) as ManualMetadata : undefined);
       const snapshot: Snapshot = { questionType: q.kind, expectedAnswer: q.officialAnswer, solution: q.officialSolution,
-        questionCrop: q.crop, source, grading: config.grading, scoring: config.scoring ?? DEFAULT_SCORING,
+        questionCrop: q.crop, source, grading: config.grading, scoring: DEFAULT_SCORING,
+        ...(solutionSource ? {solutionSource} : {}),
         ...(config.solutionCrop ? { solutionCrop: config.solutionCrop } : {}), ...(config.difficulty ? { difficulty: config.difficulty } : {}) };
       const p = periods(day), notices: string[] = [];
       for (const [kind, period, text] of [['week', p.week, 'Weekly leaderboard reset.'], ['month', p.month, 'Monthly leaderboard reset.']] as const) {
@@ -105,7 +108,7 @@ export class Competition {
   }
   active(id: number, guild: string, channel: string, message: string, now: number) {
     const s = this.session(id);
-    if (!s || s.guild !== guild || s.channel !== channel || s.message !== message || s.historyState !== 'posted') throw new Error('This is not the active main QOTD message.');
+    if (!s || s.guild !== guild || s.channel !== channel || s.message !== message || s.historyState !== 'posted') throw new Error('This is not the active main MPoTD message.');
     if (s.state !== 'active' || now < s.openedAt || now >= s.closesAt || this.db.prepare('SELECT 1 FROM qotd_sessions n JOIN qotd_history h ON h.id=n.id WHERE h.guild=? AND n.id>?').get(guild,id)) throw new Error(CLOSED);
     return s;
   }
@@ -155,7 +158,7 @@ export class Competition {
           participantCount: rows.length, correctCount, questionType: s.snapshot.questionType,
           ...(s.snapshot.difficulty ? { difficulty: s.snapshot.difficulty } : {}) };
         this.db.prepare('UPDATE qotd_submissions SET correct=?,placement=?,points=?,context=? WHERE qotd=? AND user=?')
-          .run(Number(r.correct), context.placement, scoreSubmission(context,s.snapshot.scoring), JSON.stringify(context), id, r.user);
+          .run(Number(r.correct), context.placement, scoreSubmission(context,DEFAULT_SCORING), JSON.stringify(context), id, r.user);
       }
       this.db.prepare("UPDATE qotd_sessions SET state='closed',scoredAt=? WHERE id=?").run(now,id);
       return this.results(id);

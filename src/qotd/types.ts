@@ -23,6 +23,20 @@ export interface ParsedQuestion {
   flags: string[];
   questionRange?: { start: { page: number; line: number }; end: { page: number; line: number } | null; separateListing: boolean };
   crop?: QuestionCrop;
+  solutionRange?: SolutionRange;
+}
+// PDF.js text-line anchors, not question-sized pixel rectangles. Null end means
+// the final solution continues to the end of solutionEndPage.
+export interface SolutionRange {
+  start: { page: number; line: number };
+  end: { page: number; line: number } | null;
+}
+export interface SolutionSource {
+  sourceId: string;
+  number: number;
+  solutionPage: number;
+  solutionEndPage: number;
+  range?: SolutionRange;
 }
 export interface CropImage {
   path: string;

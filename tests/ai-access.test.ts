@@ -102,12 +102,12 @@ test('tester reply chains and mention-replies share one submission path',async()
     assert.equal(mock.calls.filter(x=>x.path==='/jobs').length,1);assert.equal((mock.calls.find(x=>x.path==='/jobs')?.body as {parent:string}).parent,'789012345678901234');
   }
 });
-test('ordinary commands stay outside tester admission; QOTD public subcommands are discoverable',async()=>{
+test('ordinary commands stay outside tester admission; MPoTD public subcommands are discoverable',async()=>{
   const commands=loadCommands(undefined,()=>({aiTesterUserIds:[]}));const call=interaction(other);
   await commands.get('ping')!.execute(call.value);assert.match(call.replies[0]!.content,/pong/);
-  for(const name of ['ping','filter','qotd'])assert.equal(commands.get(name)!.access,undefined);
+  for(const name of ['ping','filter','mpotd','problem'])assert.equal(commands.get(name)!.access,undefined);
   assert.equal(commands.get('filter')!.data.toJSON().default_member_permissions,PermissionFlagsBits.ManageMessages.toString());
-  assert.equal(commands.get('qotd')!.data.toJSON().default_member_permissions,undefined);
+  assert.equal(commands.get('mpotd')!.data.toJSON().default_member_permissions,undefined);
 });
 test('private command definitions are default-disabled; allowlist is never published in command JSON',()=>{
   const definitions=JSON.parse(commandJSON()) as {name:string;default_member_permissions?:string}[];

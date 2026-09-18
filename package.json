@@ -28,7 +28,8 @@
     "qotd:reveal-dev": "BOT_ENV=development bun src/scripts/qotd-reveal-dev.ts",
     "aleph:generate": "bun src/scripts/aleph-dataset.ts generate",
     "aleph:validate": "bun src/scripts/aleph-dataset.ts validate",
-    "aleph:split": "bun src/scripts/aleph-dataset.ts split"
+    "aleph:split": "bun src/scripts/aleph-dataset.ts split",
+    "problems:simulate": "bun src/scripts/problems-simulate.ts"
   },
   "dependencies": {
     "@napi-rs/canvas": "1.0.9",

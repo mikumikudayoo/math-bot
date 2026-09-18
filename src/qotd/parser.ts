@@ -75,11 +75,25 @@ export function parseManual(pages: string[]): ParsedManual {
     const officialSolution = solution ? rawSolution.slice(solution.index + solution[0].length) : '';
     const solutionLine = solution ? rawSolution.slice(0, solution.index + solution[0].length).split('\n').length - 1 : -1;
     const next = blocks[blocks.indexOf(b) + 1];
+    const solutionStart = s?.lines[solutionLine];
+    const nextSolution = s ? blocks[blocks.indexOf(s) + 1] : undefined;
+    // Question listings and worked solutions use different line widths. Compare
+    // the shared first-line prefix, not an identical physical line wrap.
+    const reliableEnd = !nextSolution || questionBlocks.some(q => {
+      if(q.number!==nextSolution.number) return false;
+      const a=normalize(q.lines[0]!.text),b=normalize(nextSolution.lines[0]!.text);
+      return a===b || Math.min(a.length,b.length)>=20 && (a.startsWith(b)||b.startsWith(a));
+    }) &&
+      nextSolution.lines.some(l=>/^\s*Answer\s*:/i.test(l.text)) && nextSolution.lines.some(l=>/^\s*Solution\s*[:.]/i.test(l.text));
     questions.push({ number: b.number, section: b.section, text: extracted.text, choices: extracted.choices,
       kind: extracted.choices.length ? 'mcq' : 'open', officialAnswer, officialSolution,
       questionPage: b.page, questionEndPage: b.lines.at(-1)?.page ?? b.page,
       solutionPage: s ? s.lines[solutionLine]?.page ?? s.page : null,
       solutionEndPage: s?.lines.at(-1)?.page ?? null, rawQuestion, rawSolution, flags,
+      ...(solutionStart && candidates.length === 1 && reliableEnd ? { solutionRange: {
+        start: { page: solutionStart.page, line: solutionStart.index },
+        end: nextSolution ? { page: nextSolution.page, line: nextSolution.lines[0]!.index } : null,
+      } } : {}),
       questionRange: { start: { page: b.page, line: b.lines[0]!.index },
         end: next ? { page: next.page, line: next.lines[0]!.index } : null, separateListing: b !== s && split >= 0 } });
   }

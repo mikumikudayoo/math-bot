@@ -87,7 +87,7 @@ test('immediate daily posting shows crops, private button and only the configure
     for(const q of store.list())store.review(q.id,'approved','operator',true,true);
     const role='123456789012345678';const mcq=store.list('approved').find(q=>q.kind==='mcq')!;
     const payload=questionMessage(mcq,'2026-09-13',role);
-    assert.ok(payload.content!.startsWith(`<@&${role}> **New Question of the Day!**`));
+    assert.ok(payload.content!.startsWith(`<@&${role}> **New Math Problem of the Day!**`));
     assert.deepEqual(payload.allowedMentions,{parse:[],roles:[role]});assert.equal(payload.poll,undefined);assert.equal(payload.components!.length,1);
     assert.equal(payload.files!.length,mcq.crop.images.length);assert.ok(!JSON.stringify(payload).includes(mcq.text));assert.ok(!JSON.stringify(payload).includes(mcq.officialSolution));
     const open=store.list('approved').find(q=>q.kind==='open')!;assert.equal(questionMessage(open).poll,undefined);

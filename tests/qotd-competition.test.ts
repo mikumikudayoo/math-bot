@@ -74,10 +74,10 @@ test('exact, normalized and configured multiple-choice aliases; no AI dependency
   for(const answer of ['A','a','option a'])assert.equal(grade(answer,{mode:'multiple_choice',answers:['A','option A']}),true);
   assert.equal(grade('option a',{mode:'multiple_choice',answers:['A']}),false);
 });
-test('centralized scoring has a modest configurable speed bonus and worthwhile late points',()=>{
+test('daily scoring awards flat ten regardless of submission speed',()=>{
   const context:ScoreContext={correct:true,openedAt:0,submittedAt:30_000,elapsedSeconds:30,placement:1,participantCount:70,correctCount:20,questionType:'open'};
-  assert.equal(scoreSubmission(context),11.983);
-  assert.equal(scoreSubmission({...context,elapsedSeconds:240}),11.867);
+  assert.equal(scoreSubmission(context),10);
+  assert.equal(scoreSubmission({...context,elapsedSeconds:240}),10);
   assert.equal(scoreSubmission({...context,elapsedSeconds:40000}),10);
   assert.equal(scoreSubmission({...context,correct:false}),0);
   assert.equal(scoreSubmission(context,{...DEFAULT_SCORING,basePoints:20,speedBonus:0}),20);
@@ -123,7 +123,7 @@ test('button opens modal and private first/replacement responses never reveal co
     let modal:any;const replies:any[]=[];
     const button:any={isButton:()=>true,isModalSubmit:()=>false,customId:`qotd:answer:${s.id}`,guildId:guild,channelId:channel,message:{id:message},user:{id:users[0]},showModal:async(m:any)=>{modal=m.toJSON();},reply:async(p:any)=>replies.push(p)};
     assert.equal(await handleQotdComponent(button,c),true);
-    assert.equal(modal.title,'Submit QOTD Answer');assert.equal(modal.components[0].components[0].placeholder,'Enter your final answer...');
+    assert.equal(modal.title,'Submit MPoTD Answer');assert.equal(modal.components[0].components[0].placeholder,'Enter your final answer...');
     const interaction:any={...button,isButton:()=>false,isModalSubmit:()=>true,customId:modal.custom_id,fields:{getTextInputValue:()=> '94'}};
     await handleQotdComponent(interaction,c);
     assert.equal(replies[0].flags,MessageFlags.Ephemeral);assert.match(replies[0].content,/Answer submitted! 🔒/);assert.doesNotMatch(replies[0].content,/correct|incorrect/);
@@ -320,13 +320,13 @@ test('public subcommands are allowed for ordinary members, moderator actions are
   let reply:any;const i:any={inGuild:()=>true,memberPermissions:{has:()=>false},options:{getSubcommand:()=> 'reset'},reply:async(p:any)=>{reply=p;}};
   await qotd.execute(i);assert.match(reply.content,/manage server/);assert.equal(reply.flags,MessageFlags.Ephemeral);
 });
-test('configured scoring can change future days without changing persisted past totals',()=>{
+test('new daily events use flat ten even with legacy overrides; past totals stay unchanged',()=>{
   const {store,c}=setup();try{
     const first=start(c);submit(c,first.id,'94',times.opensAt+1000);c.score(first.id,times.revealAt);
     const original=c.leaderboard(guild,'total',day)[0]!.points;
     const q=store.list('approved').find(q=>q.id!==String(store.history(guild)[0]!.question))!;
     c.configure(q.id,{grading:{mode:'numeric',value:'94'},scoring:{...DEFAULT_SCORING,basePoints:25,speedBonus:0}},'mod');
     const next=start(c,'2026-09-15'),nextTimes=dayTimes(next.day);submit(c,next.id,'94',nextTimes.opensAt+1000);c.score(next.id,nextTimes.revealAt);
-    assert.equal(c.results(next.id)[0]!.points,25);assert.equal(c.leaderboard(guild,'total',next.day)[0]!.points,Math.round((original+25)*1000)/1000);
+    assert.equal(c.results(next.id)[0]!.points,10);assert.equal(c.leaderboard(guild,'total',next.day)[0]!.points,Math.round((original+10)*1000)/1000);
   }finally{store.close();}
 });

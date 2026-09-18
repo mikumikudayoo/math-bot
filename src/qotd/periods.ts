@@ -1,7 +1,7 @@
 export const manilaDay = (date = new Date()) => new Date(date.getTime() + 8 * 3600_000).toISOString().slice(0,10);
 export function periods(day: string) {
   const date = new Date(`${day}T00:00:00Z`);
-  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0,10) !== day) throw new Error('Invalid QOTD date.');
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0,10) !== day) throw new Error('Invalid MPoTD date.');
   date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7);
   const week = date.toISOString().slice(0,10);
   date.setUTCDate(date.getUTCDate() + 6);

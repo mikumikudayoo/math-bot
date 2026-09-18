@@ -12,9 +12,9 @@ Python tools use `.venv/bin/python`. On a new machine run `bash scripts/setup-py
 
 ## Commands
 
-QOTD now uses one private answer modal from the main question message, with final-answer replacement until 21:59:59 Manila and deterministic results at 22:00. `/qotd leaderboard` and `/qotd stats [user]` are public; other QOTD actions still require Manage Server. See [the QOTD runbook](qotd.md) for grading/scoring configuration, solution crops, participant mention consent, additive SQLite v2-to-v3 migration, uncertain-delivery recovery and the manual VPS rollout checklist. Redeploy slash definitions manually for the new subcommands/permissions. Preserve the database and assets; do not run a reset as part of this upgrade.
+MPoTD now uses one private answer modal from the main question message, with final-answer replacement until 21:59:59 Manila and deterministic results at 22:00. `/mpotd leaderboard` and `/mpotd stats [user]` are public; other MPoTD actions still require Manage Server. See [the MPoTD runbook](qotd.md) for grading/scoring configuration, solution crops, participant mention consent, additive SQLite v2-to-v3 migration, uncertain-delivery recovery and the manual VPS rollout checklist. Redeploy slash definitions manually for the new subcommands/permissions. Preserve the database and assets; do not run a reset as part of this upgrade.
 
-The study commands `/ask`, `/calculate`, `/plot`, `/python`, `/cancel`, `/queue`, and every `/ai` subcommand require the tester allowlist during private testing. This includes deterministic tools in the shared study suite. `/ping`, `/filter`, and `/qotd` do not require tester access; QOTD's public and moderator permissions are described above.
+The study commands `/ask`, `/calculate`, `/plot`, `/python`, `/cancel`, `/queue`, and every `/ai` subcommand require the tester allowlist during private testing. This includes deterministic tools in the shared study suite. `/ping`, `/filter`, and `/mpotd` do not require tester access; MPoTD's public and moderator permissions are described above.
 
 | Command | Purpose |
 | --- | --- |
@@ -75,7 +75,7 @@ Docker is not installed by this change. Build the local image with `docker build
 
 The current app directory is `/opt/math-bot`, using Bun and `python3`. PM2 processes run under Unix user `mathbot`; use that account and its existing process identities for authorized updates. Current production does not use `/srv/math-bot/current` or systemd. Keep `PYTHON_EXECUTABLE=python3` for current production; local WSL validation may use `.venv/bin/python`.
 
-Recommended current reminder storage is `REMINDER_DB_PATH=/opt/math-bot/data/reminders.production.sqlite`. Retain this directory across in-place updates and ensure `mathbot` can write it. Preserve existing AI/QOTD database and asset settings. Do not overwrite live secrets with example files. Updates and command registration remain manual; the future release script below is not the current PM2 update procedure.
+Recommended current reminder storage is `REMINDER_DB_PATH=/opt/math-bot/data/reminders.production.sqlite`. Retain this directory across in-place updates and ensure `mathbot` can write it. Preserve existing AI/MPoTD database and asset settings. Do not overwrite live secrets with example files. Updates and command registration remain manual; the future release script below is not the current PM2 update procedure.
 
 ## Future target: /srv/math-bot exact-SHA manual rollout (not yet in use)
 

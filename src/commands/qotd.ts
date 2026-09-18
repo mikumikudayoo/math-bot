@@ -6,11 +6,11 @@ import { postDaily, qotdStore, revealAnswer } from '../qotd/posting.js';
 import { Competition } from '../qotd/competition.js';
 import { leaderboardText, statsText } from '../qotd/standings.js';
 export const qotd: Command = {
-  data:new SlashCommandBuilder().setName('qotd').setDescription('Daily math questions and results.')
-    .addSubcommand(s=>s.setName('leaderboard').setDescription('Show total, monthly and weekly QOTD standings.'))
-    .addSubcommand(s=>s.setName('stats').setDescription('Show QOTD participation and scores.').addUserOption(o=>o.setName('user').setDescription('Whose stats to show (defaults to you)')))
+  data:new SlashCommandBuilder().setName('mpotd').setDescription('Daily math questions and results.')
+    .addSubcommand(s=>s.setName('leaderboard').setDescription('Show total, monthly and weekly MPoTD standings.'))
+    .addSubcommand(s=>s.setName('stats').setDescription('Show MPoTD participation and scores.').addUserOption(o=>o.setName('user').setDescription('Whose stats to show (defaults to you)')))
     .addSubcommand(s=>s.setName('post').setDescription('Post today’s approved unused question in this channel.'))
-    .addSubcommand(s=>s.setName('reveal').setDescription('Reveal today’s official answer after the QOTD window.')
+    .addSubcommand(s=>s.setName('reveal').setDescription('Reveal today’s official answer after the MPoTD window.')
       .addIntegerOption(o=>o.setName('post-id').setDescription('Post number shown by history').setMinValue(1).setRequired(true)))
     .addSubcommand(s=>s.setName('history').setDescription('Show recent posts and uncertain reservations.'))
     .addSubcommand(s=>s.setName('schedule').setDescription('Set automatic daily posting (UTC).')
@@ -34,10 +34,10 @@ export const qotd: Command = {
       const target = i.options.getUser('user') ?? i.user;
       const alephZeroId = process.env.DISCORD_APPLICATION_ID;
       if (action === 'stats' && target.bot && target.id !== alephZeroId) {
-        await i.editReply({content:"Bots aren't included in QOTD statistics.",allowedMentions:{parse:[]}});return;
+        await i.editReply({content:"Bots aren't included in MPoTD statistics.",allowedMentions:{parse:[]}});return;
       }
       if (action === 'stats' && target.id === alephZeroId) {
-        await i.editReply({content:`**QOTD Stats for <@${target.id}>**
+        await i.editReply({content:`**MPoTD Stats for <@${target.id}>**
 
 total: ∞ points · rank #0
 month: ∞ points · rank #0
@@ -59,9 +59,9 @@ Accuracy: ∞%
       await i.editReply(await postDaily(store,i.guildId!,i.channelId,payload=>channel.send(payload),undefined,(store.db.prepare('SELECT role FROM qotd_schedule WHERE guild=?').get(i.guildId!)?.role as string | undefined) ?? qotdSettings().role));
     } else if (action === 'reveal') {
       const id=i.options.getInteger('post-id',true);const entry=store.historyEntry(i.guildId!,id);
-      if(!entry)throw new Error('Unknown QOTD post.');
+      if(!entry)throw new Error('Unknown MPoTD post.');
       const channel=await i.client.channels.fetch(String(entry.channel));
-      if(!channel || !('guildId' in channel) || channel.guildId!==i.guildId || !channel.isSendable())throw new Error('Original QOTD channel is unavailable.');
+      if(!channel || !('guildId' in channel) || channel.guildId!==i.guildId || !channel.isSendable())throw new Error('Original MPoTD channel is unavailable.');
       await i.editReply(await revealAnswer(store,i.guildId!,id,i.user.id,payload=>channel.send(payload)));
     } else if (action === 'history') {
       const rows = store.history(i.guildId!);

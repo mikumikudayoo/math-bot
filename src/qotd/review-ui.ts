@@ -186,7 +186,7 @@ export function createReviewServer(
   name="viewport"
   content="width=device-width,initial-scale=1"
 >
-<title>QOTD Review</title>
+<title>MPoTD Review</title>
 
 <style>
 :root {
@@ -619,7 +619,7 @@ kbd {
 <body>
 
 <header>
-  <h1>📚 QOTD Review</h1>
+  <h1>📚 MPoTD Review</h1>
 
   <label>
     Reviewer:

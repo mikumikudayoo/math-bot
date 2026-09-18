@@ -9,9 +9,9 @@ No commands are registered or deployed by startup or by these changes.
 
 Moderator checks use role `1419154303326621739`, the authenticated creator
 `821682594830614578`, or the command's existing stronger Discord permission
-(Manage Server; Manage Messages for filters). Existing QOTD, reminder, filter and
+(Manage Server; Manage Messages for filters). Existing MPoTD, reminder, filter and
 AI administration now recognize the role. AI administration still additionally
-requires tester admission. Public QOTD statistics and ordinary commands keep
+requires tester admission. Public MPoTD statistics and ordinary commands keep
 their existing access. User-provided IDs/names never authenticate an actor.
 
 New admin commands default to disabled in Discord command permissions. An
@@ -24,7 +24,7 @@ defaults also need a role override when the role lacks their permission bit.
 granted access as a database administrator. To avoid Manage Server in an unrelated
 guild granting global access, SQL requires the moderator role itself, the creator,
 or stronger permission in the guild that actually contains that specific role.
-The creator must still use SQL in a guild. Other QOTD commands stay guild-scoped.
+The creator must still use SQL in a guild. Other MPoTD commands stay guild-scoped.
 
 ## Owner-managed testers
 
@@ -48,12 +48,12 @@ Discord tool dispatch. Mention prompting still also requires message features.
 A failed runtime-store read denies dynamic admission; static IDs remain valid.
 Service authentication, queue and coach policies remain independent.
 
-## QOTD correction
+## MPoTD correction
 
-- `/qotd-admin view user:<member>` — derived stats and last ten finalized records.
-- `/qotd-admin set user:<member> post:<id> points:<number> [correct:<bool>]`
-- `/qotd-admin add user:<member> post:<id> points:<signed delta> [correct:<bool>]`
-- `/qotd-admin reset user:<member> confirm:true`
+- `/mpotd-admin view user:<member>` — derived stats and last ten finalized records.
+- `/mpotd-admin set user:<member> post:<id> points:<number> [correct:<bool>]`
+- `/mpotd-admin add user:<member> post:<id> points:<signed delta> [correct:<bool>]`
+- `/mpotd-admin reset user:<member> confirm:true`
 
 Points and correctness can be supplied independently. Corrections target an
 existing **scored** submission in the current guild, never an active answer.
@@ -85,7 +85,7 @@ The separate command avoids unsupported four-level Discord command nesting.
 - `/sql run database:qotd command:SELECT ...`
 - `/sql audit` — last ten admin entries for the invoking guild, bounded.
 
-Registry paths come only from the existing isolated bot/QOTD/AI configuration,
+Registry paths come only from the existing isolated bot/MPoTD/AI configuration,
 never Discord input. Missing database files are not created by SQL. `admin` is
 not selectable: its tester registry and audit trail cannot be altered via SQL.
 Configuring its path to alias a selectable database disables registry access.
@@ -134,8 +134,8 @@ is retained deliberately for accountability: **never paste tokens, passwords or
 other secrets into SQL**. Protect the DB and backups as sensitive. No raw SQL is
 printed in ordinary logs. Recent audit output is ephemeral and guild-filtered.
 
-Tester mutations and their audit are in one transaction. QOTD mutations record
-before/after target records (including answers), actor and action. SQL/QOTD data
+Tester mutations and their audit are in one transaction. MPoTD mutations record
+before/after target records (including answers), actor and action. SQL/MPoTD data
 and audit are separate databases, so a crash after commit can leave an attempt
 without completion. Inspect such attempts; do not blindly retry. If initial audit
 storage is unavailable, these commands stop before mutation. Completion audit
