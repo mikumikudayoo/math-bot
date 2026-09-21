@@ -10,7 +10,7 @@ import { QotdStore } from '../src/qotd/store.js';
 import { Competition, CLOSED } from '../src/qotd/competition.js';
 import { parseManual, hash } from '../src/qotd/parser.js';
 import { grade, type GradingConfig } from '../src/qotd/grading.js';
-import { DEFAULT_SCORING, scoreSubmission, type ScoreContext } from '../src/qotd/scoring.js';
+import { DEFAULT_SCORING, FLAT_SCORING, scoreSubmission, type ScoreContext } from '../src/qotd/scoring.js';
 import { dayTimes, periods, manilaDay } from '../src/qotd/periods.js';
 import { postDaily, revealAnswer, revealMessages, disableAnswerButton, qotdScheduler } from '../src/qotd/posting.js';
 import { handleQotdComponent, answerModal } from '../src/qotd/components.js';
@@ -74,13 +74,18 @@ test('exact, normalized and configured multiple-choice aliases; no AI dependency
   for(const answer of ['A','a','option a'])assert.equal(grade(answer,{mode:'multiple_choice',answers:['A','option A']}),true);
   assert.equal(grade('option a',{mode:'multiple_choice',answers:['A']}),false);
 });
-test('daily scoring awards flat ten regardless of submission speed',()=>{
-  const context:ScoreContext={correct:true,openedAt:0,submittedAt:30_000,elapsedSeconds:30,placement:1,participantCount:70,correctCount:20,questionType:'open'};
-  assert.equal(scoreSubmission(context),10);
-  assert.equal(scoreSubmission({...context,elapsedSeconds:240}),10);
-  assert.equal(scoreSubmission({...context,elapsedSeconds:40000}),10);
-  assert.equal(scoreSubmission({...context,correct:false}),0);
-  assert.equal(scoreSubmission(context,{...DEFAULT_SCORING,basePoints:20,speedBonus:0}),20);
+test("first-correct scoring uses the first correct answer and reveal deadline",()=>{
+  const context:ScoreContext={
+    correct:true,openedAt:0,submittedAt:30_000,elapsedSeconds:30,
+    placement:1,participantCount:70,correctCount:20,questionType:"open",
+    firstCorrectAt:30_000,revealAt:90_000
+  };
+  assert.equal(scoreSubmission(context),15);
+  assert.equal(scoreSubmission({...context,submittedAt:60_000}),12.5);
+  assert.equal(scoreSubmission({...context,submittedAt:89_999}),10);
+  assert.equal(scoreSubmission({...context,correct:false,firstCorrectAt:null}),0);
+  assert.equal(scoreSubmission(context,FLAT_SCORING),10);
+  assert.throws(()=>scoreSubmission({...context,firstCorrectAt:null}),/scoring window/);
 });
 for(const answers of [['94','92'],['92','94'],['94','92','94']]) {
   test(`latest answer and timestamp win: ${answers.join(' -> ')}`,()=>{
@@ -320,13 +325,27 @@ test('public subcommands are allowed for ordinary members, moderator actions are
   let reply:any;const i:any={inGuild:()=>true,memberPermissions:{has:()=>false},options:{getSubcommand:()=> 'reset'},reply:async(p:any)=>{reply=p;}};
   await qotd.execute(i);assert.match(reply.content,/manage server/);assert.equal(reply.flags,MessageFlags.Ephemeral);
 });
-test('new daily events use flat ten even with legacy overrides; past totals stay unchanged',()=>{
+test('new daily events use v2 even with question overrides; past totals stay unchanged',()=>{
   const {store,c}=setup();try{
     const first=start(c);submit(c,first.id,'94',times.opensAt+1000);c.score(first.id,times.revealAt);
     const original=c.leaderboard(guild,'total',day)[0]!.points;
     const q=store.list('approved').find(q=>q.id!==String(store.history(guild)[0]!.question))!;
     c.configure(q.id,{grading:{mode:'numeric',value:'94'},scoring:{...DEFAULT_SCORING,basePoints:25,speedBonus:0}},'mod');
     const next=start(c,'2026-09-15'),nextTimes=dayTimes(next.day);submit(c,next.id,'94',nextTimes.opensAt+1000);c.score(next.id,nextTimes.revealAt);
-    assert.equal(c.results(next.id)[0]!.points,10);assert.equal(c.leaderboard(guild,'total',next.day)[0]!.points,Math.round((original+10)*1000)/1000);
+    assert.equal(c.results(next.id)[0]!.points,15);assert.equal(c.leaderboard(guild,'total',next.day)[0]!.points,Math.round((original+15)*1000)/1000);
   }finally{store.close();}
+});
+
+test("existing flat-ten session remains flat after the default changes",()=>{
+  const {store,c}=setup();
+  try {
+    const s=start(c);
+    const oldSnapshot={...s.snapshot,scoring:FLAT_SCORING};
+    store.db.prepare("UPDATE qotd_sessions SET snapshot=? WHERE id=?")
+      .run(JSON.stringify(oldSnapshot),s.id);
+    submit(c,s.id,"94",times.opensAt+1000);
+    const rows=c.score(s.id,times.revealAt);
+    assert.equal(rows[0]!.points,10);
+    assert.equal(c.score(s.id,times.revealAt+1000)[0]!.points,10);
+  } finally {store.close();}
 });

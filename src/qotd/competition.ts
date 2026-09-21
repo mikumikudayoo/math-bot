@@ -151,14 +151,16 @@ export class Competition {
       if (s.scoredAt !== null) return this.results(id);
       const rows = this.results(id).sort((a,b) => a.submittedAt - b.submittedAt || (a.user < b.user ? -1 : a.user > b.user ? 1 : 0));
       const graded = rows.map(r => ({ ...r, correct: grade(r.answer,s.snapshot.grading) }));
-      const correctCount = graded.filter(r => r.correct).length; let placement = 0;
+      const correctCount = graded.filter(r => r.correct).length;
+      const firstCorrectAt = graded.find(r => r.correct)?.submittedAt ?? null;
+      let placement = 0;
       for (const r of graded) {
         const context: ScoreContext = { correct: r.correct, openedAt: s.openedAt, submittedAt: r.submittedAt,
-          elapsedSeconds: Math.max(0,(r.submittedAt-s.openedAt)/1000), placement: r.correct ? ++placement : null,
+          elapsedSeconds: Math.max(0,(r.submittedAt-s.openedAt)/1000), firstCorrectAt, revealAt: s.revealAt, placement: r.correct ? ++placement : null,
           participantCount: rows.length, correctCount, questionType: s.snapshot.questionType,
           ...(s.snapshot.difficulty ? { difficulty: s.snapshot.difficulty } : {}) };
         this.db.prepare('UPDATE qotd_submissions SET correct=?,placement=?,points=?,context=? WHERE qotd=? AND user=?')
-          .run(Number(r.correct), context.placement, scoreSubmission(context,DEFAULT_SCORING), JSON.stringify(context), id, r.user);
+          .run(Number(r.correct), context.placement, scoreSubmission(context,s.snapshot.scoring), JSON.stringify(context), id, r.user);
       }
       this.db.prepare("UPDATE qotd_sessions SET state='closed',scoredAt=? WHERE id=?").run(now,id);
       return this.results(id);
