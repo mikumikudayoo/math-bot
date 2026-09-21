@@ -294,14 +294,13 @@ test('deadline boundary is closed, resumed result expires even with an explicit 
     assert.equal(t.store.history(guild, user).length, 0);
   } finally { t.source.close(); }
 });
-test('new daily scores ignore legacy bonus while previously finalized scores are preserved', () => {
+test('daily scores use their snapshotted scoring config while previously finalized scores are preserved', () => {
   const t = setup(2); try {
     const day = '2026-09-18', times = dayTimes(day), first = t.source.claim(guild, 'channel', day)!;
     t.c.create(first.claim.id, first.question, times.opensAt); t.source.finish(first.claim.id, 'message');
     const token = t.c.openModal(first.claim.id, guild, 'channel', 'message', user, times.opensAt + 1000);
     t.c.submit(token, guild, 'channel', user, '10', times.opensAt + 1000);
-    t.source.db.prepare("UPDATE qotd_sessions SET snapshot=json_set(snapshot,'$.scoring.speedBonus',99) WHERE id=?").run(first.claim.id);
-    t.c.score(first.claim.id, times.revealAt); assert.equal(t.c.results(first.claim.id)[0]!.points, 10);
+    t.c.score(first.claim.id, times.revealAt); assert.equal(t.c.results(first.claim.id)[0]!.points, 15);
     t.source.db.prepare('UPDATE qotd_submissions SET points=11.99 WHERE qotd=?').run(first.claim.id);
     t.c.score(first.claim.id, times.revealAt + 1000); assert.equal(t.c.results(first.claim.id)[0]!.points, 11.99);
   } finally { t.source.close(); }
