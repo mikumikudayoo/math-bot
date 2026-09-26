@@ -172,7 +172,13 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
 
       spend();
       status('searching Discord');
-      const output=await io.discord(job,'discord_search',{query,limit:5,excludeMessageIds:store.previousLookupMessageIds(job),...(/\bwhat did i say\b/i.test(contextPrompt)?{authorId:job.user}:{})},signal);
+      let output:unknown;
+      try {
+        output=await io.discord(job,'discord_search',{query,limit:5,excludeMessageIds:store.previousLookupMessageIds(job),...(/\bwhat did i say\b/i.test(contextPrompt)?{authorId:job.user}: /\bwhat did emu say\b/i.test(contextPrompt)?{authorId:CREATOR_ID}:{})},signal);
+      } catch (error) {
+        if(signal.aborted)throw error;
+        return {answer:'discord search is unavailable right now.'};
+      }
       const data=output as {
         type?:string;
         results?:{url?:string;author?:{id?:string};[key:string]:unknown}[];
@@ -212,7 +218,7 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
           type:'TOOL_RESULT',
           tool:'discord_search',
           result:data,
-          instruction:'Select one returned message that actually answers the original question. Return ONLY JSON with messageId and support. support must be an exact relevant substring of that message, 8-280 characters. Do not write an answer or invent text. If none answers the question, return {"insufficient":true}.'
+          instruction:'Select up to five returned passages that together answer the original question, preserving disagreements. Return ONLY JSON {"claims":[{"messageId":"returned ID","support":"exact relevant excerpt"}]}. Each support must be an exact substring of its message, 8-280 characters. Do not write unsupported prose or invent text. One messageId/support object is also accepted. If none answers the question, return {"insufficient":true}.'
         })
       });
     }
