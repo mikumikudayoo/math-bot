@@ -86,6 +86,15 @@ test('reveal automatically attaches source solution crop, retains normal answer/
     await revealAnswer(store,guild,s.id,'mod',async()=>{throw new Error('duplicate send');},times.revealAt);
   }finally{store.close();await f.close();}
 });
+test('cached question crop recovers a distinct solution from the verified PDF',async()=>{
+  const f=await fixture();const {store,c,s}=session(f);try{
+    s.snapshot.solutionCrop=s.snapshot.questionCrop;
+    const prepared=await prepareSolutionCrop(c,s);
+    assert.notEqual(prepared.snapshot.solutionCrop!.images[0]!.sha256,s.snapshot.questionCrop.images[0]!.sha256);
+    assert.equal(prepared.snapshot.solutionCrop!.images[0]!.page,2);
+  }finally{store.close();await f.close();}
+});
+
 test('old imported payloads and snapshots recover anchors without reimport or data reset',async()=>{
   const f=await fixture();const {store,c,s}=session(f,2,true);try{
     delete s.snapshot.solutionSource;
