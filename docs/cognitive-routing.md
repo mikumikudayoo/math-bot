@@ -1,0 +1,13 @@
+# Conservative cognitive routing
+
+The existing retrieval router still determines whether web evidence is required. Model selection is a separate host decision: classifier confidence cannot authorize Phi for arbitrary work.
+
+`COGNITIVE_ROUTING=false` preserves the existing single-backend behavior. When enabled, only exact fast-path conversation, identity and raw arithmetic requests with fast/internal routing stay on the local backend. All other prompts, including ambiguous work, proofs and mixed requests, require the configured external provider. Images require its explicit vision capability. Discord history/profile requests stay local; external providers cannot invoke Discord tools, and direct lookup turns are omitted from external conversation history. This is a bounded safeguard, not automatic sensitivity classification of arbitrary user text.
+
+Configure the external compatible chat endpoint privately with `EXTERNAL_INFERENCE_BASE_URL`, `EXTERNAL_INFERENCE_MODEL`, `EXTERNAL_INFERENCE_API_KEY`, `EXTERNAL_INFERENCE_VISION`, and `EXTERNAL_INFERENCE_NATIVE_TOOLS`. The URL must use HTTPS without embedded credentials, query or fragment. No vendor or model is hardcoded. Each provider uses its own key, model, vision and tool protocol. The same Aleph-Zero system persona and host-computed requester identity are supplied to both.
+
+If the stronger model is required but absent, the job produces an explicit unavailable response; it does not silently use Phi. Transient connection failures and HTTP 502/503/504 retry once on the same provider. Authentication, rate-limit, invalid JSON and malformed tool responses do not trigger blind retries or downgrade. Cancellation remains authoritative. Responses are capped at 1 MB; tool steps and argument budgets remain enforced by the host. No tool executes until the complete provider response has been parsed.
+
+Sensor failure or incomplete output chooses deep reasoning and the conservative retrieval policy, while retaining explicit no-web constraints. Mandatory web evidence and Discord permission checks are independent of provider selection. Explicit calculator/plot commands still bypass model selection. Existing verified pairing solver remains unchanged.
+
+Validation uses mocked providers and synthetic jobs. No provider credentials, real external request, model-quality benchmark, deployment, service restart or training-data changes are included. Before enabling, privately configure a provider, review cost/data handling, and run the staging checks in the deployment plan. This deliberately narrow local allowlist can be expanded only with reviewed evidence; it does not claim trained cognitive accuracy.
