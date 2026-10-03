@@ -22,3 +22,19 @@ solmans/
 # Local router benchmark results
 router-holdout-*-result.txt
 router-holdout-*-postfix*.txt
+training/aleph/train.jsonl
+training/aleph/split-manifest.json
+training/aleph/scenarios.json
+training/aleph/reviewed.jsonl.before-approval.bak
+training/aleph/reviewed.jsonl
+training/aleph/holdout.jsonl
+training/aleph/generated.jsonl
+training/aleph/train.jsonl
+training/aleph/scenarios.json
+training/aleph/reviewed.jsonl
+training/aleph/holdout.jsonl
+training/aleph/generated.jsonl
+training/aleph/holdout.jsonl
+training/aleph/reviewed.jsonl
+training/aleph/scenarios.json
+/training
