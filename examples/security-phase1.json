@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "mode": "shadow",
+  "rules": [{
+    "id": "example-scam-domain", "enabled": true, "type": "domain",
+    "patterns": ["scam.invalid"], "policy": "medium", "severity": "scam",
+    "source": "message", "minConfidence": 1, "obfuscation": true,
+    "exemptions": {"users": [], "roles": [], "channels": [], "categories": []},
+    "notes": "Synthetic example. Replace with reviewed server rules."
+  }],
+  "policies": [
+    {"id": "soft", "delete": true, "count": false, "windowMs": 604800000, "warningExpiryMs": 2592000000,
+      "steps": [{"count": 1, "action": "reminder", "durationMs": 0}]},
+    {"id": "medium", "delete": true, "count": true, "windowMs": 604800000, "warningExpiryMs": 2592000000,
+      "steps": [{"count": 1, "action": "reminder", "durationMs": 0}, {"count": 2, "action": "warn", "durationMs": 0}]}
+  ],
+  "exemptions": {"users": [], "roles": [], "channels": [], "categories": []},
+  "exemptStaff": true, "securityRoles": [], "logChannel": null, "maxActionsPerMinute": 5
+}

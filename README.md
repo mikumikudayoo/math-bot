@@ -1,5 +1,7 @@
 # math-bot
 
+Modular moderation/security phase 1: see [architecture, commands, schema and rollout](docs/security-phase1.md). New enforcement is opt-in and starts disabled.
+
 Moderator-controlled persistent reminders: see [reminder commands and operations](docs/reminders.md).
 
 Current production: `/opt/math-bot`, Bun, `python3`, PM2 under `mathbot`. Future target: `/srv/math-bot` exact-SHA manual releases. See [operations](docs/operations.md) for the separate deployment instructions.
