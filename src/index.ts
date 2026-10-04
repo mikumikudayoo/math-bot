@@ -9,6 +9,7 @@ import { loadCommands } from './commands/index.js';
 import { ServiceError } from './ai-client.js';
 import { startDelivery, handleStudyMessage } from './study.js';
 import { moderate } from './moderation.js';
+import { closeSecurityStores } from './security/runtime.js';
 import { handleQotdComponent } from './qotd/components.js';
 import { Competition } from './qotd/competition.js';
 import { qotdStore } from './qotd/posting.js';
@@ -74,7 +75,7 @@ async function main() {
     try{const full=message.partial?await message.fetch():message;await moderate(full);}catch{console.error('Could not moderate edited message.');}
   });
   client.on(Events.Error, () => console.error('Discord connection error.'));
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { stopDelivery();stopQotd();stopReminders();stopDiscordTools();client.destroy(); });
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { stopDelivery();stopQotd();stopReminders();stopDiscordTools();closeSecurityStores();client.destroy(); });
   try { await client.login(config.token); }
   catch(error) {
     client.destroy();
