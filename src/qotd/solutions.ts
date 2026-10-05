@@ -6,6 +6,14 @@ import { fingerprint, hash, parseManual } from './parser.js';
 import type { ParsedQuestion, SolutionSource } from './types.js';
 import type { Competition, Session } from './competition.js';
 
+export function validateSolutionCrop(snapshot: import('./competition.js').Snapshot) {
+  if (!snapshot.solutionCrop) throw new Error('missing-solution-crop');
+  validateCrop(snapshot.solutionCrop);
+  if (snapshot.solutionCrop.images.some(i => snapshot.questionCrop.images.some(q => q.sha256 === i.sha256))) {
+    throw new Error('solution-is-question-crop');
+  }
+}
+
 export function bindSolutionSource(occurrence: {source?:unknown;payload?:unknown} | undefined, answer:string, solution:string):SolutionSource | undefined {
   if(!occurrence) return;
   const q:ParsedQuestion=JSON.parse(String(occurrence.payload));
@@ -17,7 +25,7 @@ export function bindSolutionSource(occurrence: {source?:unknown;payload?:unknown
 // The same source verification and renderer serve daily reveals and private practice.
 export async function renderSolutionSnapshot(store: import('./store.js').QotdStore, questionId: string, snapshot: import('./competition.js').Snapshot) {
   if (snapshot.solutionCrop) {
-    try { validateCrop(snapshot.solutionCrop); return snapshot; } catch { /* Recover from original PDF. */ }
+    try { validateSolutionCrop(snapshot); return snapshot; } catch { /* Recover from original PDF. */ }
   }
     const occurrence=store.occurrences(questionId)[0];
     const bound=snapshot.solutionSource ?? bindSolutionSource(occurrence,snapshot.expectedAnswer,snapshot.solution);

@@ -1,5 +1,7 @@
 # math-bot
 
+Modular moderation/security phase 1: see [architecture, commands, schema and rollout](docs/security-phase1.md). New enforcement is opt-in and starts disabled.
+
 Moderator-controlled persistent reminders: see [reminder commands and operations](docs/reminders.md).
 
 Current production: `/opt/math-bot`, Bun, `python3`, PM2 under `mathbot`. Future target: `/srv/math-bot` exact-SHA manual releases. See [operations](docs/operations.md) for the separate deployment instructions.
@@ -65,6 +67,6 @@ SQL, audit storage and owner-managed AI testers. See the [Aleph dataset spec](tr
 for synthetic personality training preparation and the [separate router proposal](docs/router-training-plan.md).
 These workflows do not deploy or train anything automatically.
 
-See [the MPoTD runbook](docs/qotd.md) for recursive PDF imports, reviewed source crops, modal-only private answers, deterministic grading, flat +10 daily scoring and persistent leaderboards. Latest answer and timestamp win; submissions close at 21:59:59 Manila and reveal at 22:00. `/mpotd leaderboard` and `/mpotd stats` are public. Imports stay pending until approved, no-repeat history survives re-imports, and the v2-to-v3 migration preserves existing state. Slash commands need manual redeployment; the runbook includes the VPS checklist. No production deployment is automatic.
+See [the MPoTD runbook](docs/qotd.md) for recursive PDF imports, reviewed source crops, modal-only private answers, deterministic grading, first-correct-to-reveal daily scoring and persistent leaderboards. Latest answer and timestamp win; submissions close at 21:59:59 Manila and reveal at 22:00. `/mpotd leaderboard` and `/mpotd stats` are public. Imports stay pending until approved, no-repeat history survives re-imports, and the v2-to-v3 migration preserves existing state. Slash commands need manual redeployment; the runbook includes the VPS checklist. No production deployment is automatic.
 
 See [private problem practice](docs/problem-practice.md) for unrated practice, experimental ratings, recovery, simulations and the manual MPoTD command migration. Rated practice starts disabled.

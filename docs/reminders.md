@@ -1,5 +1,7 @@
 # Moderator reminders
 
+For the separate, approval-gated mathematics event automation prototype and implementation plan, see [reminder automation](reminder-automation.md). It does not feed this live scheduler or alter its database.
+
 Reminders run in the Discord bot process, independently of inference, the AI service, its enable/disable state, tester allowlist and MPoTD. All five `/reminder` actions require Manage Server, checked at runtime by Discord permissions. Responses are private to the moderator. Destinations are server text channels that both the moderator and bot can view and send in. Optional roles must belong to the server and be mentionable by the bot. No messages are generated or rewritten by AI.
 
 ## Commands

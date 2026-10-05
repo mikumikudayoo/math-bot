@@ -16,6 +16,28 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const gid='123456789012345678',uid='223456789012345678',bid='323456789012345678',cid='423456789012345678';
 const config:ServiceConfig={mode:'development',secret:'fixture-only-not-a-production-secret',port:8787,database:':memory:',concurrency:1,reserved:0,borrow:false,timeoutMs:10000,maxQueue:20,backend:'http://localhost:9999/v1',model:'fixture-only',backendKey:'',vision:false,nativeTools:false,python:'.venv/bin/python',searchKey:'fixture',sandbox:false,sandboxImage:'unused'};
+test('host exclusion list is accepted and validated before reading Discord history',async()=>{
+  const f=fixture();
+  const result:any=await executeDiscordTool(f.client,{...f.task,args:{query:'phi',excludeMessageIds:['523456789012345678']}},true);
+  assert.equal(result.type,'DISCORD_SEARCH_DATA');assert.deepEqual(result.results,[]);assert.equal(f.calls.length,1);
+  for(const args of [{query:'phi',excludeMessageIds:['bad']},{query:'phi',after:'2026-09-27T00:00:00Z',before:'2026-09-26T00:00:00Z'}]){
+    assert.ok((await executeDiscordTool(f.client,{...f.task,args},true) as any).error);
+  }
+});
+test('bot permission revocation before return discards retrieved history',async()=>{
+  const f=fixture(),c=f.channels.get(cid);let permitted=true;
+  c.permissionsFor=()=>({has:()=>permitted});
+  const fetch=c.messages.fetch;c.messages.fetch=async()=>{const value=await fetch();permitted=false;return value;};
+  const result=await executeDiscordTool(f.client,f.task,true);
+  assert.ok(!JSON.stringify(result).includes('phi discussion'));
+});
+test('host Discord lookup failure gives a bounded fallback without model calls',async()=>{
+  const s=new Store(':memory:');try{
+    const job=s.admit({id:'failure',guild:gid,channel:cid,user:uid,coach:false,kind:'ask',prompt:'what did emu say about phi?'},10);
+    const run=runner(config,s,{discord:async(_j,_t,args)=>{assert.equal(args.authorId,CREATOR_ID);throw new Error('private network detail');},complete:async()=>{throw new Error('must not call');}});
+    assert.equal((await run(job,AbortSignal.timeout(10000),()=>{})).answer,'discord search is unavailable right now.');
+  }finally{s.close();}
+});
 function fixture(){
   const calls:string[]=[];const channels=new Collection<string,any>();
   const member:any={id:uid,guild:null,manage:false};const bot:any={id:bid,guild:null,manage:true};
@@ -89,7 +111,7 @@ test('search includes accessible public/private threads and filters private nonm
 });
 test('permissions revoked during fetch discard content and hidden names',async()=>{
   const f=fixture();const c=f.channels.get(cid);const fetch=c.messages.fetch;c.messages.fetch=async()=>{const result=await fetch();c.visible=false;return result;};
-  const result:any=await executeDiscordTool(f.client,f.task,true);assert.deepEqual(result.results,[]);
+  const result:any=await executeDiscordTool(f.client,f.task,true);assert.ok(result.error);assert.ok(!JSON.stringify(result).includes('phi discussion'));
 });
 test('history bounds, member removal, message intent and unsupported argument checks fail closed',async()=>{
   const f=fixture();for(let i=0;i<20;i++)f.channel(String(623456789012345678n+BigInt(i)));
