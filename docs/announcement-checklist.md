@@ -23,5 +23,3 @@ Audit date: 2026-10-08. No secrets are included in this record.
 - [x] Public auto-send remains OFF until separate explicit approval.
 
 Audit discrepancy: docs describe /srv as future; live host has the directories but still runs /opt. Windows SSH does not resolve oracle-vps; the configured alias works from WSL. Main does not contain the cognitive provider/protocol improvements on the feature branch. Those will be selected and tested rather than merging unrelated security/training work.
-
-
