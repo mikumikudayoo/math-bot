@@ -13,7 +13,7 @@ function htmlText(html:string){
 }
 export async function parseMail(message:GmailMessage,attachment:(id:string,mime:string)=>Promise<Buffer>):Promise<ParsedMail>{
   const result:ParsedMail={evidence:[],blocked:[],sensitive:false};let nodes=0,total=0;
-  const add=(id:string,text:string)=>{total+=Buffer.byteLength(text);if(total>50000)throw new Error('Mail evidence exceeds 50 KB.');const safe=redact(text);result.sensitive ||=safe.sensitive;if(safe.text.trim())result.evidence.push({id,text:safe.text.slice(0,16000)});};
+  const add=(id:string,text:string)=>{total+=Buffer.byteLength(text);if(total>50000)throw new Error('Mail evidence exceeds 50 KB.');const safe=redact(text);result.sensitive ||=safe.sensitive;const normalized=safe.text.trim().replace(/\s+/g,' ');if(normalized&&!result.evidence.some(e=>e.text.trim().replace(/\s+/g,' ')===normalized))result.evidence.push({id,text:safe.text.slice(0,16000)});};
   const subject=message.payload?.headers?.find(h=>h.name.toLowerCase()==='subject')?.value??'';add('subject',subject);
   async function walk(part:GmailPart,path:string){
     if(++nodes>50)throw new Error('Too many MIME parts.');

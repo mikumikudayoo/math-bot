@@ -136,3 +136,17 @@ test('worker extraction outage becomes durable retry/blocked source without cras
     await workerTick(s,config,gmail,async()=>{throw new Error('malformed extraction');});assert.equal(s.db.prepare('SELECT state FROM sources').get()!.state,'blocked');assert.equal(s.events(guild).length,0);assert.ok(s.state('worker:last-tick'));
   }finally{s.close();}
 });
+
+test('alternative MIME bodies share one redacted evidence item',async()=>{
+ const body='BBB 2026 Heat Round username private-user password private-password';
+ const mail=await parseMail({id:'mime',payload:{mimeType:'multipart/alternative',parts:[{mimeType:'text/plain',body:{data:Buffer.from(body).toString('base64url')}},{mimeType:'text/html',body:{data:Buffer.from(`<p>${body}</p>`).toString('base64url')}}]}},async()=>Buffer.alloc(0));
+ assert.equal(mail.evidence.length,1);assert.equal(mail.sensitive,true);assert.ok(!mail.evidence[0]!.text.includes('private-password'));
+});
+test('duplicate login notices merge by round while conflicts and unreadable attachments require review',()=>{
+ const x=input('duplicate-login');x.catalog.competitions=[{id:'bbb-2030',name:'BBB',year:2030,subject:'mathematics'}];x.catalog.rounds=[{id:'bbb-2030-heat',competitionId:'bbb-2030',name:'Heat Round'}];
+ const event={...x.events[0]!.event,type:'login-details' as const,competitionId:'bbb-2030',roundId:'bbb-2030-heat',programId:null,slot:'login-1',start:null,end:null,deadline:null,dateHint:null,status:'active' as const};
+ const value={catalog:x.catalog,events:[{event,confidence:'high',issues:[],evidenceIds:['body']},{event:{...event,slot:'login-2'},confidence:'medium',issues:[],evidenceIds:['body']}],issues:[]};
+ const mail={evidence:[{id:'body',text:'BBB login notice'}],sensitive:true,blocked:['image requires manual review']};
+ const merged=validateOutput(value,mail,x.source);assert.equal(merged.events.length,1);assert.equal(merged.events[0]!.event.slot,'login-details');assert.equal(merged.events[0]!.confidence,'medium');assert.ok(merged.events[0]!.issues.includes('image requires manual review'));
+ value.events[1]!.event.timezoneAssumed=false;assert.ok(validateOutput(value,mail,x.source).events[0]!.issues.some(i=>i.includes('Conflicting facts')));
+});
