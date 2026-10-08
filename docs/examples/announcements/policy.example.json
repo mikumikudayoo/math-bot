@@ -1,0 +1,13 @@
+{
+  "guild": "111111111111111111",
+  "channel": "222222222222222222",
+  "role": null,
+  "staffChannel": null,
+  "policies": [],
+  "templates": {
+    "session": "{{role}} participants, please be reminded that our Session {{slot}} is on {{date}} from {{timeRange}}",
+    "classmarker": "{{role}} participants, please be reminded to answer Set {{slot}} in Classmarker before {{deadline}}",
+    "email": "{{role}} participants, please check your email for the {{detailLabel}} sent to you.\nIf you did not receive it, kindly check your spam folder or let us know.",
+    "server": "{{role}} participants, please make sure to join the server event for {{competition}} {{year}}. {{url}}"
+  }
+}

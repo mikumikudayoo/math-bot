@@ -2,6 +2,9 @@ import { handleProblemComponent } from './problems/interactions.js';
 import { ProblemStore } from './problems/store.js';
 import { startQotd } from './qotd/posting.js';
 import { startReminders } from './reminders/scheduler.js';
+import { startAnnouncements } from './announcements/delivery.js';
+import { automationConfig } from './announcements/config.js';
+import { handleAnnounceButton } from './commands/announce.js';
 import { startDiscordTools } from './discord-tools.js';
 import { Client, Events, GatewayIntentBits, MessageFlags, Partials } from 'discord.js';
 import { loadConfig } from './config.js';
@@ -20,6 +23,7 @@ async function main() {
   const commands = loadCommands();
   const client = new Client({ intents: [GatewayIntentBits.Guilds,...(config.messageFeatures?[GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent]:[])],partials:[Partials.Message,Partials.Channel],allowedMentions: { parse: [] } });
   let stopDelivery=()=>{};let stopQotd=()=>{};let stopReminders=()=>{};let stopDiscordTools=()=>{};
+  let stopAnnouncements=()=>{};
   client.once(Events.ClientReady, ready => {
     if (ready.application.id !== config.applicationId) {
       console.error('Token belongs to a different application. Check the selected environment file.');
@@ -32,8 +36,10 @@ async function main() {
     stopDelivery=startDelivery(client);stopQotd=startQotd(client,config.guildId);
     stopReminders=startReminders(client,config.reminderDatabase,config.guildId);
     stopDiscordTools=startDiscordTools(client);
+    try{stopAnnouncements=startAnnouncements(client,automationConfig());}catch{console.error('Announcement automation configuration blocked; existing bot features remain available.');}
   });
   client.on(Events.InteractionCreate, async interaction => {
+    if(interaction.isButton()&&interaction.customId.startsWith('announce:')){await handleAnnounceButton(interaction);return;}
     if ((interaction.isButton() || interaction.isModalSubmit()) && interaction.customId.startsWith('qotd:')) {
       await handleQotdComponent(interaction,new Competition(qotdStore()),config.guildId);
       return;
@@ -74,7 +80,7 @@ async function main() {
     try{const full=message.partial?await message.fetch():message;await moderate(full);}catch{console.error('Could not moderate edited message.');}
   });
   client.on(Events.Error, () => console.error('Discord connection error.'));
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { stopDelivery();stopQotd();stopReminders();stopDiscordTools();client.destroy(); });
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { stopDelivery();stopQotd();stopReminders();stopDiscordTools();stopAnnouncements();client.destroy(); });
   try { await client.login(config.token); }
   catch(error) {
     client.destroy();

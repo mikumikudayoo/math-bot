@@ -3,7 +3,7 @@ import { CREATOR_ID } from '../discord-context.js';
 
 export const MODERATOR_ROLE_ID = '1419154303326621739';
 export function isOwner(actor: { user: { id: string } }) { return actor.user?.id === CREATOR_ID; }
-export function isModerator(i: Pick<ChatInputCommandInteraction, 'inGuild' | 'user' | 'member' | 'memberPermissions'>, stronger = PermissionFlagsBits.ManageGuild) {
+export function isModerator(i: Pick<ChatInputCommandInteraction, 'user' | 'member' | 'memberPermissions'> & {inGuild():boolean}, stronger = PermissionFlagsBits.ManageGuild) {
   if (!i.inGuild()) return false;
   const roles = i.member?.roles;
   return isOwner(i) || Boolean(i.memberPermissions?.has(stronger)) ||

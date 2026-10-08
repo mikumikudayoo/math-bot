@@ -10,6 +10,7 @@ import { runner } from './inference.js';
 import { DiscordBroker } from './discord-broker.js';
 import { currentUser } from '../discord-context.js';
 import { UserError, type Submission, type JobKind } from './types.js';
+import { providerHealth } from './providers.js';
 
 function text(value:unknown,name:string,max=100):string {
   if(typeof value!=='string'||!value.trim()||value.length>max)throw new UserError(`Invalid ${name}.`);return value;
@@ -27,7 +28,7 @@ export function createService(config:ServiceConfig, injected?:Runner) {
     try{
       const url=new URL(req.url??'/','http://localhost');
       if(req.method==='GET'&&url.pathname==='/discord-tools'){send(200,discord.take());return;}
-      if(req.method==='GET'&&url.pathname==='/health'){send(200,{ok:true,modelConfigured:!!(config.backend&&config.model),vision:config.vision,sandbox:config.sandbox});return;}
+      if(req.method==='GET'&&url.pathname==='/health'){send(200,{ok:true,modelConfigured:!!(config.backend&&config.model),vision:config.vision,sandbox:config.sandbox,externalConfigured:!!config.external?.backendKey,providers:[...providerHealth.values()]});return;}
       if(req.method==='GET'&&url.pathname==='/pending'){
         const order=store.queued().map(x=>x.id);
         send(200,store.pending().map(job=>job.state==='queued'?{...job,status:`queued · priority position ${order.indexOf(job.id)+1}`} :job));return;

@@ -1,4 +1,5 @@
 import { config } from 'dotenv';
+import { validateProvider,type ProviderConfig } from './providers.js';
 export function serviceConfig() {
   const mode = process.env.BOT_ENV ?? 'development';
   if (!['development','production'].includes(mode)) throw new Error('Invalid BOT_ENV.');
@@ -12,12 +13,17 @@ export function serviceConfig() {
   const secret = env.AI_SERVICE_TOKEN ?? '';
   if (secret.length < 32) throw new Error(`Run bun run setup:local or set AI_SERVICE_TOKEN in .env.ai.${mode}.`);
   const backend = env.INFERENCE_BASE_URL?.replace(/\/$/,'') ?? '';
+  const external:ProviderConfig|undefined=env.EXTERNAL_INFERENCE_PROVIDER==='groq'
+    ? validateProvider({backend:env.EXTERNAL_INFERENCE_BASE_URL || 'https://api.groq.com/openai/v1',model:env.EXTERNAL_INFERENCE_MODEL || 'openai/gpt-oss-120b',backendKey:env.GROQ_API_KEY || '',vision:false,nativeTools:true},true)
+    : undefined;
+  if(env.EXTERNAL_INFERENCE_PROVIDER && env.EXTERNAL_INFERENCE_PROVIDER!=='groq')throw new Error('Unsupported external provider. No paid fallback is configured.');
+  if(external && new URL(external.backend).hostname!=='api.groq.com')throw new Error('Groq must use api.groq.com.');
   if (backend) {
     const url = new URL(backend);
     if (url.username || url.password || !['http:','https:'].includes(url.protocol)) throw new Error('Invalid inference URL.');
     if (url.protocol === 'http:' && !['127.0.0.1','localhost','[::1]'].includes(url.hostname)) throw new Error('Remote inference must use HTTPS.');
   }
-  return { mode, secret, port:integer('AI_PORT',8787,1024,65535), database:env.AI_DATABASE ?? `data/${mode}.sqlite`,
+  return { ...(external?{external}:{}),...(env.COGNITIVE_ROUTING==='true'?{cognitiveRouting:true}:{}),mode, secret, port:integer('AI_PORT',8787,1024,65535), database:env.AI_DATABASE ?? `data/${mode}.sqlite`,
     concurrency:integer('AI_CONCURRENCY',1,1,16),reserved:integer('COACH_RESERVED_SLOTS',0,0,15),borrow:env.COACH_BORROW_RESERVED === 'true',
     timeoutMs:integer('AI_TIMEOUT_SECONDS',600,10,3600)*1000,maxQueue:integer('AI_MAX_QUEUE',50,1,500),
     backend,model:env.INFERENCE_MODEL ?? '',backendKey:env.INFERENCE_API_KEY ?? '',vision:env.INFERENCE_VISION === 'true',

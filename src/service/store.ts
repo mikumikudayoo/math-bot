@@ -71,8 +71,15 @@ export class Store {
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
   recover() { this.db.exec("UPDATE jobs SET state='queued',status='queued after service restart' WHERE state='running'"); }
+  defer(id:string,retryAt:number){
+    if(!this.db.prepare('PRAGMA table_info(jobs)').all().some(r=>r.name==='ready_at'))this.db.exec('ALTER TABLE jobs ADD COLUMN ready_at INTEGER NOT NULL DEFAULT 0');
+    if(!this.db.prepare('PRAGMA table_info(jobs)').all().some(r=>r.name==='provider_attempts'))this.db.exec('ALTER TABLE jobs ADD COLUMN provider_attempts INTEGER NOT NULL DEFAULT 0');
+    const attempts=Number(this.db.prepare('SELECT provider_attempts FROM jobs WHERE id=?').get(id)?.provider_attempts??0);
+    const next=Math.max(retryAt,Date.now()+Math.min(3600000,1000*2**Math.min(attempts,12)));
+    this.db.prepare("UPDATE jobs SET state='queued',status='queued for provider recovery',ready_at=?,provider_attempts=provider_attempts+1 WHERE id=? AND state='running'").run(next,id);
+  }
   requeue(id:string) { this.db.prepare("UPDATE jobs SET state='queued',status='queued after service restart' WHERE id=? AND state='running'").run(id); }
-  queued() { return this.db.prepare("SELECT * FROM jobs WHERE state='queued' ORDER BY coach DESC,created,id").all() as unknown as Job[]; }
+  queued() { const deferred=this.db.prepare('PRAGMA table_info(jobs)').all().some(r=>r.name==='ready_at');return this.db.prepare(`SELECT * FROM jobs WHERE state='queued' ${deferred?'AND ready_at<=?':''} ORDER BY coach DESC,created,id`).all(...(deferred?[Date.now()]:[])) as unknown as Job[]; }
   running(id: string) { this.db.prepare("UPDATE jobs SET state='running',status='thinking' WHERE id=? AND state='queued'").run(id); }
   status(id: string, status: string) { this.db.prepare("UPDATE jobs SET status=? WHERE id=? AND state='running'").run(status,id); }
   complete(id: string, result: Result) { this.db.prepare("UPDATE jobs SET state='completed',status='completed',answer=?,artifact=? WHERE id=? AND state='running'").run(result.answer.slice(0, 24000),result.artifact ?? '',id); }
