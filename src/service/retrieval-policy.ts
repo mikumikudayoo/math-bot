@@ -64,10 +64,10 @@ export function groundedAnswer(value:unknown,evidence:Evidence[],policy:Retrieva
     // URLs come from the host ledger only, never from the model's quoted text.
     if(/https?:\/\/|www\./i.test(quote))return null;
     excerpts.push({id:item.id,url:item.url,text:quote});
-    lines.push(`> ${quote.replace(/\n/g,' ').replace(/[<>]/g,'')}\n[Source ${item.id}](<${item.url}>)`);
+    lines.push(`> ${quote.replace(/\n/g,' ').replace(/[<>]/g,'')}\n[source ${item.id}](<${item.url}>)`);
   }
   if(!establishesEntities(excerpts,policy.entities))return null;
-  return `Here's what I could verify in the retrieved sources:\n\n${[...new Set(lines)].join('\n\n')}`+
-    (policy.exhaustive?"\n\nThis is a verified subset, not a guaranteed complete list—especially for unofficial or noncanon entries.":'')+
-    '\n\nThese are source excerpts; gaps or disagreements remain unresolved.';
+  return `okay, here's what i could actually verify:\n\n${[...new Set(lines)].join('\n\n')}`+
+    (policy.exhaustive?"\n\nthese are the entries i could verify, not a guaranteed complete list—especially for unofficial or noncanon stuff.":'')+
+    '\n\nthese are source excerpts. gaps or disagreements are still unresolved; i am not filling those in by guessing.';
 }
