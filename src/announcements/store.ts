@@ -32,7 +32,9 @@ export class AnnouncementStore {
       CREATE TABLE IF NOT EXISTS announcement_drafts(job TEXT PRIMARY KEY REFERENCES announcement_jobs(id),state TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,retry_at INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS delivery_attempts(job TEXT PRIMARY KEY REFERENCES announcement_jobs(id),state TEXT NOT NULL,message TEXT,at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY,guild TEXT NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,target TEXT NOT NULL,snapshot TEXT NOT NULL,at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS staff_alerts(id TEXT PRIMARY KEY,guild TEXT NOT NULL,kind TEXT NOT NULL,target TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',message TEXT,at INTEGER NOT NULL,UNIQUE(guild,kind,target));`);
+      CREATE TABLE IF NOT EXISTS staff_alerts(id TEXT PRIMARY KEY,guild TEXT NOT NULL,kind TEXT NOT NULL,target TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',message TEXT,at INTEGER NOT NULL,UNIQUE(guild,kind,target));
+      CREATE TABLE IF NOT EXISTS operational_incidents(guild TEXT NOT NULL,provider TEXT NOT NULL,episode TEXT NOT NULL,active INTEGER NOT NULL,last_notice INTEGER NOT NULL,count INTEGER NOT NULL,reason TEXT NOT NULL,PRIMARY KEY(guild,provider));
+      CREATE TABLE IF NOT EXISTS source_failures(source TEXT PRIMARY KEY REFERENCES sources(id),provider TEXT NOT NULL,reason TEXT NOT NULL,at INTEGER NOT NULL);`);
   }
   transaction<T>(fn:()=>T):T{this.db.exec('BEGIN IMMEDIATE');try{const out=fn();this.db.exec('COMMIT');return out;}catch(e){this.db.exec('ROLLBACK');throw e;}}
   audit(guild:string,actor:string,action:string,target:string,snapshot:unknown,now=Date.now()){if(!actor.trim())throw new Error('Actor required.');this.db.prepare('INSERT INTO audit_log(guild,actor,action,target,snapshot,at) VALUES(?,?,?,?,?,?)').run(guild,actor,action,target,canonical(snapshot),now);}

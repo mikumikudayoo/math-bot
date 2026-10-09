@@ -2,7 +2,7 @@ import type { ServiceConfig } from './config.js';
 import { fastRoute } from './fast-router.js';
 import type { RouteDecision } from './router.js';
 import { UserError } from './types.js';
-export class ProviderBackoff extends UserError { constructor(readonly retryAt:number){super('stronger inference is temporarily queued; no weaker answer was substituted.');} }
+export class ProviderBackoff extends UserError { constructor(readonly retryAt:number,readonly reason='provider-backoff'){super('stronger inference is temporarily queued; no weaker answer was substituted.');} }
 export const providerHealth=new Map<string,{state:'healthy'|'rate-limited'|'unavailable'|'misconfigured';retryAt:number;requestsRemaining:string|null;tokensRemaining:string|null}>();
 
 export interface ProviderConfig {
@@ -55,9 +55,9 @@ export async function completeProvider(provider: ProviderConfig, body: Record<st
         body: JSON.stringify({ ...body, model: provider.model }),
       });
     } catch (error) {
-      if (signal.aborted) throw error;
+      if (signal.aborted && signal.reason?.name!=='TimeoutError') throw error;
       const retryAt=Date.now()+30000;providerHealth.set(healthKey,{state:'unavailable',retryAt,requestsRemaining:null,tokensRemaining:null});
-      throw new ProviderBackoff(retryAt);
+      throw new ProviderBackoff(retryAt,signal.aborted?'request-timeout':'transport-failure');
     }
     if (!response.ok) {
       await response.body?.cancel();
@@ -65,7 +65,7 @@ export async function completeProvider(provider: ProviderConfig, body: Record<st
         const raw=response.headers.get('retry-after');const seconds=raw===null?NaN:Number(raw);
         const delay=Number.isFinite(seconds)?Math.max(1000,seconds*1000):raw?Math.max(1000,Date.parse(raw)-Date.now()):30000;
         const retryAt=Date.now()+(Number.isFinite(delay)?Math.min(delay,86400000):30000);
-        providerHealth.set(healthKey,{state:response.status===429?'rate-limited':'unavailable',retryAt,requestsRemaining:response.headers.get('x-ratelimit-remaining-requests'),tokensRemaining:response.headers.get('x-ratelimit-remaining-tokens')});throw new ProviderBackoff(retryAt);
+        providerHealth.set(healthKey,{state:response.status===429?'rate-limited':'unavailable',retryAt,requestsRemaining:response.headers.get('x-ratelimit-remaining-requests'),tokensRemaining:response.headers.get('x-ratelimit-remaining-tokens')});throw new ProviderBackoff(retryAt,`http-${response.status}`);
       }
       providerHealth.set(healthKey,{state:'misconfigured',retryAt:0,requestsRemaining:null,tokensRemaining:null});
       throw new UserError(`Inference backend returned HTTP ${response.status}. Ask a moderator to check its configuration.`);

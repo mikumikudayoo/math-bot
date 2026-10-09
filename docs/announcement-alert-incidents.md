@@ -1,0 +1,31 @@
+# Staff alert incident update
+
+Inspected base: `81d30264085dab57237ae0f98890511cfde1b512`, compared with fetched main. This update does not deploy, change public sending, enable cognitive routing, or touch VPS-only training artifacts.
+
+Operational extraction failures now share a durable Groq incident. A notice contains the live count of affected organizer emails; unchanged failures never enqueue repeat notices. Changed counts can notify after 30 minutes, with no accumulation while a notice is pending or delivering. A confirmed successful extraction, with no Groq failure in that tick, queues one recovery notice. An idle tick is not proof of recovery. Retry deadlines and the existing attempt budget remain in force. Sources, candidates, holds and legacy alert records are retained. Prior pending per-source outage alerts become superseded; sent/uncertain alerts are not resent.
+
+The dedicated announcement DB gains additive `operational_incidents` and `source_failures` tables. Safe failure categories and full source IDs remain in private status and audit records. Normal staff messages use fixed human-readable descriptions and catalog-based competition/program/round information rather than hashes or raw email/provider exception bodies. Existing Discord claim/nonce/uncertain-delivery safeguards and private-channel checks remain intact.
+
+## What the old unavailable alert actually meant
+
+The previous worker classified both `ProviderBackoff` and **any GmailError during source retrieval** as `extraction-provider-unavailable`. Consequently a Gmail message/attachment failure could falsely appear to be a Groq outage. Groq backoff covers fetch/DNS/TLS/network failures, HTTP 429, HTTP 5xx, and previously stored in-process backoff. The patch records safe categories such as `http-429`, `http-503`, `transport-failure`, and request timeout. Caller cancellation remains cancellation. Missing keys previously took the separate misconfigured path; HTTP 400/401/403 and malformed output took the blocked-source path. The unavailable label alone does not prove a missing key.
+
+Automation loads `.env.automation.<BOT_ENV>` into a separate object, resolved from the process working directory. It does not inherit `GROQ_API_KEY` from PM2/process env or `.env.ai.production`; only `BOT_ENV` selects the file. A key present in another process or development file therefore does not prove this worker is configured. Model defaults to `openai/gpt-oss-120b`, overridden by `EXTERNAL_INFERENCE_MODEL` in the automation file. Extraction uses strict JSON schema and an 8000-token output limit. Model/schema capability or quota mismatches can matter, but no live cause is established from code alone.
+
+The worker shares a 120-second signal across Gmail synchronization, up to five sources, and drafting. A slow earlier operation can exhaust the later request's budget. Timeout during provider fetch is now retryable; response-stream failures and schema/model validation still require manual inspection. Do not mass-retry blocked sources without reviewing their reason/evidence. Legacy failures have no safe category recorded until their next eligible attempt.
+
+## Aleph Zero review
+
+The shared provider transport is independent of the announcement worker process. Provider/model settings are centralized, not spread through the tool harness. Deterministic calculator/plot/Python and pairing paths remain independent of external inference. Cognitive routing keeps eligible simple/internal work local; hard requests use the configured stronger provider. Discord-private requests stay local, and external tools exclude private Discord access. Web policies, grounding checks, bounded responses, JSON/native-tool validation and the 24-step budget remain enforced. The external config currently permits Groq only; there is no paid provider fallback. Retry-After is honored for 429/5xx and difficult inference returns to the durable queue rather than silently downgrading to Phi.
+
+The committed provider benchmark uses the 120-row routing holdout and the same runner. It records route correctness, answer text, latency, call count and failure type. Answer/reasoning/knowledge/tool correctness are deliberately ungraded. Token usage is currently the last successful call rather than a sum, and tools are observed only from native model calls; deterministic/JSON tools and detailed grounding/protocol failure grading need fuller instrumentation before making quota/quality comparisons. No live benchmark was run, no winner was selected, and routing was not enabled. Recover the VPS-only evaluation/training files before adapting that evaluation.
+
+## Production boundary
+
+Before deployment: inspect the actual PM2 owner/cwd/arguments and loaded private env; check key presence without printing it; run a same-user Groq extraction health check; distinguish Gmail retrieval, 429, timeout, transport, HTTP configuration and malformed output failures; back up DB/env/dist and all uncommitted training work. Confirm `ANNOUNCEMENT_AUTO_SEND_ENABLED=false`. Build on the VPS, restart only the required bot/automation processes, verify new incident tables and staff-channel behavior, and retry only eligible retained sources. The local model and AI routing behavior need no restart for this alert-only release unless a reviewed shared-provider update is explicitly selected.
+
+## Verification in this Work environment
+
+Pinned Bun 1.4.2: 43 announcement/provider tests pass, including worker classification, repeated failures, multiple sources, cooldown, pending aggregation, recovery, restart persistence, timeout diagnosis and readable factual-review messages. Four Python unit tests pass with the pinned requirements. TypeScript no-emit check and build pass; diff whitespace check passes.
+
+Full suite before the final factual-label test: 308 pass / 3 fail. Untouched base `81d3026` reproduces the same three failures: HTTPS custom-DNS lookup under the managed proxy, first PDF crop in the full run, and QOTD local reset detecting another process with the DB open. The isolated PDF crop test passes; local reset still fails here. These are reported, not disabled or treated as successful checks. The final added factual-label test passes in the focused 43-test run. No real Discord, Gmail, or Groq calls were made.

@@ -150,3 +150,25 @@ test('duplicate login notices merge by round while conflicts and unreadable atta
  const merged=validateOutput(value,mail,x.source);assert.equal(merged.events.length,1);assert.equal(merged.events[0]!.event.slot,'login-details');assert.equal(merged.events[0]!.confidence,'medium');assert.ok(merged.events[0]!.issues.includes('image requires manual review'));
  value.events[1]!.event.timezoneAssumed=false;assert.ok(validateOutput(value,mail,x.source).events[0]!.issues.some(i=>i.includes('Conflicting facts')));
 });
+
+test('worker distinguishes Groq outages from Gmail source failures and preserves safe failure audit',async()=>{
+  const {ProviderBackoff}=await import('../src/service/providers.js');
+  for(const failure of [new ProviderBackoff(Date.now()+60000,'http-429'),new GmailError(503,Date.now()+60000)]){
+    const s=new AnnouncementStore(':memory:');try{
+      const x=input();s.source(guild,x.source);s.setState('gmail:retry-at',String(Date.now()+60000));
+      const gmail={get:async()=>({id:x.source.messageId,payload:{mimeType:'text/plain',body:{data:Buffer.from('VTAMPS schedule').toString('base64url')}}})} as unknown as GmailClient;
+      await workerTick(s,config,gmail,async()=>{throw failure;});
+      assert.equal(s.db.prepare('SELECT state FROM sources').get()!.state,'retry');
+      assert.equal(s.db.prepare('SELECT provider FROM source_failures').get()!.provider,failure instanceof ProviderBackoff?'groq':'gmail');
+      assert.equal(s.db.prepare("SELECT COUNT(*) n FROM staff_alerts WHERE kind='provider-outage'").get()!.n,failure instanceof ProviderBackoff?1:0);
+      assert.equal(s.db.prepare("SELECT COUNT(*) n FROM audit_log WHERE action='source-failure'").get()!.n,1);
+    }finally{s.close();}
+  }
+});
+
+test('factual review alert names the training program and session while full identities stay in the database',async()=>{
+ const {staffAlertContent}=await import('../src/announcements/alerts.js');const s=new AnnouncementStore(':memory:');try{
+ s.ingest(guild,input());const alert=s.db.prepare("SELECT id,kind,target FROM staff_alerts WHERE kind='factual-review' LIMIT 1").get() as {id:string;kind:string;target:string};
+ const content=staffAlertContent(s,guild,alert);assert.ok(content.includes('VTAMPS'));assert.ok(content.includes('25.0'));assert.ok(content.includes('training-session'));assert.ok(!content.includes(alert.target));assert.ok(content.includes('/announce inbox'));assert.ok(s.candidates(guild).some(c=>c.event_key===alert.target));
+ }finally{s.close();}
+});

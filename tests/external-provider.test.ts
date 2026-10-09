@@ -43,3 +43,10 @@ test('same tool harness enforces no-web and forbids remote private Discord tool 
     const job:Job={id:'x',guild:'111111111111111111',channel:'222222222222222222',user:'333333333333333333',coach:false,kind:'ask',prompt:'prove that there are infinitely many primes. do not search.',state:'running',status:'',answer:'',artifact:'',created:Date.now(),message:'',delivered:0};assert.ok((await run(job,AbortSignal.timeout(1000),()=>{})).answer.includes('proof'));assert.equal(sends,1);
   }finally{store.close();}
 });
+
+test('provider timeout has safe diagnostics and keeps difficult work retryable',async()=>{
+  providerHealth.clear();const signal=AbortSignal.abort(new DOMException('timeout','TimeoutError'));
+  // Timeout during fetch, rather than before request admission.
+  const controller=new AbortController();await assert.rejects(()=>completeProvider(remote,{},controller.signal,async()=>{controller.abort(signal.reason);throw signal.reason;}),e=>e instanceof ProviderBackoff&&e.reason==='request-timeout');
+  assert.equal([...providerHealth.values()][0]!.state,'unavailable');
+});

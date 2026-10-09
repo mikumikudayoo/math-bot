@@ -5,6 +5,7 @@ import { ChannelType,PermissionFlagsBits,type Client } from 'discord.js';
 import { automationConfig,type AutomationConfig } from './config.js';
 import { AnnouncementStore,type AnnouncementJob,type Payload } from './store.js';
 import { digest } from './model.js';
+import { staffAlertContent } from './alerts.js';
 import { plan } from './planner.js';
 
 export async function deliverAnnouncements(store:AnnouncementStore,config:AutomationConfig,send:(job:AnnouncementJob,payload:Payload)=>Promise<{id:string}>,now=Date.now()){
@@ -42,7 +43,7 @@ export function startAnnouncements(client:Client,config:AutomationConfig){
       const everyone=channel.permissionsFor(channel.guild.roles.everyone);if(everyone?.has(PermissionFlagsBits.ViewChannel))throw new Error('Staff alerts require a private channel.');
       const alerts=store.db.prepare("SELECT id,kind,target FROM staff_alerts WHERE guild=? AND state='pending' ORDER BY at LIMIT 5").all(current.policy.guild) as {id:string;kind:string;target:string}[];
       for(const a of alerts){const claimed=store.db.prepare("UPDATE staff_alerts SET state='delivering' WHERE id=? AND state='pending'").run(a.id);if(!claimed.changes)continue;
-        try{const message=await channel.send({content:`announcement automation: ${a.kind}\nreference: ${a.target}\nuse /announce inbox or /announce status to review.`,allowedMentions:{parse:[]},nonce:a.id.replaceAll('-','').slice(0,25),enforceNonce:true});store.db.prepare("UPDATE staff_alerts SET state='sent',message=? WHERE id=?").run(message.id,a.id);}catch{store.db.prepare("UPDATE staff_alerts SET state='uncertain' WHERE id=?").run(a.id);}
+        try{const message=await channel.send({content:staffAlertContent(store,current.policy.guild,a),allowedMentions:{parse:[]},nonce:a.id.replaceAll('-','').slice(0,25),enforceNonce:true});store.db.prepare("UPDATE staff_alerts SET state='sent',message=? WHERE id=?").run(message.id,a.id);}catch{store.db.prepare("UPDATE staff_alerts SET state='uncertain' WHERE id=?").run(a.id);}
       }
     }
   }catch{console.error('Announcement scheduler blocked; inspect private status.');}finally{busy=false;}};

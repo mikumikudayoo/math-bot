@@ -6,6 +6,7 @@ import { parseMail } from './parsing.js';
 import { extractFacts } from './extraction.js';
 import { plan } from './planner.js';
 import { draftMajor } from './writing.js';
+import { clearSourceFailure,recordSourceFailure,reconcileExtractionIncident } from './alerts.js';
 import { ProviderBackoff } from '../service/providers.js';
 import { digest,type Source } from './model.js';
 
@@ -16,6 +17,7 @@ export async function workerTick(store:AnnouncementStore,config:AutomationConfig
     try{await syncGmail(store,gmail,config,signal);store.setState('gmail:retry-at','0');}
     catch(error){store.setState(`gmail:${config.gmail.account}:health`,error instanceof GmailError&&error.status===401?'misconfigured':'unavailable');store.setState('gmail:retry-at',String(error instanceof GmailError?error.retryAt:Date.now()+60000));store.alert(config.policy.guild,'gmail-unavailable','gmail');}
   }
+  let extractionHealthy=false,providerFailed=false;
   const sources=store.db.prepare("SELECT id,metadata,attempts FROM sources WHERE guild=? AND state IN ('pending','retry') AND retry_at<=? ORDER BY rowid LIMIT 5").all(config.policy.guild,Date.now()) as {id:string;metadata:string;attempts:number}[];
   for(const row of sources){
     // Until parsing resolves identity, a trusted organizer source may revise any event.
@@ -29,13 +31,20 @@ export async function workerTick(store:AnnouncementStore,config:AutomationConfig
       store.saveEvidence(row.id,parsed); // Redacted and bounded; no raw mailbox bodies/passwords.
       const extraction=await extract(config.provider,parsed,source,signal);
       if(!extraction.events.length)throw new Error('No resolvable event identities; source needs staff disposition.');
-      store.ingest(config.policy.guild,extraction);
+      store.ingest(config.policy.guild,extraction);clearSourceFailure(store,row.id);extractionHealthy=true;
     }catch(error){
       const transient=error instanceof ProviderBackoff||error instanceof GmailError;
       if(transient&&row.attempts<12)store.sourceState(row.id,'retry',error instanceof ProviderBackoff?error.retryAt:Date.now()+Math.min(3600000,30000*2**row.attempts));
-      else store.sourceState(row.id,'blocked');store.alert(config.policy.guild,transient?'extraction-provider-unavailable':'blocked-source',row.id);
+      else store.sourceState(row.id,'blocked');
+      if(error instanceof ProviderBackoff)providerFailed=true;
+      const provider=error instanceof ProviderBackoff?'groq':error instanceof GmailError?'gmail':'review';
+      const reason=error instanceof ProviderBackoff?`Groq ${error.reason}; ${row.attempts<12?'retry scheduled':'retry budget exhausted; manual review required'}.`:provider==='gmail'?'Gmail message or attachment could not be fetched.':error instanceof Error&&/Inference backend returned HTTP (\d{3})/.test(error.message)?`Groq configuration rejected (HTTP ${error.message.match(/HTTP (\d{3})/)![1]}); manual review required.`:'Extraction output could not be validated; manual review required.';
+      recordSourceFailure(store,row.id,provider,reason);
+      if(provider==='gmail')store.alert(config.policy.guild,'gmail-unavailable','gmail');
+      else if(provider==='review'||row.attempts>=12)store.alert(config.policy.guild,'blocked-source',row.id);
     }
   }
+  reconcileExtractionIncident(store,config.policy.guild,extractionHealthy&&!providerFailed,Date.now(),providerFailed);
   plan(store,config.policy);
   try{if(config.provider.backendKey)await draftMajor(store,config.policy,config.provider,signal);}catch{store.alert(config.policy.guild,'writing-unavailable','writer');}
   store.setState('worker:last-tick',String(Date.now()));
