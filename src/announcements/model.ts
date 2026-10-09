@@ -39,7 +39,16 @@ export interface Extraction {
 }
 export const canonical = (value:unknown):string => JSON.stringify(value,(_key,v:unknown)=>v && typeof v==='object' && !Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b))):v);
 export const digest = (value: unknown) => createHash('sha256').update(canonical(value)).digest('hex');
-export const eventKey = (e: ScheduleEvent) => digest([e.competitionId,e.roundId,e.programId,e.yearLevel,e.type,e.slot]);
+export function canonicalEvent(e:ScheduleEvent):ScheduleEvent {
+  if(e.type==='login-details')return {...e,slot:'login-details'};
+  if(e.type!=='training-session')return {...e};
+  const slot=e.slot.trim().toLowerCase();
+  const match=slot.match(/^(?:\d+|(?:vtamps[\s_-]+(?:v[.]?)?\d+(?:[.\s_-]\d+)*[\s_-]+)?session[\s_-]+\d+)$/);
+  const number=match?(slot.match(/\d+$/)?.[0]):undefined;
+  if(!number||!Number.isSafeInteger(Number(number))||Number(number)<1)throw new Error('Training session identity is ambiguous; supply the explicit session number.');
+  return {...e,slot:String(Number(number))};
+}
+export const eventKey = (e: ScheduleEvent) => {const c=canonicalEvent(e);return digest([c.competitionId,c.roundId,c.programId,c.yearLevel,c.type,c.slot]);};
 function text(value: unknown, max=200): value is string { return typeof value === 'string' && value.trim().length > 0 && value.length <= max; }
 function checkKeys(value: unknown, allowed: string[]) {
   if(!value || typeof value!=='object' || Array.isArray(value) || Object.keys(value).some(k=>!allowed.includes(k))) throw new Error('Unexpected fields; do not include raw email bodies or credentials in public candidate data.');

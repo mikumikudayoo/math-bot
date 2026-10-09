@@ -23,6 +23,7 @@ export function automationConfig(mode=process.env.BOT_ENV??'development'):Automa
   if(!['development','production'].includes(mode))throw new Error('Invalid BOT_ENV.');
   const env:NodeJS.ProcessEnv={};dotenv({path:`.env.automation.${mode}`,processEnv:env,quiet:true});
   const enabled=env.ANNOUNCEMENT_AUTOMATION_ENABLED==='true';
+  if(env.GMAIL_BOOTSTRAP_MODE&&env.GMAIL_BOOTSTRAP_MODE!=='future-only')throw new Error('Only future-only Gmail bootstrap is supported; historical backfill is disabled.');
   const policyPath=env.ANNOUNCEMENT_POLICY_PATH;
   const policy:PolicyFile=policyPath?JSON.parse(readFileSync(policyPath,'utf8')) as PolicyFile:{guild:'111111111111111111',channel:'222222222222222222',role:null,staffChannel:null,policies:[],templates:documentTemplates};
   if(enabled&&!policyPath)throw new Error('Configure ANNOUNCEMENT_POLICY_PATH before enabling automation.');validatePolicy(policy);

@@ -33,6 +33,7 @@ export function reconcileExtractionIncident(store:AnnouncementStore,guild:string
 }
 const descriptions:Record<string,string>={
   'factual-review':'New organizer facts need review.', 'correction-held':'Changed organizer facts need review; reminders are held.',
+  'gmail-history-gap':'Gmail history expired. Ingestion is paused; staff must explicitly choose a new future-only starting cursor. No historical mail was imported.',
   'blocked-source':'An organizer email needs manual review.', 'gmail-unavailable':'Gmail access is temporarily unavailable. Organizer emails will be retried.',
   'extraction-provider-misconfigured':'Groq extraction is not configured in the automation environment.',
   'writing-unavailable':'Announcement drafting is temporarily unavailable.', 'message-review':'An announcement draft needs approval.',
@@ -50,6 +51,12 @@ export function staffAlertContent(store:AnnouncementStore,guild:string,alert:Sta
   }
   if(alert.kind==='provider-recovered')return '✅ Announcement automation\nGroq extraction is healthy again. Remaining organizer emails will be retried when eligible.\n\nUse /announce status for details.';
   let detail='';
+  if(['factual-review','correction-held'].includes(alert.kind)){
+    const rows=store.db.prepare("SELECT DISTINCT c.event_json,c.catalog_json FROM candidate_events c JOIN candidate_sources cs ON cs.candidate=c.id JOIN candidate_batches b ON b.source=cs.source WHERE c.guild=? AND b.id=? AND c.state='pending'").all(guild,alert.target) as {event_json:string;catalog_json:string}[];
+    if(rows.length){const labels=[...new Set(rows.map(row=>{const e=JSON.parse(row.event_json) as ScheduleEvent,c=JSON.parse(row.catalog_json) as Catalog;const p=c.programs.find(p=>p.id===e.programId),competition=c.competitions.find(p=>p.id===e.competitionId);return safeLabel([p?`${p.name} ${p.version}`:null,competition?`${competition.name} ${competition.year}`:null,e.type].filter(Boolean).join(' · '));}))];
+      return `${header}\n${descriptions[alert.kind]}\n${rows.length} candidate${rows.length===1?'':'s'} from one organizer email.\n${labels.slice(0,5).join('\n')}\n\nUse /announce inbox to review each candidate and its source evidence.`;
+    }
+  }
   if(alert.kind==='blocked-source'){
     const row=store.db.prepare('SELECT reason FROM source_failures WHERE source=?').get(alert.target) as {reason:string}|undefined;
     detail=row?`\nReason: ${safeLabel(row.reason)}`:'';

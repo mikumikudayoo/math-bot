@@ -28,7 +28,7 @@ export function plan(store:AnnouncementStore,policy:PolicyFile,now=Date.now()){
       }
     }
     store.db.prepare("UPDATE announcement_jobs SET state='skipped' WHERE guild=? AND expires<? AND state='scheduled'").run(policy.guild,now);
-    for(const c of store.candidates(policy.guild).filter(x=>x.state==='pending')){const e=JSON.parse(c.event_json) as ScheduleEvent;const time=e.start??e.deadline;if(time!==null&&time-now<86400000)store.alert(policy.guild,'approaching-unapproved',c.id,now);}
+    for(const c of store.candidates(policy.guild).filter(x=>x.state==='pending')){const e=JSON.parse(c.event_json) as ScheduleEvent;const time=e.deadline??e.start;if((e.status??'active')==='active'&&time!==null&&time>now&&time-now<86400000)store.alert(policy.guild,'approaching-unapproved',c.id,now);}
     return store.jobs(policy.guild);
   });
 }

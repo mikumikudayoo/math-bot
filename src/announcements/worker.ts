@@ -7,11 +7,11 @@ import { extractFacts } from './extraction.js';
 import { plan } from './planner.js';
 import { draftMajor } from './writing.js';
 import { clearSourceFailure,recordSourceFailure,reconcileExtractionIncident } from './alerts.js';
-import { ProviderBackoff } from '../service/providers.js';
+import { ProviderBackoff,ProviderPayloadTooLarge,providerHealth } from '../service/providers.js';
 import { digest,type Source } from './model.js';
 
 export async function workerTick(store:AnnouncementStore,config:AutomationConfig,gmail=new GmailClient(config.gmail),extract=extractFacts){
-  if(!config.enabled)return;
+  if(!config.enabled||store.state('maintenance:reset')==='true')return;
   const signal=AbortSignal.timeout(120000);
   if(Number(store.state('gmail:retry-at')??0)<=Date.now()){
     try{await syncGmail(store,gmail,config,signal);store.setState('gmail:retry-at','0');}
@@ -23,7 +23,7 @@ export async function workerTick(store:AnnouncementStore,config:AutomationConfig
     // Until parsing resolves identity, a trusted organizer source may revise any event.
     // Successful ingestion narrows this to candidate holds; failure needs staff disposition.
     store.holdSource(config.policy.guild,row.id);
-    if(extract===extractFacts&&!config.provider.backendKey){store.alert(config.policy.guild,'extraction-provider-misconfigured','groq');continue;}
+    if(extract===extractFacts&&!config.provider.backendKey){store.setState('provider:health','misconfigured');store.alert(config.policy.guild,'extraction-provider-misconfigured','groq');continue;}
     try{
       const source=JSON.parse(row.metadata) as Source;
       const message=await gmail.get<GmailMessage>(`messages/${encodeURIComponent(source.messageId)}`,{format:'full'},signal);
@@ -38,7 +38,7 @@ export async function workerTick(store:AnnouncementStore,config:AutomationConfig
       else store.sourceState(row.id,'blocked');
       if(error instanceof ProviderBackoff)providerFailed=true;
       const provider=error instanceof ProviderBackoff?'groq':error instanceof GmailError?'gmail':'review';
-      const reason=error instanceof ProviderBackoff?`Groq ${error.reason}; ${row.attempts<12?'retry scheduled':'retry budget exhausted; manual review required'}.`:provider==='gmail'?'Gmail message or attachment could not be fetched.':error instanceof Error&&/Inference backend returned HTTP (\d{3})/.test(error.message)?`Groq configuration rejected (HTTP ${error.message.match(/HTTP (\d{3})/)![1]}); manual review required.`:'Extraction output could not be validated; manual review required.';
+      const reason=error instanceof ProviderPayloadTooLarge?'Groq request/payload too large (HTTP 413); split or shorten the source for manual review.':error instanceof ProviderBackoff?`Groq ${error.reason}; ${row.attempts<12?'retry scheduled':'retry budget exhausted; manual review required'}.`:provider==='gmail'?'Gmail message or attachment could not be fetched.':error instanceof Error&&/Inference backend returned HTTP (\d{3})/.test(error.message)?`Groq configuration rejected (HTTP ${error.message.match(/HTTP (\d{3})/)![1]}); manual review required.`:'Extraction output could not be validated; manual review required.';
       recordSourceFailure(store,row.id,provider,reason);
       if(provider==='gmail')store.alert(config.policy.guild,'gmail-unavailable','gmail');
       else if(provider==='review'||row.attempts>=12)store.alert(config.policy.guild,'blocked-source',row.id);
@@ -47,6 +47,8 @@ export async function workerTick(store:AnnouncementStore,config:AutomationConfig
   reconcileExtractionIncident(store,config.policy.guild,extractionHealthy&&!providerFailed,Date.now(),providerFailed);
   plan(store,config.policy);
   try{if(config.provider.backendKey)await draftMajor(store,config.policy,config.provider,signal);}catch{store.alert(config.policy.guild,'writing-unavailable','writer');}
+  const health=providerHealth.get(`${config.provider.backend}:${config.provider.model}`);
+  if(health){store.setState('provider:health',health.state);store.setState('provider:retry-at',String(health.retryAt));}
   store.setState('worker:last-tick',String(Date.now()));
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){

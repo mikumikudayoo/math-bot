@@ -122,17 +122,17 @@ test('locked drafts reject invented dates, URLs, role IDs and missing placeholde
 test('staff permission is checked before config/storage for every administrative command',async()=>{
   const cmd=makeAnnounceCommand(()=>{throw new Error('must not read config');});for(const action of ['inbox','status','review','preview','approve','reject','edit','attach','cancel','reconcile','import']){let replied=0;await cmd.execute({inGuild:()=>true,user:{id:'444444444444444444'},memberPermissions:{has:()=>false},options:{getSubcommand:()=>action},reply:async()=>{replied++;}} as unknown as ChatInputCommandInteraction);assert.equal(replied,1);}
 });
-test('Gmail expired history resync is bounded and duplicate history/messages never duplicate sources',async()=>{
+test('Gmail expired history pauses without listing or importing historical messages',async()=>{
   const s=new AnnouncementStore(':memory:');try{s.setState('gmail:test:cursor','expired');const paths:string[]=[];
     const client={get:async(path:string)=>{paths.push(path);if(path==='history')throw new GmailError(404);if(path==='profile')return {historyId:'new'};if(path==='messages')return {messages:[{id:'one'},{id:'one'}]};return {id:'one',payload:{headers:[{name:'From',value:'Organizer <organizer@example.org>'}],mimeType:'text/plain',body:{data:Buffer.from('VTAMPS mathematics').toString('base64url')}}};}} as Pick<GmailClient,'get'>;
-    await syncGmail(s,client,config,AbortSignal.timeout(1000));assert.equal(s.state('gmail:test:cursor'),'new');assert.equal(s.db.prepare('SELECT count(*) n FROM sources').get()!.n,1);assert.ok(paths.indexOf('profile')<paths.indexOf('messages'));
+    await syncGmail(s,client,config,AbortSignal.timeout(1000));assert.equal(s.state('gmail:test:cursor'),'expired');assert.equal(s.db.prepare('SELECT count(*) n FROM sources').get()!.n,0);assert.deepEqual(paths,['history']);assert.ok(s.state('gmail:test:history-gap'));assert.equal(s.state('gmail:test:health'),'history-gap');
   }finally{s.close();}
 });
 test('history arrivals outside restricted query or organizer list are never ingested',async()=>{
   const s=new AnnouncementStore(':memory:');try{s.setState('gmail:test:cursor','old');let reads=0;const client={get:async(path:string)=>{if(path==='history')return {historyId:'new',history:[{messagesAdded:[{message:{id:'private'}},{message:{id:'organizer'}}]}]};if(path==='messages')return {messages:[{id:'organizer'}]};reads++;return {id:'organizer',payload:{headers:[{name:'From',value:'not-organizer@example.org'}]}};}} as Pick<GmailClient,'get'>;await syncGmail(s,client,config,AbortSignal.timeout(1000));assert.equal(reads,1);assert.equal(s.db.prepare('SELECT count(*) n FROM sources').get()!.n,0);}finally{s.close();}
 });
 test('worker extraction outage becomes durable retry/blocked source without crashing delivery',async()=>{
-  const s=new AnnouncementStore(':memory:');try{const x=input();s.source(guild,x.source);const gmail={get:async(path:string)=>{if(path==='profile')return{historyId:'new'};if(path==='messages')return{messages:[]};return {id:x.source.messageId,payload:{mimeType:'text/plain',body:{data:Buffer.from('VTAMPS V.25.0 schedule').toString('base64url')}}};}} as unknown as GmailClient;
+  const s=new AnnouncementStore(':memory:');try{const x=input();s.source(guild,x.source);const gmail={get:async(path:string)=>{if(path==='profile')return{historyId:'123'};if(path==='messages')return{messages:[]};return {id:x.source.messageId,payload:{mimeType:'text/plain',body:{data:Buffer.from('VTAMPS V.25.0 schedule').toString('base64url')}}};}} as unknown as GmailClient;
     await workerTick(s,config,gmail,async()=>{throw new Error('malformed extraction');});assert.equal(s.db.prepare('SELECT state FROM sources').get()!.state,'blocked');assert.equal(s.events(guild).length,0);assert.ok(s.state('worker:last-tick'));
   }finally{s.close();}
 });
@@ -169,7 +169,7 @@ test('worker distinguishes Groq outages from Gmail source failures and preserves
 test('factual review alert names the training program and session while full identities stay in the database',async()=>{
  const {staffAlertContent}=await import('../src/announcements/alerts.js');const s=new AnnouncementStore(':memory:');try{
  s.ingest(guild,input());const alert=s.db.prepare("SELECT id,kind,target FROM staff_alerts WHERE kind='factual-review' LIMIT 1").get() as {id:string;kind:string;target:string};
- const content=staffAlertContent(s,guild,alert);assert.ok(content.includes('VTAMPS'));assert.ok(content.includes('25.0'));assert.ok(content.includes('training-session'));assert.ok(!content.includes(alert.target));assert.ok(content.includes('/announce inbox'));assert.ok(s.candidates(guild).some(c=>c.id===alert.target));
+ const content=staffAlertContent(s,guild,alert);assert.ok(content.includes('VTAMPS'));assert.ok(content.includes('25.0'));assert.ok(content.includes('training-session'));assert.ok(!content.includes(alert.target));assert.ok(content.includes('/announce inbox'));assert.ok(s.candidates(guild).some(c=>c.batch===alert.target));
  }finally{s.close();}
 });
 

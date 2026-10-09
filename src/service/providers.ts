@@ -3,6 +3,7 @@ import { fastRoute } from './fast-router.js';
 import type { RouteDecision } from './router.js';
 import { UserError } from './types.js';
 export class ProviderBackoff extends UserError { constructor(readonly retryAt:number,readonly reason='provider-backoff'){super('stronger inference is temporarily queued; no weaker answer was substituted.');} }
+export class ProviderPayloadTooLarge extends UserError {constructor(){super('The inference request is too large (HTTP 413). Shorten or split the source before retrying.');}}
 export const providerHealth=new Map<string,{state:'healthy'|'rate-limited'|'unavailable'|'misconfigured';retryAt:number;requestsRemaining:string|null;tokensRemaining:string|null}>();
 
 export interface ProviderConfig {
@@ -61,6 +62,7 @@ export async function completeProvider(provider: ProviderConfig, body: Record<st
     }
     if (!response.ok) {
       await response.body?.cancel();
+      if(response.status===413){providerHealth.set(healthKey,{state:'healthy',retryAt:0,requestsRemaining:null,tokensRemaining:null});throw new ProviderPayloadTooLarge();}
       if(response.status===429 || response.status>=500){
         const raw=response.headers.get('retry-after');const seconds=raw===null?NaN:Number(raw);
         const delay=Number.isFinite(seconds)?Math.max(1000,seconds*1000):raw?Math.max(1000,Date.parse(raw)-Date.now()):30000;

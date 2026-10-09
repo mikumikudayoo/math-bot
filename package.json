@@ -20,6 +20,7 @@
     "service:start": "bun dist/service/server.js",
     "automation:start": "bun dist/announcements/worker.js",
     "automation:health": "bun dist/scripts/announcement-health.js",
+    "automation:bootstrap": "bun dist/scripts/announcement-bootstrap.js",
     "provider:benchmark": "bun src/scripts/provider-benchmark.ts",
     "gmail:authorize": "bun src/scripts/gmail-authorize.ts",
     "setup:local": "bun src/scripts/setup-local.ts",

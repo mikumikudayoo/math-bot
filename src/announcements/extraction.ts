@@ -1,5 +1,5 @@
 import { completeProvider,type ProviderConfig } from '../service/providers.js';
-import { validateExtraction,canonical,eventKey,type Extraction,type ScheduleEvent,type Catalog,type Source } from './model.js';
+import { validateExtraction,canonical,canonicalEvent,eventKey,type Extraction,type ScheduleEvent,type Catalog,type Source } from './model.js';
 import type { ParsedMail } from './parsing.js';
 
 type Schema={type?:string;enum?:unknown[];properties?:Record<string,Schema>;required?:string[];additionalProperties?:boolean;items?:Schema;anyOf?:Schema[];maxItems?:number;maxLength?:number};
@@ -34,7 +34,7 @@ export function validateOutput(value:unknown,mail:ParsedMail,source:Source):Extr
     if(c.event.url){const u=new URL(c.event.url);if(u.search||u.hash||u.username||u.password)throw new Error('Potentially private link is not allowed in extracted public facts.');}
     if(c.event.detailLabel&&/password|passcode|token|credential\s*[:=]/i.test(c.event.detailLabel))throw new Error('Credential-bearing label rejected.');
     // A round has one check-your-email milestone, not one per MIME body/recipient.
-    const event={...c.event,...(c.event.type==='login-details'?{slot:'login-details'}:{})};
+    const event=canonicalEvent(c.event);
     return {event,confidence:c.confidence,issues:[...new Set([...c.issues,...parsed.issues,...mail.blocked])].slice(0,100)};
   });
   const merged=new Map<string,Extraction['events'][number]>();

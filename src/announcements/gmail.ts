@@ -29,24 +29,39 @@ export function organizer(message:GmailMessage,senders:string[]){
   const header=message.payload?.headers?.find(h=>h.name.toLowerCase()==='from')?.value??'';
   const email=(header.match(/<([^<>]+)>/)?.[1]??header).trim().toLowerCase();return senders.includes(email);
 }
+export async function bootstrapGmail(store:AnnouncementStore,client:Pick<GmailClient,'get'>,config:AutomationConfig,signal:AbortSignal){
+  const prefix=`gmail:${config.gmail.account}`;
+  if(store.state(`${prefix}:cursor`))throw new Error('Gmail is already bootstrapped.');
+  if(Number(store.db.prepare('SELECT COUNT(*) n FROM sources').get()!.n)!==0)throw new Error('Future-only bootstrap requires an empty source database.');
+  const profile=await client.get<{emailAddress?:string;historyId:string}>('profile',{},signal);
+  if(config.gmail.account.includes('@')&&profile.emailAddress?.toLowerCase()!==config.gmail.account.toLowerCase())throw new GmailError(401);
+  if(!/^\d+$/.test(profile.historyId))throw new Error('Gmail profile has no valid history cursor.');
+  store.transaction(()=>{
+    store.setState(`${prefix}:cursor`,profile.historyId);store.setState(`${prefix}:bootstrap-history-id`,profile.historyId);
+    store.setState(`${prefix}:bootstrap-at`,String(Date.now()));store.setState(`${prefix}:bootstrap-mode`,'future-only');store.setState(`${prefix}:health`,'healthy');
+    store.audit(config.policy.guild,'automation','gmail-future-only-bootstrap',config.gmail.account,{historyId:profile.historyId,imported:0});
+  });
+  return profile.historyId;
+}
 export async function syncGmail(store:AnnouncementStore,client:Pick<GmailClient,'get'>,config:AutomationConfig,signal:AbortSignal){
-  const account=config.gmail.account,cursorKey=`gmail:${account}:cursor`;let cursor=store.state(cursorKey);
+  const account=config.gmail.account,cursorKey=`gmail:${account}:cursor`;const cursor=store.state(cursorKey);
+  if(!cursor){await bootstrapGmail(store,client,config,signal);return 0;}
+  if(store.state(`gmail:${account}:history-gap`)){store.setState(`gmail:${account}:health`,'history-gap');return 0;}
   const profile=account.includes('@')?await client.get<{emailAddress?:string;historyId:string}>('profile',{},signal):undefined;
   if(profile&&profile.emailAddress?.toLowerCase()!==account.toLowerCase())throw new GmailError(401);
-  const ids=new Set<string>();let nextCursor=cursor;let initial=!cursor;
+  const ids=new Set<string>();let nextCursor=cursor;
   if(cursor){
     try{let page='';let pages=0;do{
       const data=await client.get<{history?:{messagesAdded?:{message:{id:string}}[]}[];historyId:string;nextPageToken?:string}>('history',{startHistoryId:cursor,historyTypes:'messageAdded',maxResults:'100',...(page?{pageToken:page}:{})},signal);
       for(const row of data.history??[])for(const item of row.messagesAdded??[])ids.add(item.message.id);page=data.nextPageToken??'';nextCursor=data.historyId;if(++pages>=5&&page)throw new Error('History too large: retain cursor for bounded retry.');
-    }while(page);}catch(error){if(error instanceof GmailError&&error.status===404)initial=true;else throw error;}
-  }
-  if(initial){
-    // Capture cursor BEFORE listing: arrivals during the bounded listing are replayed safely.
-    nextCursor=(profile??await client.get<{historyId:string}>('profile',{},signal)).historyId;
-    const data=await client.get<{messages?:{id:string}[]}>('messages',{q:config.gmail.query,maxResults:'100'},signal);for(const m of data.messages??[])ids.add(m.id);
+    }while(page);}catch(error){if(error instanceof GmailError&&error.status===404){
+      // Never replace an expired cursor with a mailbox listing or silently skip a gap.
+      store.transaction(()=>{store.setState(`gmail:${account}:history-gap`,JSON.stringify({cursor,observedAt:Date.now()}));store.setState(`gmail:${account}:health`,'history-gap');store.alert(config.policy.guild,'gmail-history-gap',cursor);store.audit(config.policy.guild,'automation','gmail-history-gap',account,{cursor});});
+      return 0;
+    }else throw error;}
   }
   let permitted:Set<string>|undefined;
-  if(!initial && ids.size){
+  if(ids.size){
     permitted=new Set<string>();let page='',pages=0;do{
       const data=await client.get<{messages?:{id:string}[];nextPageToken?:string}>('messages',{q:config.gmail.query,maxResults:'100',...(page?{pageToken:page}:{})},signal);
       for(const m of data.messages??[])permitted.add(m.id);page=data.nextPageToken??'';if(++pages>=5&&page)throw new Error('Restricted query exceeds bounded sync; narrow it before advancing cursor.');

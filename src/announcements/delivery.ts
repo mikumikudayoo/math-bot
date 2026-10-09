@@ -35,6 +35,7 @@ export function startAnnouncements(client:Client,config:AutomationConfig){
     return channel.send({...payload,files,nonce:createHash('sha256').update(job.id).digest('hex').slice(0,25),enforceNonce:true});
   };
   const tick=async()=>{if(busy||stopped)return;busy=true;try{
+    if(store.state('maintenance:reset')==='true'){store.setState('maintenance:bot-ack',String(Date.now()));return;}
     const current=automationConfig();if(!current.enabled)return;plan(store,current.policy);
     for(const j of store.jobs(config.policy.guild).filter(j=>j.state==='delivering'))store.alert(j.guild,'stuck-delivery',j.id);
     await deliverAnnouncements(store,current,send);
