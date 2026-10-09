@@ -24,6 +24,7 @@ export class AnnouncementStore {
       CREATE TABLE IF NOT EXISTS candidate_batches(id TEXT PRIMARY KEY,source TEXT NOT NULL REFERENCES sources(id),hash TEXT NOT NULL,UNIQUE(source,hash));
       CREATE TABLE IF NOT EXISTS candidate_events(id TEXT PRIMARY KEY,guild TEXT NOT NULL,batch TEXT NOT NULL REFERENCES candidate_batches(id),event_key TEXT NOT NULL,event_json TEXT NOT NULL,catalog_json TEXT NOT NULL,issues_json TEXT NOT NULL,confidence TEXT NOT NULL,base_revision INTEGER NOT NULL,review_version INTEGER NOT NULL DEFAULT 1,state TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS candidate_holds ON candidate_events(guild,event_key,state);
+      CREATE TABLE IF NOT EXISTS candidate_sources(candidate TEXT NOT NULL REFERENCES candidate_events(id),source TEXT NOT NULL REFERENCES sources(id),PRIMARY KEY(candidate,source));
       CREATE TABLE IF NOT EXISTS events(event_key TEXT PRIMARY KEY,guild TEXT NOT NULL,revision INTEGER NOT NULL,event_json TEXT NOT NULL,catalog_json TEXT NOT NULL,approved_by TEXT NOT NULL,approved_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS event_revisions(event_key TEXT NOT NULL REFERENCES events(event_key),revision INTEGER NOT NULL,event_json TEXT NOT NULL,catalog_json TEXT NOT NULL,actor TEXT NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(event_key,revision));
       CREATE TABLE IF NOT EXISTS announcement_assets(id TEXT PRIMARY KEY,guild TEXT NOT NULL,hash TEXT NOT NULL,path TEXT NOT NULL,mime TEXT NOT NULL,bytes INTEGER NOT NULL);
@@ -66,9 +67,16 @@ export class AnnouncementStore {
       const batch=randomUUID();this.db.prepare('INSERT INTO candidate_batches VALUES(?,?,?)').run(batch,source,hash);
       for(const c of input.events){
         const key=guild+':'+eventKey(c.event),active=this.event(guild,key),json=canonical(c.event),catalog=canonical(input.catalog);
+        const duplicate=this.db.prepare("SELECT id,issues_json,review_version FROM candidate_events WHERE guild=? AND event_key=? AND event_json=? AND catalog_json=? AND state='pending' LIMIT 1").get(guild,key,json,catalog) as {id:string;issues_json:string;review_version:number}|undefined;
+        if(duplicate){
+          const issues=canonical([...new Set([...(JSON.parse(duplicate.issues_json) as string[]),...c.issues])]);
+          if(issues!==duplicate.issues_json)this.db.prepare('UPDATE candidate_events SET issues_json=?,review_version=review_version+1 WHERE id=?').run(issues,duplicate.id);
+          this.db.prepare('INSERT OR IGNORE INTO candidate_sources VALUES(?,?)').run(duplicate.id,source);continue;
+        }
         const unchanged=active?.event_json===json&&active.catalog_json===catalog;
-        this.db.prepare('INSERT INTO candidate_events(id,guild,batch,event_key,event_json,catalog_json,issues_json,confidence,base_revision,state) VALUES(?,?,?,?,?,?,?,?,?,?)').run(randomUUID(),guild,batch,key,json,catalog,canonical(c.issues),c.confidence,active?.revision??0,unchanged?'unchanged':'pending');
-        if(!unchanged){this.db.prepare("UPDATE announcement_jobs SET held_from=state,state='held' WHERE event_key=? AND state IN ('scheduled','pending_approval','blocked')").run(key);this.alert(guild,active?'correction-held':'factual-review',key,now);}
+        const candidateId=randomUUID();this.db.prepare('INSERT INTO candidate_events(id,guild,batch,event_key,event_json,catalog_json,issues_json,confidence,base_revision,state) VALUES(?,?,?,?,?,?,?,?,?,?)').run(candidateId,guild,batch,key,json,catalog,canonical(c.issues),c.confidence,active?.revision??0,unchanged?'unchanged':'pending');
+        this.db.prepare('INSERT INTO candidate_sources VALUES(?,?)').run(candidateId,source);
+        if(!unchanged){this.db.prepare("UPDATE announcement_jobs SET held_from=state,state='held' WHERE event_key=? AND state IN ('scheduled','pending_approval','blocked')").run(key);this.alert(guild,active?'correction-held':'factual-review',candidateId,now);}
       }
       this.sourceState(source,'extracted');this.releaseSource(source);this.audit(guild,'ingestion','propose',batch,{hash},now);return batch;
     });
@@ -87,7 +95,7 @@ export class AnnouncementStore {
     this.db.prepare('INSERT INTO event_revisions VALUES(?,?,?,?,?,?)').run(c.event_key,revision,c.event_json,c.catalog_json,actor,now);
     this.db.prepare("UPDATE candidate_events SET state='approved' WHERE id=?").run(id);
     this.db.prepare("UPDATE announcement_jobs SET state='superseded' WHERE event_key=? AND state IN ('scheduled','held','pending_approval','blocked','draft')").run(c.event_key);
-    if(this.db.prepare("SELECT id FROM announcement_jobs WHERE event_key=? AND state IN ('sent','delivering','uncertain') LIMIT 1").get(c.event_key))this.alert(guild,'correction-after-send',c.event_key,now);
+    if(this.db.prepare("SELECT id FROM announcement_jobs WHERE event_key=? AND state IN ('sent','delivering','uncertain') LIMIT 1").get(c.event_key))this.alert(guild,'correction-after-send',`${c.event_key}:${revision}`,now);
     this.audit(guild,actor,'approve-facts',id,{revision,event:c.event_json},now);return this.event(guild,c.event_key)!;
   });}
   reject(guild:string,id:string,version:number,actor:string){this.transaction(()=>{const c=this.pending(guild,id,version);this.db.prepare("UPDATE candidate_events SET state='rejected' WHERE id=?").run(id);this.audit(guild,actor,'reject',id,{});this.unhold(c.event_key);});}
@@ -95,7 +103,7 @@ export class AnnouncementStore {
   cancel(guild:string,key:string,status:'cancelled'|'postponed',actor:string,expectedRevision:number){return this.transaction(()=>{
     const e=this.event(guild,key);if(!e||e.revision!==expectedRevision)throw new Error('Event revision is stale.');const event={...JSON.parse(e.event_json) as ScheduleEvent,status,start:null,end:null,deadline:null};
     const revision=e.revision+1;this.db.prepare('UPDATE events SET revision=?,event_json=?,approved_by=?,approved_at=? WHERE event_key=?').run(revision,canonical(event),actor,Date.now(),key);this.db.prepare('INSERT INTO event_revisions VALUES(?,?,?,?,?,?)').run(key,revision,canonical(event),e.catalog_json,actor,Date.now());
-    this.db.prepare("UPDATE announcement_jobs SET state='cancelled' WHERE event_key=? AND state IN ('scheduled','held','pending_approval','blocked','draft')").run(key);this.alert(guild,'cancellation-review',key);this.audit(guild,actor,status,key,event);return this.event(guild,key)!;
+    this.db.prepare("UPDATE announcement_jobs SET state='cancelled' WHERE event_key=? AND state IN ('scheduled','held','pending_approval','blocked','draft')").run(key);this.alert(guild,'cancellation-review',`${key}:${revision}`);this.audit(guild,actor,status,key,event);return this.event(guild,key)!;
   });}
   held(key:string){return Boolean(this.db.prepare("SELECT id FROM candidate_events WHERE event_key=? AND state='pending'").get(key)||this.db.prepare('SELECT source FROM source_holds WHERE event_key=?').get(key));}
   jobs(guild:string){return this.db.prepare('SELECT * FROM announcement_jobs WHERE guild=? ORDER BY due DESC LIMIT 100').all(guild) as unknown as AnnouncementJob[];}

@@ -43,8 +43,9 @@ export function makeAnnounceCommand(getConfig:()=>AutomationConfig=automationCon
         if(action==='review'){
           const c=store.candidate(guild,id);if(!c)throw new Error('Candidate not found.');const event=JSON.parse(c.event_json) as ScheduleEvent;
           const source=store.db.prepare('SELECT s.metadata,e.evidence_json FROM sources s JOIN candidate_batches b ON b.source=s.id LEFT JOIN source_evidence e ON e.source=s.id WHERE b.id=?').get(c.batch);
+          const additionalSources=store.db.prepare('SELECT source FROM candidate_sources WHERE candidate=?').all(id);
           const buttons=c.state==='pending'?[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`announce:facts:${c.id}:${c.review_version}`).setLabel('approve facts').setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`announce:reject:${c.id}:${c.review_version}`).setLabel('reject').setStyle(ButtonStyle.Danger))]:[];
-          await reply({id,version:c.review_version,state:c.state,facts:describeEvent(event,JSON.parse(c.catalog_json) as Catalog),assumedTimezone:event.timezoneAssumed??false,issues:JSON.parse(c.issues_json),confidence:c.confidence,source,previous:store.event(guild,c.event_key),notice:'Review source evidence; approval is a factual decision, not an OCR-confidence shortcut.'},buttons);return;
+          await reply({id,version:c.review_version,state:c.state,facts:describeEvent(event,JSON.parse(c.catalog_json) as Catalog),assumedTimezone:event.timezoneAssumed??false,issues:JSON.parse(c.issues_json),confidence:c.confidence,source,additionalSources,previous:store.event(guild,c.event_key),notice:'Review source evidence; approval is a factual decision, not an OCR-confidence shortcut.'},buttons);return;
         }
         if(action==='preview'){
           const j=store.job(guild,id);if(!j)throw new Error('Job not found.');const buttons=j.major&&j.state==='pending_approval'?[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`announce:post:${id}:${lockedHash(j).slice(0,32)}`).setLabel('approve this text + asset').setStyle(ButtonStyle.Success))]:[];

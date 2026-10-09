@@ -169,6 +169,14 @@ test('worker distinguishes Groq outages from Gmail source failures and preserves
 test('factual review alert names the training program and session while full identities stay in the database',async()=>{
  const {staffAlertContent}=await import('../src/announcements/alerts.js');const s=new AnnouncementStore(':memory:');try{
  s.ingest(guild,input());const alert=s.db.prepare("SELECT id,kind,target FROM staff_alerts WHERE kind='factual-review' LIMIT 1").get() as {id:string;kind:string;target:string};
- const content=staffAlertContent(s,guild,alert);assert.ok(content.includes('VTAMPS'));assert.ok(content.includes('25.0'));assert.ok(content.includes('training-session'));assert.ok(!content.includes(alert.target));assert.ok(content.includes('/announce inbox'));assert.ok(s.candidates(guild).some(c=>c.event_key===alert.target));
+ const content=staffAlertContent(s,guild,alert);assert.ok(content.includes('VTAMPS'));assert.ok(content.includes('25.0'));assert.ok(content.includes('training-session'));assert.ok(!content.includes(alert.target));assert.ok(content.includes('/announce inbox'));assert.ok(s.candidates(guild).some(c=>c.id===alert.target));
+ }finally{s.close();}
+});
+
+test('duplicate forwarded pending facts retain provenance and new uncertainty invalidates stale review',()=>{
+ const s=new AnnouncementStore(':memory:');try{
+ const x=input('original-pending');x.events=[x.events[0]!];s.ingest(guild,x);const c=s.candidates(guild)[0]!;
+ const forward=structuredClone(x);forward.source.messageId='forward-pending';s.ingest(guild,forward);assert.equal(s.candidates(guild).length,1);assert.equal(s.db.prepare('SELECT count(*) n FROM candidate_sources WHERE candidate=?').get(c.id)!.n,2);
+ const unclear=structuredClone(x);unclear.source.messageId='unclear-forward';unclear.events[0]!.issues=['attachment needs review'];s.ingest(guild,unclear);assert.equal(s.candidates(guild).length,1);assert.equal(s.candidate(guild,c.id)!.review_version,2);assert.throws(()=>s.approve(guild,c.id,1,'staff'),/stale/);assert.throws(()=>s.approve(guild,c.id,2,'staff'),/issues/);
  }finally{s.close();}
 });
