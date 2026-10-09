@@ -41,8 +41,8 @@ test('model adapter invokes allowed calculator and returns final answer from moc
   });
   await new Promise<void>(r=>backend.listen(0,'127.0.0.1',r));const store=new Store(':memory:');
   try{
-    const job=store.admit({id:'a',guild,channel,user,coach:false,kind:'ask',prompt:'2+3'},20);
-    const run=runner({...config,backend:`http://127.0.0.1:${(backend.address() as AddressInfo).port}`,model:'test-fixture-only'},store);
+    const job=store.admit({id:'a',guild,channel,user,coach:false,kind:'ask',prompt:'calculate 2+3'},20);
+    const run=runner({...config,backend:`http://127.0.0.1:${(backend.address() as AddressInfo).port}`,model:'test-fixture-only'},store,{route:async()=>({reasoning:'fast',knowledge:'internal',tool:'calculate'})});
     const result=await run(job,AbortSignal.timeout(20000),()=>{});assert.equal(result.answer,'2 + 3 = 5.');assert.equal(count,2);
   }finally{store.close();await new Promise<void>(r=>backend.close(()=>r()));}
 });

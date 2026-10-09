@@ -9,7 +9,8 @@ import { retrievalPolicy, establishesEntities, expressesUncertainty, groundedAns
 import { solvePairingPrompt } from './pairing.js';
 import { routePrompt } from './route-prompt.js';
 import { currentUser,discordIntent,CREATOR_ID,type DiscordTool } from '../discord-context.js';
-import { completeProvider,selectProvider } from './providers.js';
+import { completeProvider,ProviderBackoff } from './providers.js';
+import { aiProvider,safeLocalFallback } from './ai-routing.js';
 import { parseModelResponse,parseEnvelope,toolArguments } from './model-protocol.js';
 
 export const system = `You are Aleph-Zero in the Mathematikaws Discord server.
@@ -78,6 +79,11 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
     if(job.kind==='python'){status('running sandboxed Python');const result=await sandboxPython(config,job.prompt,signal);status('preparing answer');return result;}
     const pairing=solvePairingPrompt(job.prompt);
     if(pairing){status('calculating');status('preparing answer');return {answer:pairing};}
+    // Exact conversational acknowledgements need neither inference nor tools.
+    const casual=job.prompt.trim().toLowerCase();
+    if(!job.image&&/^(?:hi|hello|hey|yo)[!.?]*$/.test(casual))return {answer:'hey'};
+    if(!job.image&&/^(?:thanks|thank you|ty|thx)[!.]*$/.test(casual))return {answer:'yw'};
+    if(!job.image&&/^[\d\s()+*/.^%=-]+$/.test(job.prompt)&&/\d/.test(job.prompt))return io.mathTool(config,{expression:job.prompt},signal);
     if(!config.backend||!config.model)throw new UserError('No inference backend is configured yet. Calculator and plotting work independently of a model.');
     const history=store.history(job);
     // Short factual follow-ups inherit the original subject; history never supplies evidence.
@@ -86,7 +92,8 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
     const discordTimeScoped=/\b(?:today|yesterday|tonight|this (?:morning|afternoon|evening|week|month|year)|last (?:night|week|month|year)|past \d+ (?:hours?|days?|weeks?|months?)|\d{4}-\d{2}-\d{2}|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?) \d{1,2})\b/i.test(contextPrompt);
     const discordRoute=discordIntent(contextPrompt);
     const route = discordRoute?{knowledge:'internal' as const}:await (io.route??routePrompt)(contextPrompt);
-    const provider=selectProvider(config,contextPrompt,{knowledge:route.knowledge,reasoning:'reasoning' in route?route.reasoning:'fast'},{image:!!job.image||history.some(row=>!!row.image),discord:!!discordRoute});
+    const reasoning='reasoning' in route?route.reasoning:'fast';
+    let provider=aiProvider(config,contextPrompt,{knowledge:route.knowledge,reasoning},{image:!!job.image||history.some(row=>!!row.image),discord:!!discordRoute});
     let policy = {
       ...retrievalPolicy(contextPrompt),
       required: route.knowledge === 'web_required',
@@ -221,12 +228,20 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
     }
     for(let round=0;round<6;round++){
       signal.throwIfAborted();status(evidence.length?'preparing answer':'thinking');
-      const result=await completeProvider(provider,{messages,...(provider.nativeTools?{tools:tools.filter(t=>{
+      let result:unknown;
+      try{result=await completeProvider(provider,{messages,...(provider.nativeTools&&!evidence.length?{tools:tools.filter(t=>{
           if(t.function.name.startsWith('discord_')&&(!io.discord||provider!==config))return false;
           if((t.function.name==='search'||t.function.name==='fetch')&&!webAllowed)return false;
           if(t.function.name==='search'&&!config.searchKey)return false;
           return true;
-        }),tool_choice:'auto'}:{}),max_tokens:provider===config?768:2048,temperature:0.2},signal,io.complete) as {choices?:{message?:Message}[]};
+        }),tool_choice:'auto'}:{}),max_tokens:provider===config?768:2048,temperature:0.2},provider===config?signal:AbortSignal.any([signal,AbortSignal.timeout(45000)]),io.complete);}
+      catch(error){
+        if(!(error instanceof ProviderBackoff)||provider===config||signal.aborted||!safeLocalFallback(contextPrompt,reasoning,retrievalSucceeded&&evidence.length>0,!!imageURL))throw error;
+        provider=config;status('using local inference with verified sources');
+        messages[0]!.content=system+(provider.nativeTools?'':'\n\n'+(webAllowed?JSON_PROTOCOL:INTERNAL_JSON_PROTOCOL));
+        for(const row of messages){if(row.role==='tool'){row.role='user';row.content=JSON.stringify({type:'TOOL_RESULT',result:row.content});delete row.tool_call_id;}if(row.tool_calls){row.content=JSON.stringify({requestedTools:row.tool_calls});delete row.tool_calls;}}
+        result=await completeProvider(provider,{messages,max_tokens:768,temperature:0.2},signal,io.complete);
+      }
       const message=parseModelResponse(result);
       const content=typeof message.content==='string'?message.content.trim():'';
       const envelope=parseEnvelope(content);

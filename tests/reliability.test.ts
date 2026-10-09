@@ -77,7 +77,7 @@ test('verified exhaustive lists are explicitly limited and cannot claim complete
 test('timeless prompts and ordinary conversation make zero search calls',async()=>{
   for(const prompt of ['hello','Explain photosynthesis','What is a prime number?','Why is the sky blue?','Solve all integer solutions of x + 2 = 3.']){
     assert.equal(retrievalPolicy(prompt).required,false,prompt);
-    const f=fixture(prompt,[{answer:'A concise educational response.'}]);try{await f.run();assert.equal(f.calls.search.length,0);assert.equal(f.calls.requests[0]!.tools,undefined);assert.equal(f.calls.requests[0]!.tool_choice,undefined);}finally{f.store.close();}
+    const f=fixture(prompt,[{answer:'A concise educational response.'}]);try{await f.run();assert.equal(f.calls.search.length,0);if(prompt==='hello')assert.equal(f.calls.requests.length,0);else{assert.equal(f.calls.requests[0]!.tools,undefined);assert.equal(f.calls.requests[0]!.tool_choice,undefined);}}finally{f.store.close();}
   }
 });
 test('uncertain draft is discarded and verification is host-enforced',async()=>{
@@ -89,7 +89,7 @@ test('JSON tool protocol works without native tools; action status reflects actu
   try{assert.equal((await f.run()).answer,'2 + 3 = 5.');assert.equal(f.calls.math,1);assert.ok(f.calls.statuses.includes('calculating'));assert.equal(f.calls.requests[0]!.tools,undefined);assert.equal(f.calls.statuses.at(-1),'preparing answer');}finally{f.store.close();}
 });
 test('unknown tools and repeating tools cannot escape the existing loop budget',async()=>{
-  const f=fixture('hello',Array.from({length:10},()=>({tool:'shell',arguments:{command:'anything'}})));
+  const f=fixture('Explain addition.',Array.from({length:10},()=>({tool:'shell',arguments:{command:'anything'}})));
   try{await assert.rejects(f.run(),/Tool-step limit/);assert.equal(f.calls.requests.length,6);assert.equal(f.calls.math,0);}finally{f.store.close();}
 });
 test('persona is preserved and unconfigured cutoff/company identity claims are blocked',async()=>{

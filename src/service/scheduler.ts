@@ -31,7 +31,8 @@ export class Scheduler {
         })
         .catch(error => {
           if(this.stopped)this.store.requeue(job.id);
-          else if(error instanceof ProviderBackoff && Date.now()-job.created<86400000){this.store.defer(job.id,error.retryAt);if(!this.wake)this.wake=setTimeout(()=>{this.wake=undefined;this.tick();},Math.max(1000,Math.min(error.retryAt-Date.now(),60000)));}
+          else if(error instanceof ProviderBackoff && Date.now()-job.created<600000&&error.retryAt<job.created+600000&&Number(this.store.db.prepare('SELECT * FROM jobs WHERE id=?').get(job.id)?.provider_attempts??0)<2){this.store.defer(job.id,error.retryAt);if(!this.wake)this.wake=setTimeout(()=>{this.wake=undefined;this.tick();},Math.max(1000,Math.min(error.retryAt-Date.now(),60000)));}
+          else if(error instanceof ProviderBackoff)this.store.fail(job.id,'the stronger model is temporarily unavailable. please try again later.');
           else this.store.fail(job.id, error instanceof UserError ? error.message : controller.signal.aborted ? 'Request timed out.' : 'The AI or tool failed. Please try again.');
         })
         .finally(() => { clearTimeout(timeout); this.active.delete(job.id); this.tick(); });
