@@ -18,12 +18,16 @@ export function serviceConfig() {
     : undefined;
   if(env.EXTERNAL_INFERENCE_PROVIDER && env.EXTERNAL_INFERENCE_PROVIDER!=='groq')throw new Error('Unsupported external provider. No paid fallback is configured.');
   if(external && new URL(external.backend).hostname!=='api.groq.com')throw new Error('Groq must use api.groq.com.');
+  const visionModel=env.VISION_INFERENCE_MODEL;
+  if(visionModel&&visionModel!=='qwen/qwen3.8-27b')throw new Error('Unsupported vision model.');
+  if(visionModel&&!external?.backendKey)throw new Error('Vision requires the existing Groq provider.');
+  const visionProvider=visionModel&&external?{...external,model:visionModel,vision:true}:undefined;
   if (backend) {
     const url = new URL(backend);
     if (url.username || url.password || !['http:','https:'].includes(url.protocol)) throw new Error('Invalid inference URL.');
     if (url.protocol === 'http:' && !['127.0.0.1','localhost','[::1]'].includes(url.hostname)) throw new Error('Remote inference must use HTTPS.');
   }
-  return { ...(external?{external}:{}),...(env.COGNITIVE_ROUTING==='true'?{cognitiveRouting:true}:{}),mode, secret, port:integer('AI_PORT',8787,1024,65535), database:env.AI_DATABASE ?? `data/${mode}.sqlite`,
+  return { ...(visionProvider?{visionProvider}:{}),...(external?{external}:{}),...(env.COGNITIVE_ROUTING==='true'?{cognitiveRouting:true}:{}),mode, secret, port:integer('AI_PORT',8787,1024,65535), database:env.AI_DATABASE ?? `data/${mode}.sqlite`,
     concurrency:integer('AI_CONCURRENCY',1,1,16),reserved:integer('COACH_RESERVED_SLOTS',0,0,15),borrow:env.COACH_BORROW_RESERVED === 'true',
     timeoutMs:integer('AI_TIMEOUT_SECONDS',600,10,3600)*1000,maxQueue:integer('AI_MAX_QUEUE',50,1,500),
     backend,model:env.INFERENCE_MODEL ?? '',backendKey:env.INFERENCE_API_KEY ?? '',vision:env.INFERENCE_VISION === 'true',

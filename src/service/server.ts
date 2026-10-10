@@ -11,6 +11,7 @@ import { DiscordBroker } from './discord-broker.js';
 import { currentUser } from '../discord-context.js';
 import { UserError, type Submission, type JobKind } from './types.js';
 import { providerHealth } from './providers.js';
+import {imageAttachments} from './vision.js';
 
 function text(value:unknown,name:string,max=100):string {
   if(typeof value!=='string'||!value.trim()||value.length>max)throw new UserError(`Invalid ${name}.`);return value;
@@ -28,7 +29,7 @@ export function createService(config:ServiceConfig, injected?:Runner) {
     try{
       const url=new URL(req.url??'/','http://localhost');
       if(req.method==='GET'&&url.pathname==='/discord-tools'){send(200,discord.take());return;}
-      if(req.method==='GET'&&url.pathname==='/health'){send(200,{ok:true,modelConfigured:!!(config.backend&&config.model),vision:config.vision,sandbox:config.sandbox,externalConfigured:!!config.external?.backendKey,providers:[...providerHealth.values()]});return;}
+      if(req.method==='GET'&&url.pathname==='/health'){send(200,{ok:true,modelConfigured:!!(config.backend&&config.model),vision:!!config.visionProvider,sandbox:config.sandbox,externalConfigured:!!config.external?.backendKey,providers:[...providerHealth.values()]});return;}
       if(req.method==='GET'&&url.pathname==='/pending'){
         const order=store.queued().map(x=>x.id);
         send(200,store.pending().map(job=>job.state==='queued'?{...job,status:`queued · priority position ${order.indexOf(job.id)+1}`} :job));return;
@@ -58,7 +59,9 @@ export function createService(config:ServiceConfig, injected?:Runner) {
           const input:Submission={id:id(body.id,'id'),guild:id(body.guild,'guild'),channel:id(body.channel,'channel'),user:id(body.user,'user'),
             coach:body.coach===true,kind,prompt:text(body.prompt,'prompt',8000),
             ...(body.parent?{parent:id(body.parent,'parent')}:{}),...(body.image?{image:text(body.image,'image',2000)}:{})};
-          input.discordContext=JSON.stringify(currentUser(input.user,input.guild,body.discordContext));
+          input.discordContext=JSON.stringify({...currentUser(input.user,input.guild,body.discordContext),channelId:input.channel});
+          if(body.sourceMessageId)input.sourceMessageId=id(body.sourceMessageId,'sourceMessageId');
+          if(body.images!==undefined)input.images=JSON.stringify(imageAttachments(body.images));
           const job=store.admit(input,config.maxQueue);scheduler.tick();send(200,job);break;
         }
         case '/bind':store.bind(id(body.id,'id'),id(body.message,'message'));send(200,{ok:true});break;

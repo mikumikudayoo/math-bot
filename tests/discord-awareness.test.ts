@@ -61,7 +61,7 @@ test('basic requester identity does not require a Discord member lookup',async()
       },
       discord:async()=>{discordCalls++;return {error:'should not be called'};}
     });
-    assert.equal((await run(job,AbortSignal.timeout(10000),()=>{})).answer,'you are emu.');
+    assert.match((await run(job,AbortSignal.timeout(10000),()=>{})).answer,/fyuc \/ emu/);
     assert.equal(discordCalls,0);
   }finally{s.close();}
 });
@@ -134,7 +134,7 @@ test('trusted context reaches model; internal Discord tool calls cannot enable w
 });
 test('native mode exposes Discord tools on internal routes and creator context is host computed',async()=>{
   const s=new Store(':memory:');let count=0;
-  try{const job=s.admit({id:'j',guild:gid,channel:cid,user:CREATOR_ID,coach:false,kind:'ask',prompt:'who am i?'},10);
+  try{const job=s.admit({id:'j',guild:gid,channel:cid,user:CREATOR_ID,coach:false,kind:'ask',prompt:'my Discord profile'},10);
     const run=runner({...config,nativeTools:true},s,{route:identityRoute,discord:async()=>({type:'DISCORD_MEMBER_DATA',userId:CREATOR_ID,isCreator:true}),complete:async(_url,init)=>{
       const body=JSON.parse(String(init.body));assert.ok(body.tools.some((t:any)=>t.function.name==='discord_member'));assert.ok(!body.tools.some((t:any)=>t.function.name==='search'||t.function.name==='fetch'));
       assert.ok(body.messages.some((m:any)=>String(m.content).includes('"isCreator":true')));
@@ -288,4 +288,19 @@ test('Discord inference rejects invented IDs before publishing an answer',async(
     assert.equal(searches,1);
     assert.equal(calls,2);
   }finally{s.close();}
+});
+
+test('lookup accepts host exclusion IDs and does not return the lookup itself',async()=>{
+ const f=fixture();const result:any=await executeDiscordTool(f.client,{...f.task,args:{query:'phi',excludeMessageIds:['523456789012345678']}},true);assert.deepEqual(result.results,[]);assert.deepEqual(f.calls,[cid]);
+});
+test('author-name lookup resolves an exact server member and ambiguous labels fail closed',async()=>{
+ const f=fixture();Object.assign(f.member,{user:{username:'machica',globalName:null},nickname:null,displayName:'machica'});f.guild.members.search=async()=>new Collection([[uid,f.member]]);
+ const result:any=await executeDiscordTool(f.client,{...f.task,args:{query:'phi',authorName:'machica'}},true);assert.equal(result.results.length,1);assert.equal(result.results[0].author.id,uid);
+ f.guild.members.search=async()=>new Collection([[uid,f.member],['623456789012345678',{...f.member,id:'623456789012345678'}]]);const ambiguous:any=await executeDiscordTool(f.client,{...f.task,args:{query:'phi',authorName:'machica'}},true);assert.deepEqual(ambiguous.results,[]);assert.match(ambiguous.coverage,/ambiguous/);
+});
+test('author ID filter never returns another member and topic search is bounded',async()=>{
+ const f=fixture();const result:any=await executeDiscordTool(f.client,{...f.task,args:{query:'phi',authorId:CREATOR_ID}},true);assert.deepEqual(result.results,[]);assert.equal(f.calls.length,1);
+});
+test('referenced follow-up messages still exclude inaccessible channels',async()=>{
+ const f=fixture();const hidden='623456789012345678';f.channel(hidden,false);const result:any=await executeDiscordTool(f.client,{...f.task,args:{query:'phi',messageRefs:[{id:'523456789012345678',channelId:hidden}]}},true);assert.deepEqual(result.results,[]);assert.ok(!f.calls.includes(hidden));
 });

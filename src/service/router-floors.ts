@@ -46,6 +46,9 @@ export function routingFloors(prompt: string): RoutingFloors {
 
   // Queries whose answer inherently depends on current external state.
   const currentExternalState =
+    /\b(?:latest|newest|news|headlines|weather|current|currently|recent)\b/i.test(p) ||
+    /^(?:who is|who's|what is the name of)\b.*\b(?:president|prime minister|CEO|governor|mayor)\b/i.test(p) ||
+    /\btoday\b/i.test(p)&&/\b(?:price|status|release|president|minister|forecast|update|happened|happening)\b/i.test(p) ||
     /\b(?:down|offline|outage)\s+(?:rn|right\s+now|currently)\b/i.test(p) ||
     /\b(?:current|latest|newest)\s+(?:version|release)\b/i.test(p) ||
     /\b(?:version|release)\b.{0,60}\b(?:current|latest|newest)(?:\s+right\s+now)?\b/i.test(p);

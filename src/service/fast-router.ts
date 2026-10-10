@@ -95,7 +95,7 @@ export function fastRoute(prompt: string): FastRouteResult {
 
   // Internal assistant identity.
   if (
-    /^(?:who are you|what are you|what(?:'s| is) your (?:name|dream)|who (?:made|created) you|tell me about yourself)[?.!]*$/i.test(p)
+    /^(?:who are you|what are you|who am i|do you know who i am|what(?:'s| is) my (?:name|username)|what(?:'s| is) your (?:name|dream)|who (?:made|created) you|tell me about yourself)[?.!]*$/i.test(p)
   ) {
     return {
       kind: 'final',

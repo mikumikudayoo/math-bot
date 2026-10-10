@@ -39,10 +39,14 @@ export async function sandboxPython(config:ServiceConfig,code:string,signal:Abor
 }
 export async function search(config:Pick<ServiceConfig,'searchKey'>,query:string,signal:AbortSignal,request:typeof fetch=fetch) {
   if(!config.searchKey)throw new UserError('Web search is not configured yet. You can supply a public HTTPS source URL.');
+  const news=/\b(?:news|headlines)\b/i.test(query);
+  const fresh=news||/\b(?:latest|today|current|currently|recent|weather|newest)\b/i.test(query);
+  const clean=query.replace(/^(?:please\s+)?(?:give|show|tell|find|provide)\s+(?:me\s+)?(?:the\s+)?/i,'').replace(/\bphilippine news\b/i,'Philippines news');
+  const searchQuery=(fresh?`${clean} as of ${new Date().toISOString().slice(0,10)}`:query).slice(0,500);
   const response=await request('https://api.tavily.com/search',{
     method:'POST',signal:AbortSignal.any([signal,AbortSignal.timeout(15000)]),redirect:'error',
     headers:{'Content-Type':'application/json',Authorization:`Bearer ${config.searchKey}`},
-    body:JSON.stringify({query:query.slice(0,500),topic:'general',search_depth:'basic',auto_parameters:false,
+    body:JSON.stringify({query:searchQuery,topic:news?'news':'general',...(fresh?{time_range:/\btoday\b/i.test(query)?'day':'week'}:{}),search_depth:'basic',auto_parameters:false,
       max_results:5,include_answer:false,include_raw_content:false,include_images:false}),
   });
   if(!response.ok)throw new UserError('Web search provider is unavailable.');
@@ -52,13 +56,17 @@ export async function search(config:Pick<ServiceConfig,'searchKey'>,query:string
   let body:unknown;
   try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new UserError('Invalid search response.');}
   if(!body||typeof body!=='object'||!('results' in body)||!Array.isArray(body.results))throw new UserError('Invalid search response.');
-  const results:{title:string;url:string;description:string}[]=[];
+  const results:{title:string;url:string;description:string;publishedAt?:string}[]=[];
   const seen=new Set<string>();
   for(const item of body.results){
     if(!item||typeof item!=='object'||typeof item.title!=='string'||typeof item.url!=='string'||typeof item.content!=='string'||!item.content.trim())continue;
     try{publicURL(item.url);}catch{continue;}
     if(seen.has(item.url))continue;
-    seen.add(item.url);results.push({title:item.title.slice(0,300),url:item.url,description:item.content.slice(0,1000)});
+    const published=typeof item.published_date==='string'?Date.parse(item.published_date):NaN;
+    if(news&&(!Number.isFinite(published)||published<Date.now()-8*86400000||published>Date.now()+86400000))continue;
+    const headlineDate=item.title.match(/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}\b/i)?.[0];
+    if(news&&headlineDate&&Date.parse(headlineDate)<Date.now()-8*86400000)continue;
+    seen.add(item.url);results.push({title:item.title.slice(0,300),url:item.url,description:item.content.slice(0,1000),...(Number.isFinite(published)?{publishedAt:new Date(published).toISOString()}: {})});
     if(results.length===5)break;
   }
   return results;

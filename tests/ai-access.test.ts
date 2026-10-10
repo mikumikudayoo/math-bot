@@ -38,7 +38,7 @@ function runtime(overrides:Partial<ReturnType<typeof config>>={}){
 function message(userId:string,content=`<@${bot}> explain quadratic equations`){
   const replies:unknown[]=[];
   const value={id:'456789012345678901',author:{id:userId,bot:false},guildId:guild,channelId:'567890123456789012',
-    content,client:{user:{id:bot}},member:{roles:{cache:new Map([['coach-role',{}]])}},attachments:{first:()=>undefined},
+    content,client:{user:{id:bot}},member:{roles:{cache:new Map([['coach-role',{}]])}},attachments:new Map(),
     reply:async(body:unknown)=>{replies.push(body);return {id:'678901234567890123'};},
   } as unknown as Message;
   return {value,replies};

@@ -11,7 +11,7 @@ export function publicURL(value: string) {
   if (url.protocol !== 'https:' || (url.port && url.port !== '443') || url.username || url.password) throw new UserError('Only public HTTPS URLs on port 443 are allowed.');
   return url;
 }
-export async function safeFetch(value: string, signal: AbortSignal, maxBytes = 1_000_000, redirects = 0): Promise<{body:Buffer;type:string;url:string}> {
+export async function safeFetch(value: string, signal: AbortSignal, maxBytes = 1_000_000, redirects = 0, allowRedirects = true): Promise<{body:Buffer;type:string;url:string}> {
   signal=AbortSignal.any([signal,AbortSignal.timeout(15000)]);
   const url = publicURL(value);
   const addresses = await lookup(url.hostname.replace(/^\[|\]$/g,''), {all:true});
@@ -25,8 +25,8 @@ export async function safeFetch(value: string, signal: AbortSignal, maxBytes = 1
       const code = response.statusCode ?? 500;
       if ([301,302,303,307,308].includes(code)) {
         response.resume();
-        if (redirects >= 3 || !response.headers.location) { reject(new UserError('Too many redirects.')); return; }
-        safeFetch(new URL(response.headers.location,url).href,signal,maxBytes,redirects+1).then(resolve,reject); return;
+        if (!allowRedirects || redirects >= 3 || !response.headers.location) { reject(new UserError('Too many redirects.')); return; }
+        safeFetch(new URL(response.headers.location,url).href,signal,maxBytes,redirects+1,allowRedirects).then(resolve,reject); return;
       }
       if (code !== 200) { response.resume(); reject(new UserError(`Web source returned HTTP ${code}.`)); return; }
       if (response.headers['content-encoding'] && response.headers['content-encoding'] !== 'identity') { response.destroy(); reject(new UserError('Compressed web responses are not supported.')); return; }
@@ -46,7 +46,9 @@ export async function safeFetch(value: string, signal: AbortSignal, maxBytes = 1
 export async function fetchText(url:string,signal:AbortSignal) {
   const response = await safeFetch(url,signal);
   if (!/^(text\/|application\/json)/i.test(response.type)) throw new UserError('This source is not a text page.');
-  const text = response.body.toString('utf8').replace(/<(script|style|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi,' ')
+  const html=response.body.toString('utf8');
+  const content=html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)?.[1]??html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1]??html;
+  const text = content.replace(/<(script|style|noscript|nav|header|footer|aside)\b[^>]*>[\s\S]*?<\/\1>/gi,' ')
     .replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').slice(0,12000);
   return {url:response.url,text};
 }

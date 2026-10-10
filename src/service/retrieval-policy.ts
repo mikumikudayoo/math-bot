@@ -32,7 +32,19 @@ export function retrievalPolicy(prompt:string):RetrievalPolicy {
 export function expressesUncertainty(answer:string) {
   return /\b(not sure|uncertain|unfamiliar|might (?:be|refer)|may refer|perhaps|I (?:think|believe|guess)|cannot confirm|can't confirm|don't know|do not know)\b/i.test(answer);
 }
-export interface Evidence { id:number; url:string; text:string }
+export interface Evidence { id:number; url:string; text:string;publishedAt?:string;title?:string }
+/** Host-defined passages let models select evidence without rewriting quotes. */
+export function evidencePassages(text:string,title?:string):string[]{
+  const passages:string[]=[];
+  if(title&&title.length>=15&&title.length<=600&&text.includes(title)&&!/https?:\/\/|www\./i.test(title))passages.push(title);
+  for(const match of text.matchAll(/[^.!?]+[.!?](?:\s|$)/g)){
+    const quote=match[0].trim();
+    if(quote.length>=15&&quote.length<=600&&!/https?:\/\/|www\./i.test(quote)&&!passages.includes(quote))passages.push(quote);
+    if(passages.length>=12)break;
+  }
+  if(!passages.length){const quote=text.slice(0,340).trim();if(quote.length>=15&&!/https?:\/\/|www\./i.test(quote))passages.push(quote);}
+  return passages;
+}
 export function establishesEntities(evidence:Evidence[],entities:string[]) {
   const normalize=(text:string)=>text.toLocaleLowerCase().replace(/\s+/g,' ').trim();
   return entities.every(entity=>evidence.some(e=>normalize(e.text).includes(normalize(entity))));
@@ -58,13 +70,20 @@ export function groundedAnswer(value:unknown,evidence:Evidence[],policy:Retrieva
   const lines:string[]=[];const excerpts:Evidence[]=[];
   for(const claim of result.claims){
     if(!claim||typeof claim!=='object')return null;
-    const {source,quote}=claim as {source:unknown;quote:unknown};
+    const {source,passage}=claim as {source:unknown;passage:unknown};
+    let {quote}=claim as {quote:unknown};
     const item=evidence.find(e=>e.id===source);
+    if(item&&passage!==undefined){
+      if(!Number.isInteger(passage))return null;
+      const selected=evidencePassages(item.text,item.title)[Number(passage)-1];
+      if(!selected||quote!==undefined&&quote!==selected)return null;
+      quote=selected;
+    }
     if(!item||typeof quote!=='string'||quote.length<15||quote.length>600||!item.text.includes(quote))return null;
     // URLs come from the host ledger only, never from the model's quoted text.
     if(/https?:\/\/|www\./i.test(quote))return null;
     excerpts.push({id:item.id,url:item.url,text:quote});
-    lines.push(`> ${quote.replace(/\n/g,' ').replace(/[<>]/g,'')}\n[source ${item.id}](<${item.url}>)`);
+    lines.push(`> ${quote.replace(/\n/g,' ').replace(/[<>]/g,'')}\n[source ${item.id}](<${item.url}>)${item.publishedAt?` · published ${item.publishedAt.slice(0,10)}`:''}`);
   }
   if(!establishesEntities(excerpts,policy.entities))return null;
   return `okay, here's what i could actually verify:\n\n${[...new Set(lines)].join('\n\n')}`+

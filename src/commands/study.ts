@@ -8,7 +8,7 @@ export const ask:Command={
   access:'ai-tester',
   data:new SlashCommandBuilder().setName('ask').setDescription('Ask a study question.').addStringOption(o=>o.setName('question').setDescription('Your question').setRequired(true).setMaxLength(4000))
     .addAttachmentOption(o=>o.setName('image').setDescription('Optional PNG or JPEG for a vision-capable backend')),
-  async execute(i){const image=i.options.getAttachment('image');await submit(i,'ask',i.options.getString('question',true),image?.url);},
+  async execute(i){const image=i.options.getAttachment('image');await submit(i,'ask',i.options.getString('question',true),image?{url:image.url,mime:image.contentType??'',size:image.size}:undefined);},
 };
 export const calculate:Command={
   access:'ai-tester',

@@ -7,7 +7,7 @@ warnings.simplefilter('error',Image.DecompressionBombWarning)
 try:
     raw=base64.b64decode(sys.stdin.read(2_800_000),validate=True)
     image=Image.open(io.BytesIO(raw))
-    if image.format not in ('PNG','JPEG'): raise ValueError('unsupported image')
+    if image.format not in ('PNG','JPEG','WEBP'): raise ValueError('unsupported image')
     image=ImageOps.exif_transpose(image).convert('RGB')
     image.thumbnail((1600,1600))
     output=io.BytesIO();image.save(output,format='JPEG',quality=90)

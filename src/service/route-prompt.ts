@@ -56,7 +56,12 @@ export async function routePrompt(
   ];
 
   const getSignals = dependencies.signals ?? routerSignals;
-  const clauseSignals = await getSignals(semanticInputs);
+  let clauseSignals:RoutingSignals[];
+  try{clauseSignals=await getSignals(semanticInputs);}catch(error){
+    const floors=routingFloors(prompt),constraints=routingConstraints(prompt);
+    if(floors.knowledge==='web_required'||constraints.knowledge==='web_required')return applyConstraints(applyRoutingFloors({reasoning:'standard',knowledge:'web_required',tool:'none',scores:{web:1,online:0,calculate:0}},floors),prompt);
+    throw error;
+  }
 
   if (clauseSignals.length !== semanticInputs.length) {
     throw new Error(

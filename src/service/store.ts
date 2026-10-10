@@ -20,6 +20,7 @@ export class Store {
     if(!this.db.prepare('PRAGMA table_info(jobs)').all().some(row=>row.name==='discordContext'))this.db.exec("ALTER TABLE jobs ADD COLUMN discordContext TEXT NOT NULL DEFAULT '{}'");
     if(!this.db.prepare('PRAGMA table_info(jobs)').all().some(row=>row.name==='sourceMessageId'))
       this.db.exec("ALTER TABLE jobs ADD COLUMN sourceMessageId TEXT");
+    for(const column of ['images','retrievalContext'])if(!this.db.prepare('PRAGMA table_info(jobs)').all().some(row=>row.name===column))this.db.exec(`ALTER TABLE jobs ADD COLUMN ${column} TEXT NOT NULL DEFAULT '[]'`);
   }
   previousLookupMessageIds(job:Job):string[]{
     const rows=this.db.prepare(
@@ -67,6 +68,7 @@ export class Store {
         VALUES(?,?,?,?,?,?,?,?,?,'queued','queued',?)`).run(input.id,input.guild,input.channel,input.user,+input.coach,input.kind,input.prompt,input.parent ?? null,input.image ?? null,Date.now());
       this.db.prepare('UPDATE jobs SET discordContext=? WHERE id=?').run(input.discordContext??'{}',input.id);
       this.db.prepare('UPDATE jobs SET sourceMessageId=? WHERE id=?').run(input.sourceMessageId??null,input.id);
+      this.db.prepare('UPDATE jobs SET images=? WHERE id=?').run(input.images??'[]',input.id);
       this.db.exec('COMMIT'); return this.get(input.id)!;
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
@@ -82,7 +84,7 @@ export class Store {
   queued() { const deferred=this.db.prepare('PRAGMA table_info(jobs)').all().some(r=>r.name==='ready_at');return this.db.prepare(`SELECT * FROM jobs WHERE state='queued' ${deferred?'AND ready_at<=?':''} ORDER BY coach DESC,created,id`).all(...(deferred?[Date.now()]:[])) as unknown as Job[]; }
   running(id: string) { this.db.prepare("UPDATE jobs SET state='running',status='thinking' WHERE id=? AND state='queued'").run(id); }
   status(id: string, status: string) { this.db.prepare("UPDATE jobs SET status=? WHERE id=? AND state='running'").run(status,id); }
-  complete(id: string, result: Result) { this.db.prepare("UPDATE jobs SET state='completed',status='completed',answer=?,artifact=? WHERE id=? AND state='running'").run(result.answer.slice(0, 24000),result.artifact ?? '',id); }
+  complete(id: string, result: Result) { this.db.prepare("UPDATE jobs SET state='completed',status='completed',answer=?,artifact=?,retrievalContext=? WHERE id=? AND state='running'").run(result.answer.slice(0, 24000),result.artifact ?? '',result.retrievalContext??'[]',id); }
   fail(id: string, message: string) { this.db.prepare("UPDATE jobs SET state='failed',status='failed',answer=? WHERE id=? AND state='running'").run(message,id); }
   cancel(id: string) { this.db.prepare("UPDATE jobs SET state='cancelled',status='cancelled',answer='Request cancelled.' WHERE id=? AND state IN ('running','queued')").run(id); }
   bind(id: string, message: string) { this.db.prepare('UPDATE jobs SET message=? WHERE id=?').run(message,id); }
