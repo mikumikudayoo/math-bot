@@ -1,4 +1,5 @@
 import type { RouteDecision } from './router.js';
+import {personaIntent,requesterIdentityQuestion} from '../discord-context.js';
 import {
   routingConstraints,
   type RoutingConstraints,
@@ -95,7 +96,7 @@ export function fastRoute(prompt: string): FastRouteResult {
 
   // Internal assistant identity.
   if (
-    /^(?:who are you|what are you|who am i|do you know who i am|what(?:'s| is) my (?:name|username)|what(?:'s| is) your (?:name|dream)|who (?:made|created) you|tell me about yourself)[?.!]*$/i.test(p)
+    personaIntent(p)||requesterIdentityQuestion(p)
   ) {
     return {
       kind: 'final',

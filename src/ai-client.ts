@@ -1,5 +1,6 @@
 import { loadConfig } from './config.js';
-export class ServiceError extends Error {}
+import {publicReply} from './public-reply.js';
+export class ServiceError extends Error {constructor(message:string){super(publicReply(message));}}
 export async function service<T>(path:string,body?:unknown):Promise<T> {
   const config=loadConfig();
   if(!config.serviceToken)throw new ServiceError('AI service is not set up yet. Run bun run setup:local.');

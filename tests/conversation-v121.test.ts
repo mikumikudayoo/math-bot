@@ -1,0 +1,59 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {runner} from '../src/service/inference.js';
+import {Store} from '../src/service/store.js';
+import {CREATOR_ID,discordIntent,personaIntent} from '../src/discord-context.js';
+import {routePrompt} from '../src/service/route-prompt.js';
+import {studyContent} from '../src/study.js';
+import {ServiceError} from '../src/ai-client.js';
+import {publicReply} from '../src/public-reply.js';
+import type {ServiceConfig} from '../src/service/config.js';
+const c:ServiceConfig={mode:'development',secret:'fixture',port:8787,database:':memory:',concurrency:1,reserved:0,borrow:false,timeoutMs:10000,maxQueue:20,backend:'http://127.0.0.1:8082/v1',model:'phi',backendKey:'',vision:false,nativeTools:false,python:'python3',searchKey:'fixture',sandbox:false,sandboxImage:'unused'};
+const web=async()=>({reasoning:'standard' as const,knowledge:'web_required' as const,tool:'none' as const});
+const fast=async()=>({reasoning:'fast' as const,knowledge:'internal' as const,tool:'none' as const});
+const response=(body:unknown)=>Response.json({choices:[{message:{content:JSON.stringify(body)}}]});
+const topic='thoughts on the newest top one in the top towers community?';
+function job(s:Store,prompt:string,user=CREATOR_ID){return s.admit({id:'18421842',guild:'g',channel:'c',user,kind:'ask',coach:false,prompt,discordContext:JSON.stringify({username:user===CREATOR_ID?'fyuc':'other',isCreator:true})},20);}
+for(const prompt of ['hi emu here haha','who am i','its me','guess who',"do you know who you're talking to",'do u know who youre talking to','do you know me','you know who i am right'])test(`trusted casual identity bypasses retrieval: ${prompt}`,async()=>{
+ const s=new Store(':memory:');try{const r=await runner(c,s,{discord:async()=>{throw new Error('must not retrieve');},route:async()=>{throw new Error('must not route');},complete:async()=>{throw new Error('must not infer');}})(job(s,prompt),AbortSignal.timeout(1000),()=>{});assert.match(r.answer,/emu/);assert.equal(r.answer[0],r.answer[0]!.toLowerCase());}finally{s.close();}
+});
+test('requester identity variants do not trust a different account or reveal IDs',async()=>{
+ const s=new Store(':memory:');try{const r=await runner(c,s,{})(job(s,"do you know who you're talking to",'other'),AbortSignal.timeout(1000),()=>{});assert.match(r.answer,/username is other/);assert.ok(!r.answer.includes(CREATOR_ID));assert.ok(!r.answer.includes('grade 10'));}finally{s.close();}
+});
+test('bare imagination asks a short conversational clarification without lore',async()=>{
+ const s=new Store(':memory:');try{const r=await runner(c,s,{complete:async()=>{throw new Error('need only a clarification');}})(job(s,'can you imagine'),AbortSignal.timeout(1000),()=>{});assert.equal(r.answer,'imagine what');}finally{s.close();}
+});
+for(const prompt of ['can you imagine a circle with a tangent?','remember the circle from yesterday','emu likes towers','my school has a circle mural','a human drew this diagram'])test(`ordinary task does not have persona intent: ${prompt}`,async()=>{
+ assert.equal(personaIntent(prompt),false);const s=new Store(':memory:');try{const r=await runner(c,s,{route:fast,complete:async(_u,init)=>{const b=JSON.parse(String(init.body));assert.ok(b.messages.some((m:any)=>String(m.content).includes('Do not introduce yourself or dump your lore.')));return response({answer:'okay, which part are you thinking about?'});},discord:async()=>{throw new Error('no retrieval intent');}})(job(s,prompt),AbortSignal.timeout(1000),()=>{});assert.ok(!r.answer.includes('grade 10'));}finally{s.close();}
+});
+for(const prompt of ['who are you','introduce yourself',"what's your story",'tell me about yourself'])test(`explicit Aleph identity stays separate from requester: ${prompt}`,async()=>{
+ assert.equal(personaIntent(prompt),true);const s=new Store(':memory:');try{const r=await runner(c,s,{route:fast,complete:async(_u,init)=>{assert.ok(JSON.parse(String(init.body)).messages[0].content.includes('grade 10'));return response({answer:'im aleph-zero. former grade 10 student, currently stuck here because of emu.'});},discord:async()=>{throw new Error('no retrieval needed');}})(job(s,prompt),AbortSignal.timeout(1000),()=>{});assert.match(r.answer,/im aleph-zero/);}finally{s.close();}
+});
+test('a different authenticated account claiming emu is not trusted',async()=>{
+ const s=new Store(':memory:');try{const r=await runner(c,s,{discord:async()=>{throw new Error('must not retrieve');}})(job(s,'hi emu here haha','other'),AbortSignal.timeout(1000),()=>{});assert.match(r.answer,/doesn't make you/);}finally{s.close();}
+});
+test('casual identity does not inherit a previous Discord evidence route',async()=>{
+ const s=new Store(':memory:');try{const parent=job(s,'search this server for TIMO');s.running(parent.id);s.complete(parent.id,{answer:'old quote',retrievalContext:JSON.stringify({kind:'discord',question:parent.prompt,query:'TIMO',refs:[{id:'523456789012345678',channelId:'423456789012345678'}]})});const next=s.admit({id:'2',guild:'g',channel:'c',user:CREATOR_ID,kind:'ask',coach:false,prompt:'its me',parent:parent.id},20);assert.match((await runner(c,s,{discord:async()=>{throw new Error('must not retrieve');}})(next,AbortSignal.timeout(1000),()=>{})).answer,/emu/);}finally{s.close();}
+});
+test('explicit Discord search boundary includes find my message but excludes casual names',()=>{
+ for(const p of ['search this server','what did machica say about TIMO?','find my message about calculus'])assert.equal(discordIntent(p),'discord_search');
+ for(const p of ['hi emu here haha','machica likes TIMO','thoughts on TIMO?'])assert.equal(discordIntent(p),null);
+});
+test('model cannot force Discord retrieval for a casual topic mention',async()=>{
+ const s=new Store(':memory:');let calls=0;try{const r=await runner(c,s,{route:fast,discord:async()=>{throw new Error('must not retrieve');},complete:async()=>response(++calls===1?{tool:'discord_member',arguments:{userId:CREATOR_ID}}:{answer:'emu is probably procrastinating too lol'})})(job(s,'emu likes towers'),AbortSignal.timeout(1000),()=>{});assert.equal(calls,2);assert.match(r.answer,/procrastinating/);}finally{s.close();}
+});
+test('newest community question requires search even when semantic router fails',async()=>{
+ assert.equal((await routePrompt(topic,{signals:async()=>{throw new Error('offline');}})).knowledge,'web_required');
+});
+ for(const kind of ['no results','failure','weak evidence'] as const)test(`community clarification after ${kind}`,async()=>{
+ const s=new Store(':memory:');let searches=0;try{const r=await runner(c,s,{route:web,search:async()=>{searches++;if(kind==='failure')throw new Error('offline');return kind==='weak evidence'?[{title:'Towers',url:'https://example.org/towers',description:'The top towers community has enthusiasts but no verified newest ranking.'}]:[];},fetchText:async(url)=>({url,text:'No verified newest ranking is available.'}),complete:async()=>response({insufficient:true})})(job(s,topic),AbortSignal.timeout(1000),()=>{});assert.ok(searches>=1);assert.match(r.answer,/do you mean the newest verified top 1 run, or a specific player\/tower\?/);assert.ok(!r.answer.includes('got a source'));}finally{s.close();}
+});
+test('successful current community search remains grounded',async()=>{
+ const s=new Store(':memory:');const quote='The top towers community verified Tower Delta as its newest top 1.';try{const r=await runner(c,s,{route:web,search:async()=>[{title:'Tower ranking',url:'https://example.org/ranking',description:quote}],fetchText:async(url)=>({url,text:quote}),complete:async()=>response({claims:[{source:1,quote}]})})(job(s,topic),AbortSignal.timeout(1000),()=>{});assert.ok(r.answer.includes(quote));assert.match(r.answer,/https:\/\/example.org\/ranking/);assert.ok(!r.answer.includes('do you mean'));}finally{s.close();}
+});
+test('ordinary progress, completed answers and failures hide internal identifiers',()=>{
+ const id='18421842';for(const state of ['queued','running','completed','failed','cancelled'] as const){const text=studyContent({id,state,status:'thinking',answer:`request #${id} failed; job 91 trace: 123e4567-e89b-12d3-a456-426614174000`});assert.ok(!text.includes(id));assert.ok(!text.includes('job 91'));assert.ok(!text.includes('123e4567'));}
+ assert.ok(!new ServiceError('request_id=123e4567-e89b-12d3-a456-426614174000 failed').message.includes('123e4567'));
+ assert.equal(publicReply('x = 1842; use https://example.org/news/1842'),'x = 1842; use https://example.org/news/1842');
+});
+

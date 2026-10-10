@@ -75,6 +75,7 @@ test('tester mention submits only the prompt, once; both Discord mention formats
   for(const mention of [`<@${bot}>`,`<@!${bot}>`]){
     const mock=runtime();const event=message(tester,`${mention} hello`);await handleStudyMessage(event.value,mock.value);
     assert.deepEqual(mock.calls.map(x=>x.path),['/jobs','/bind']);assert.equal((mock.calls[0]?.body as {prompt:string}).prompt,'hello');assert.equal(event.replies.length,1);
+    assert.equal((event.replies[0] as {content:string}).content,'⏳ queued');
     assert.equal((mock.calls[0]!.body as {discordContext:{userId:string}}).discordContext.userId,tester);
   }
 });

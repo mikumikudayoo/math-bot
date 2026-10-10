@@ -41,7 +41,7 @@ export async function search(config:Pick<ServiceConfig,'searchKey'>,query:string
   if(!config.searchKey)throw new UserError('Web search is not configured yet. You can supply a public HTTPS source URL.');
   const news=/\b(?:news|headlines)\b/i.test(query);
   const fresh=news||/\b(?:latest|today|current|currently|recent|weather|newest)\b/i.test(query);
-  const clean=query.replace(/^(?:please\s+)?(?:give|show|tell|find|provide)\s+(?:me\s+)?(?:the\s+)?/i,'').replace(/\bphilippine news\b/i,'Philippines news');
+  const clean=query.replace(/^(?:please\s+)?(?:give|show|tell|find|provide)\s+(?:me\s+)?(?:the\s+)?/i,'').replace(/^thoughts on\s+(?:the\s+)?/i,'').replace(/\btop one\b/gi,'top 1').replace(/\bphilippine news\b/i,'Philippines news');
   const searchQuery=(fresh?`${clean} as of ${new Date().toISOString().slice(0,10)}`:query).slice(0,500);
   const response=await request('https://api.tavily.com/search',{
     method:'POST',signal:AbortSignal.any([signal,AbortSignal.timeout(15000)]),redirect:'error',

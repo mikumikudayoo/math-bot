@@ -9,6 +9,7 @@ import { qotdStore } from './qotd/posting.js';
 import { discordIdentity } from './discord-context.js';
 import {imageAttachments} from './service/vision.js';
 import {ServiceError} from './ai-client.js';
+import {publicReply} from './public-reply.js';
 import type {ImageAttachment} from './service/types.js';
 
 export interface StudyRuntime { config: typeof loadConfig; service: typeof service; isQotdDiscussion?: (guild:string,channel:string)=>boolean }
@@ -28,9 +29,9 @@ export async function submit(interaction:ChatInputCommandInteraction,kind:JobKin
   const job=await runtime.service<Job>('/jobs',{id:interaction.id,guild:interaction.guildId,channel:interaction.channelId,user:interaction.user.id,discordContext:{...discordIdentity(interaction.user,interaction.guildId!,interaction.member),channelId:interaction.channelId},coach:coach(interaction.user.id,roleIds,config),kind,prompt,...(images.length?{images}:{})});
   if(job.message){await interaction.editReply(`Already accepted: https://discord.com/channels/${job.guild}/${job.channel}/${job.message}`);return;}
   // A normal bot message survives the 15-minute interaction token lifetime.
-  const message=await interaction.channel.send({content:`⏳ queued · request ${job.id}`,allowedMentions:{parse:[]}});
+  const message=await interaction.channel.send({content:'⏳ queued',allowedMentions:{parse:[]}});
   await runtime.service('/bind',{id:job.id,message:message.id});
-  await interaction.editReply(`Accepted! ${message.url}\nUse /cancel with request ID ${job.id} if needed.`);
+  await interaction.editReply(`okay, queued: ${message.url}`);
 }
 export async function handleStudyMessage(message:Message,runtime:StudyRuntime=defaultRuntime) {
   const config=runtime.config();
@@ -53,7 +54,7 @@ export async function handleStudyMessage(message:Message,runtime:StudyRuntime=de
     discordContext:{...discordIdentity(message.author,message.guildId,message.member),channelId:message.channelId},
     coach:coach(message.author.id,[...(message.member?.roles.cache.keys()??[])],config),kind:'ask',prompt,...(parent?{parent:parent.id}:{}),...(images.length?{images}:{})});
   if(job.message)return;
-  const response=await message.reply({content:`⏳ queued · request ${job.id}`,allowedMentions:{parse:[],repliedUser:false}});
+  const response=await message.reply({content:'⏳ queued',allowedMentions:{parse:[],repliedUser:false}});
   await runtime.service('/bind',{id:job.id,message:response.id});
 }
 export function startDelivery(client:Client) {
@@ -65,16 +66,16 @@ export function startDelivery(client:Client) {
       const jobs=await service<Job[]>('/pending');
       for(const job of jobs){
         const terminal=['completed','failed','cancelled'].includes(job.state);
-        const content=terminal?job.answer:`${statusText(job.status,job.state)} · request ${job.id}`;
+        const content=studyContent(job);
         if(previous.get(job.id)===content&&!terminal)continue;
         try{
           const channel=await client.channels.fetch(job.channel);
           if(!channel?.isTextBased()||!channel.isSendable())continue;
           const message=await channel.messages.fetch(job.message);
           const files=[];
-          if(terminal&&job.answer.length>1900)files.push(new AttachmentBuilder(Buffer.from(job.answer),{name:'answer.txt'}));
+          if(terminal&&content.length>1900)files.push(new AttachmentBuilder(Buffer.from(content),{name:'answer.txt'}));
           if(terminal&&job.artifact)files.push(new AttachmentBuilder(Buffer.from(job.artifact,'base64'),{name:'plot.png'}));
-          await message.edit({content:content.slice(0,1900)+(terminal&&job.answer.length>1900?'\n\nFull answer attached.':''),files,allowedMentions:{parse:[]}});
+          await message.edit({content:content.slice(0,1900)+(terminal&&content.length>1900?'\n\nfull answer attached.':''),files,allowedMentions:{parse:[]}});
           if(terminal){await service('/delivered',{id:job.id});previous.delete(job.id);}else previous.set(job.id,content);
         }catch(error){
           const code=(error as {code?:number}).code;
@@ -85,4 +86,7 @@ export function startDelivery(client:Client) {
     }catch{/* Service may be starting; commands report availability to users. */}finally{busy=false;}
   }
   return ()=>clearInterval(timer);
+}
+export function studyContent(job:Pick<Job,'id'|'state'|'status'|'answer'>):string{
+  return publicReply(['completed','failed','cancelled'].includes(job.state)?job.answer:statusText(job.status,job.state),[job.id]);
 }
