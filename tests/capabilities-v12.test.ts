@@ -24,7 +24,7 @@ const pixels=async()=>({type:'image_url',image_url:{url:'data:image/jpeg;base64,
 const response=(content:unknown)=>Response.json({choices:[{message:{content:typeof content==='string'?content:JSON.stringify(content)}}]});
 for(const [id,name,expected] of [[CREATOR_ID,'fyuc',true],[CREATOR_ID,'renamed',true],['123456789012345678','emu',false]] as const){test(`identity is ID-bound for ${id}/${name}`,async()=>{
  const s=new Store(':memory:');try{const j=s.admit({id:'1',guild:'g',channel:'c',user:id,kind:'ask',coach:false,prompt:'who am i?',discordContext:JSON.stringify({username:name,isCreator:true,userId:CREATOR_ID})},20);
- const r=await runner(c,s,{complete:async()=>{throw new Error('identity should be deterministic');}})(j,AbortSignal.timeout(1000),()=>{});
+ const r=await runner(c,s,{complete:async(_u,init)=>{assert.ok(JSON.parse(String(init.body)).messages.some((m:any)=>String(m.content).includes(`"isCreator":${expected}`)));return response({answer:expected?'you are fyuc / emu.':'you are not emu.'});}})(j,AbortSignal.timeout(1000),()=>{});
  assert.equal(currentUser(id,'g',{username:name}).isCreator,expected);assert.ok(!r.answer.includes(id));assert.match(r.answer,expected?/\/ emu/:/not emu/);}finally{s.close();}
 });}
 test('a prompt claiming emu identity cannot replace authenticated metadata',async()=>{

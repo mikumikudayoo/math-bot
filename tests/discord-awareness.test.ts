@@ -54,14 +54,14 @@ test('basic requester identity does not require a Discord member lookup',async()
       route:identityRoute,
       complete:async(_url,init)=>{
         const body=JSON.parse(String(init.body));
-        const context=body.messages.find((m:any)=>typeof m.content==='string'&&m.content.includes('Trusted current Discord requester'));
-        assert.ok(context.content.includes('The person speaking to you right now is emu'));
+        const context=body.messages.find((m:any)=>typeof m.content==='string'&&m.content.includes('trustedSpeaker'));
+        assert.ok(context.content.includes('fyuc'));
         assert.ok(context.content.includes('"isCreator":true'));
         return Response.json({choices:[{message:{content:'you are emu.'}}]});
       },
       discord:async()=>{discordCalls++;return {error:'should not be called'};}
     });
-    assert.match((await run(job,AbortSignal.timeout(10000),()=>{})).answer,/fyuc \/ emu/);
+    assert.equal((await run(job,AbortSignal.timeout(10000),()=>{})).answer,'you are emu.');
     assert.equal(discordCalls,0);
   }finally{s.close();}
 });
@@ -304,3 +304,4 @@ test('author ID filter never returns another member and topic search is bounded'
 test('referenced follow-up messages still exclude inaccessible channels',async()=>{
  const f=fixture();const hidden='623456789012345678';f.channel(hidden,false);const result:any=await executeDiscordTool(f.client,{...f.task,args:{query:'phi',messageRefs:[{id:'523456789012345678',channelId:hidden}]}},true);assert.deepEqual(result.results,[]);assert.ok(!f.calls.includes(hidden));
 });
+

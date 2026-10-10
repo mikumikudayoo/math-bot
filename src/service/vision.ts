@@ -26,7 +26,9 @@ export async function prepareImage(config:ServiceConfig,image:ImageAttachment,si
   const png=response.body.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
   const jpeg=response.body[0]===255&&response.body[1]===216&&response.body[2]===255;
   const webp=response.body.subarray(0,4).toString()==='RIFF'&&response.body.subarray(8,12).toString()==='WEBP';
-  if(response.body.length>MAX_IMAGE_BYTES||!mimes.has(type)||type!==image.mime||!(png&&type==='image/png'||jpeg&&type==='image/jpeg'||webp&&type==='image/webp'))throw new UserError('that file does not contain a supported image under 2 MB.');
+  // Discord's CDN can transcode an attachment into another supported format.
+  // Validate the served MIME against its real bytes, independently of original metadata.
+  if(response.body.length>MAX_IMAGE_BYTES||!mimes.has(type)||!(png&&type==='image/png'||jpeg&&type==='image/jpeg'||webp&&type==='image/webp'))throw new UserError('that file does not contain a supported image under 2 MB.');
   const result=JSON.parse(await decode(config.python,[resolve('python/image_worker.py')],response.body.toString('base64'),signal,10000)) as {image?:unknown};
   if(typeof result.image!=='string'||!result.image||result.image.length>2_700_000)throw new UserError('could not decode that image safely. try a smaller PNG or JPEG.');
   return {type:'image_url',image_url:{url:`data:image/jpeg;base64,${result.image}`}};

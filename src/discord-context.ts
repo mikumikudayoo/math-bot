@@ -17,25 +17,15 @@ export function discordIntent(prompt:string):DiscordTool|null {
   if(/\b(?:(?:my|your|their|his|her) (?:discord )?(?:profile|nickname|roles|user id)|(?:discord|server|member) (?:profile|nickname|roles))\b/i.test(prompt))return 'discord_member';
   return null;
 }
-/** Casual identity claims never request member/history lookup or establish identity. */
-export function casualIdentityAnswer(prompt:string,context:DiscordContext):string|null{
-  const p=prompt.trim();
-  const greeting=/^(?:hi|hey|hello|yo)[, !]*(?:emu|fyuc) (?:here|speaking)(?:[ !,.]*(?:haha|lol|hehe))?[!.?]*$/i.test(p);
-  if(!greeting&&!/^(?:it['’]?s me|guess who)[!.?]*$/i.test(p))return null;
-  if(context.isCreator)return greeting?'hey emu. back to interrupt my very serious procrastination?':"emu, obviously. i know who got me stuck here lol";
-  return "hey. i can see your Discord account, so saying emu doesn't make you the emu from my backstory lol";
-}
 /** Exact requester identity questions use authenticated event metadata, never prompt claims. */
 export function requesterIdentityQuestion(prompt:string):boolean{
-  const p=prompt.trim().replace(/[’]/g,"'").replace(/\bu\b/gi,'you').replace(/\byou'?re\b/gi,'you are');
+  const p=prompt.trim().replace(/[’]/g,"'").replace(/\byk\b/gi,'you know').replace(/\bu\b/gi,'you').replace(/\byou'?re\b/gi,'you are');
   return /^(?:who am i|do you know who i am|do you (?:know|remember) me|(?:do )?you know who (?:you are talking to|i am)(?: right)?|what(?:'s| is) my (?:name|username))[?.!]*$/i.test(p);
 }
 export function personaIntent(prompt:string):boolean{
   return /^(?:who are you|what are you|introduce yourself|tell me about yourself|what(?:['’]s| is) your (?:name|dream|story|backstory)|who (?:made|created|trapped) you)[?.!]*$/i.test(prompt.trim());
 }
-export function requesterIdentityAnswer(prompt:string,context:DiscordContext):string|null{
-  if(!requesterIdentityQuestion(prompt))return null;
-  const name=(context.username??context.displayName??'').replace(/[^\p{L}\p{N}_. -]/gu,'').slice(0,80);
-  if(context.isCreator)return `you're ${name||'fyuc'} / emu. yes, i know who got me stuck here.`;
-  return name?`your Discord username is ${name}. you're not emu from my backstory, though.`:"i can see which Discord account is talking, but its name wasn't supplied. you're not emu from my backstory.";
+/** Routing classification only; all conversation is generated with trusted context. */
+export function conversationIntent(prompt:string):boolean{
+  return requesterIdentityQuestion(prompt)||personaIntent(prompt)||/^(?:(?:hi|hello|hey|yo)(?:[, !]*(?:emu|fyuc) (?:here|speaking)(?:[ !,.]*(?:haha|lol|hehe))?)?|thanks|thank you|ty|thx|it['’]?s me|guess who|can you imagine)[!.?]*$/i.test(prompt.trim());
 }
