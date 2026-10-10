@@ -85,3 +85,7 @@ test('indexed web passages render exact host text and reject fabricated selectio
 test('indexed Discord selections preserve exact quotes and cannot forge message IDs',async()=>{
  const {groundedDiscordAnswer}=await import('../src/service/discord-grounding.js');const hits=[{id:'523456789012345678',channelId:'423456789012345678',author:{id:'u'},content:'TIMO competition is on Saturday'}];const render=(v:any)=>groundedDiscordAnswer(v,hits,'g','u',CREATOR_ID);assert.match(render({message:1,passage:1})!,/you said.*TIMO/);assert.equal(render({message:99,passage:1}),null);assert.equal(render({message:1,passage:999}),null);assert.equal(render({message:1,passage:1,messageId:'999456789012345678'}),null);assert.equal(render({message:1,passage:1,support:'invented'}),null);
 });
+
+test('explicit Discord message search returns verified evidence without model delay',async()=>{
+ const s=new Store(':memory:');try{const r=await runner(c,s,{discord:async()=>({type:'DISCORD_SEARCH_DATA',results:[{id:'523456789012345678',channelId:'423456789012345678',author:{id:'u'},content:'TIMO competition is on Saturday',timestamp:'2026-10-08T02:00:00.000Z'}]}),complete:async()=>{throw new Error('explicit lookup does not need inference');}})(job(s,'search this server for messages about TIMO'),AbortSignal.timeout(1000),()=>{});assert.match(r.answer,/TIMO competition/);assert.ok(r.retrievalContext);assert.match(r.answer,/discord.com\/channels/);}finally{s.close();}
+});

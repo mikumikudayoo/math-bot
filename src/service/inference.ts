@@ -238,6 +238,16 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
       if(discordHits.length!==data.results.length)
         return {answer:"discord returned incomplete message details."};
 
+      // Explicit message searches and timestamp follow-ups need evidence, not model prose.
+      if(/\b(?:search|find|look up)\b/i.test(job.prompt)||(followup&&/^when\b/i.test(job.prompt))){
+        const verified=groundedDiscordAnswer({message:1,passage:1},discordHits,job.guild,job.user,CREATOR_ID);
+        if(verified){
+          status('preparing answer');
+          const hit=discordHits[0]!;
+          return {answer:verified,retrievalContext:JSON.stringify({kind:'discord',question:contextPrompt,query:lookup.query,refs:[{id:hit.id,channelId:hit.channelId}]})};
+        }
+      }
+
       messages.push({
         role:'user',
         content:JSON.stringify({
