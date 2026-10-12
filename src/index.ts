@@ -48,6 +48,11 @@ async function main() {
       await handleProblemComponent(interaction,new ProblemStore(qotdStore()),config.guildId);
       return;
     }
+    if(interaction.isAutocomplete()){
+      try{const command=commands.get(interaction.commandName);if(config.guildId&&interaction.guildId!==config.guildId||!command?.autocomplete)await interaction.respond([]);else await command.autocomplete(interaction);}
+      catch{if(!interaction.responded)await interaction.respond([]).catch(()=>{});}
+      return;
+    }
     if (!interaction.isChatInputCommand()) return;
     try {
       if (config.guildId && interaction.guildId !== config.guildId) {

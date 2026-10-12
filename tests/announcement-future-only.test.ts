@@ -23,8 +23,8 @@ test('fresh bootstrap only reads profile, saves the boundary, and inbox starts e
  const s=new AnnouncementStore(':memory:');try{const paths:string[]=[];const client={get:async<T>(path:string)=>{paths.push(path);assert.equal(path,'profile');return {historyId:'100'} as T;}};
  assert.equal(await syncGmail(s,client,config,AbortSignal.timeout(1000)),0);assert.deepEqual(paths,['profile']);assert.equal(s.state('gmail:test:cursor'),'100');assert.equal(s.state('gmail:test:bootstrap-history-id'),'100');assert.equal(s.state('gmail:test:bootstrap-mode'),'future-only');
  for(const table of ['sources','candidate_events','events','announcement_jobs'])assert.equal(count(s,table),0);
- let reply='';const command=makeAnnounceCommand(()=>config,()=>s);await command.execute({inGuild:()=>true,guildId:guild,user:{id:'staff'},memberPermissions:{has:()=>true},deferReply:async()=>{},options:{getSubcommand:()=> 'inbox'},editReply:async(value:unknown)=>{reply=typeof value==='string'?value:String((value as {content:string}).content);}} as unknown as ChatInputCommandInteraction);
- assert.deepEqual(JSON.parse(reply),{candidates:[],jobs:[],sources:[]});
+ let reply='';const command=makeAnnounceCommand(()=>config,()=>s);await command.execute({inGuild:()=>true,guildId:guild,user:{id:'staff'},memberPermissions:{has:()=>true},deferReply:async()=>{},options:{getSubcommand:()=> 'inbox',getInteger:()=>null,getString:()=>null},editReply:async(value:unknown)=>{reply=typeof value==='string'?value:String((value as {content:string}).content);}} as unknown as ChatInputCommandInteraction);
+ assert.match(reply,/announcement inbox/);assert.match(reply,/no candidates/);assert.match(reply,/0 total/);
  await assert.rejects(()=>bootstrapGmail(s,client,config,AbortSignal.timeout(1000)),/already bootstrapped/);
  }finally{s.close();}
 });

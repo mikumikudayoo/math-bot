@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { canonical,canonicalEvent,digest,eventKey,validateExtraction,validateEvent,type Catalog,type Extraction,type ScheduleEvent,type Source } from './model.js';
 
-export interface Candidate { id:string;guild:string;batch:string;event_key:string;event_json:string;catalog_json:string;issues_json:string;confidence:string;base_revision:number;review_version:number;state:string }
+export interface Candidate { id:string;public_id:number;guild:string;batch:string;event_key:string;event_json:string;catalog_json:string;issues_json:string;confidence:string;base_revision:number;review_version:number;state:string }
 export interface ApprovedEvent { event_key:string;guild:string;revision:number;event_json:string;catalog_json:string;approved_by:string;approved_at:number }
 export interface Payload {content:string;allowedMentions:{parse:[];roles:string[];users:string[];repliedUser:boolean}}
 export interface AnnouncementJob {id:string;guild:string;event_key:string;revision:number;policy:string;channel:string;role:string|null;due:number;expires:number;major:number;asset_policy:string;asset:string|null;payload_json:string;state:string;message:string|null;approved_by:string|null}
@@ -36,6 +36,15 @@ export class AnnouncementStore {
       CREATE TABLE IF NOT EXISTS staff_alerts(id TEXT PRIMARY KEY,guild TEXT NOT NULL,kind TEXT NOT NULL,target TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',message TEXT,at INTEGER NOT NULL,UNIQUE(guild,kind,target));
       CREATE TABLE IF NOT EXISTS operational_incidents(guild TEXT NOT NULL,provider TEXT NOT NULL,episode TEXT NOT NULL,active INTEGER NOT NULL,last_notice INTEGER NOT NULL,count INTEGER NOT NULL,reason TEXT NOT NULL,PRIMARY KEY(guild,provider));
       CREATE TABLE IF NOT EXISTS source_failures(source TEXT PRIMARY KEY REFERENCES sources(id),provider TEXT NOT NULL,reason TEXT NOT NULL,at INTEGER NOT NULL);`);
+    // Retain tombstones: deleting a candidate must never recycle its moderator number.
+    this.db.exec(`BEGIN IMMEDIATE;
+      CREATE TABLE IF NOT EXISTS candidate_public_ids(public_id INTEGER PRIMARY KEY AUTOINCREMENT,candidate TEXT NOT NULL UNIQUE);
+      INSERT INTO candidate_public_ids(candidate) SELECT id FROM candidate_events WHERE id NOT IN (SELECT candidate FROM candidate_public_ids) ORDER BY rowid;
+      CREATE TRIGGER IF NOT EXISTS candidate_public_id_insert AFTER INSERT ON candidate_events BEGIN
+        INSERT INTO candidate_public_ids(candidate) VALUES(NEW.id);
+      END;
+      INSERT OR IGNORE INTO schema_version VALUES(2);
+      COMMIT;`);
   }
   transaction<T>(fn:()=>T):T{if(this.state('maintenance:reset')==='true')throw new Error('Announcement storage reset in progress.');this.db.exec('BEGIN IMMEDIATE');try{const out=fn();this.db.exec('COMMIT');return out;}catch(e){this.db.exec('ROLLBACK');throw e;}}
   audit(guild:string,actor:string,action:string,target:string,snapshot:unknown,now=Date.now()){if(!actor.trim())throw new Error('Actor required.');this.db.prepare('INSERT INTO audit_log(guild,actor,action,target,snapshot,at) VALUES(?,?,?,?,?,?)').run(guild,actor,action,target,canonical(snapshot),now);}
@@ -55,8 +64,18 @@ export class AnnouncementStore {
     this.sourceState(id,'dismissed');this.releaseSource(id);this.audit(guild,actor,'dismiss-source',id,{});
   });}
   saveEvidence(source:string,evidence:unknown){const json=canonical(evidence);if(Buffer.byteLength(json)>100000)throw new Error('Source evidence too large.');this.db.prepare('INSERT INTO source_evidence VALUES(?,?) ON CONFLICT(source) DO UPDATE SET evidence_json=excluded.evidence_json').run(source,json);}
-  candidates(guild:string){return this.db.prepare('SELECT * FROM candidate_events WHERE guild=? ORDER BY rowid DESC LIMIT 100').all(guild) as unknown as Candidate[];}
-  candidate(guild:string,id:string){return this.db.prepare('SELECT * FROM candidate_events WHERE guild=? AND id=?').get(guild,id) as unknown as Candidate|undefined;}
+  candidates(guild:string){return this.candidatePage(guild,0,100).items;}
+  candidatePage(guild:string,page=0,size=5){
+    const limit=Math.min(100,Math.max(1,Math.floor(size))),total=Number(this.db.prepare('SELECT count(*) n FROM candidate_events WHERE guild=?').get(guild)!.n);
+    const pages=Math.max(1,Math.ceil(total/limit)),current=Math.min(pages-1,Math.max(0,Math.floor(page)||0));
+    const items=this.db.prepare('SELECT c.*,p.public_id FROM candidate_events c JOIN candidate_public_ids p ON p.candidate=c.id WHERE c.guild=? ORDER BY p.public_id DESC LIMIT ? OFFSET ?').all(guild,limit,current*limit) as unknown as Candidate[];
+    return {items,total,page:current,pages};
+  }
+  candidate(guild:string,id:string){return this.db.prepare('SELECT c.*,p.public_id FROM candidate_events c JOIN candidate_public_ids p ON p.candidate=c.id WHERE c.guild=? AND c.id=?').get(guild,id) as unknown as Candidate|undefined;}
+  resolveCandidate(guild:string,value:string){
+    if(/^#?\d+$/.test(value)){const id=Number(value.replace('#',''));if(!Number.isSafeInteger(id)||id<1)return undefined;return this.db.prepare('SELECT c.*,p.public_id FROM candidate_events c JOIN candidate_public_ids p ON p.candidate=c.id WHERE c.guild=? AND p.public_id=?').get(guild,id) as unknown as Candidate|undefined;}
+    return this.candidate(guild,value);
+  }
   event(guild:string,key:string){return this.db.prepare('SELECT * FROM events WHERE guild=? AND event_key=?').get(guild,key) as unknown as ApprovedEvent|undefined;}
   events(guild:string){return this.db.prepare('SELECT * FROM events WHERE guild=?').all(guild) as unknown as ApprovedEvent[];}
   ingest(guild:string,input:Extraction,now=Date.now()){
