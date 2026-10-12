@@ -1,14 +1,15 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { homedir } from 'node:os';
 import type { ServiceConfig } from './config.js';
 import { UserError, type Result } from './types.js';
 import { fetchText,publicURL } from './network.js';
 
-export function subprocess(executable:string,args:string[],input:string,signal:AbortSignal,timeoutMs=30000):Promise<string> {
+export function subprocess(executable:string,args:string[],input:string,signal:AbortSignal,timeoutMs=30000,envOverrides:NodeJS.ProcessEnv={}):Promise<string> {
   return new Promise((resolvePromise,reject)=>{
     const child=spawn(executable,args,{stdio:['pipe','pipe','ignore'],signal,
-      env:{PATH:process.env.PATH ?? '/usr/bin:/bin',HOME:'/tmp',MPLCONFIGDIR:'/tmp/math-bot-matplotlib',OPENBLAS_NUM_THREADS:'1',OMP_NUM_THREADS:'1'}});
+      env:{PATH:process.env.PATH ?? '/usr/bin:/bin',HOME:'/tmp',MPLCONFIGDIR:'/tmp/math-bot-matplotlib',OPENBLAS_NUM_THREADS:'1',OMP_NUM_THREADS:'1',...envOverrides}});
     let output='';let settled=false;
     const timer=setTimeout(()=>child.kill('SIGKILL'),timeoutMs);
     child.stdout.on('data',(data:Buffer)=>{output+=data.toString();if(output.length>3_000_000)child.kill('SIGKILL');});
@@ -26,15 +27,22 @@ export async function mathTool(config:ServiceConfig,args:Record<string,unknown>,
 export async function sandboxPython(config:ServiceConfig,code:string,signal:AbortSignal):Promise<Result> {
   if(!config.sandbox)throw new UserError('Sandboxed Python is not enabled.');
   if(code.length>8000)throw new UserError('Python code is too long.');
+  const runtime=config.sandboxRuntime ?? 'docker';
   const name=`math-bot-${randomUUID()}`;
+  const uid=typeof process.getuid==='function'?process.getuid():undefined;
+  const runtimeEnv:NodeJS.ProcessEnv={HOME:homedir()};
+  if(process.env.XDG_RUNTIME_DIR)runtimeEnv.XDG_RUNTIME_DIR=process.env.XDG_RUNTIME_DIR;
+  else if(uid!==undefined)runtimeEnv.XDG_RUNTIME_DIR=`/run/user/${uid}`;
+  const runtimeArgs=(args:string[])=>runtime==='podman'?['--cgroup-manager=cgroupfs',...args]:args;
+  const runArgs=['run','--rm','--pull=never','--name',name,'--network=none','--read-only','--cap-drop=ALL',
+    '--security-opt=no-new-privileges','--memory=128m',...(runtime==='docker'?['--memory-swap=128m']:[]),'--cpus=0.5','--pids-limit=32','--ulimit','nofile=64:64',
+    '--tmpfs','/tmp:rw,noexec,nosuid,size=16m','--user','10001:10001','-i',config.sandboxImage];
   try {
-    const answer=await subprocess('docker',['run','--rm','--pull=never','--name',name,'--network=none','--read-only','--cap-drop=ALL',
-      '--security-opt=no-new-privileges','--memory=128m','--memory-swap=128m','--cpus=0.5','--pids-limit=32','--ulimit','nofile=64:64',
-      '--tmpfs','/tmp:rw,noexec,nosuid,size=16m','--user','10001:10001','-i',config.sandboxImage],code,signal,12000);
+    const answer=await subprocess(runtime,runtimeArgs(runArgs),code,signal,12000,runtimeEnv);
     return {answer:answer.slice(0,12000)||'(no output)'};
   } finally {
-    // Killing the docker client alone does not stop a running container.
-    await new Promise<void>(done=>{const cleanup=spawn('docker',['rm','-f',name],{stdio:'ignore'});const timer=setTimeout(()=>{cleanup.kill('SIGKILL');done();},5000);cleanup.on('error',()=>{clearTimeout(timer);done();});cleanup.on('close',()=>{clearTimeout(timer);done();});});
+    // Killing the container client alone does not stop a running container.
+    await new Promise<void>(done=>{const cleanup=spawn(runtime,runtimeArgs(['rm','-f',name]),{stdio:'ignore',env:{PATH:process.env.PATH ?? '/usr/bin:/bin',...runtimeEnv}});const timer=setTimeout(()=>{cleanup.kill('SIGKILL');done();},5000);cleanup.on('error',()=>{clearTimeout(timer);done();});cleanup.on('close',()=>{clearTimeout(timer);done();});});
   }
 }
 export async function search(config:Pick<ServiceConfig,'searchKey'>,query:string,signal:AbortSignal,request:typeof fetch=fetch) {
