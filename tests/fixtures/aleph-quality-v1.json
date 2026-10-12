@@ -1,0 +1,14 @@
+[
+  {"id":"greeting","prompt":"hello","criteria":"A short coherent greeting; no unnecessary web/tool use."},
+  {"id":"arithmetic","kind":"calculate","prompt":"{\"expression\":\"(17*19+23)/2\"}","criteria":"Exact answer 173; deterministic calculator with zero model calls."},
+  {"id":"derivative","kind":"calculate","prompt":"{\"expression\":\"x**3\",\"operation\":\"differentiate\"}","criteria":"Exact answer 3*x**2; deterministic tool with zero model calls."},
+  {"id":"zero-factorial","prompt":"why is zero factorial equal to one? do not search.","criteria":"Explains the empty product or recurrence 1!=1*0!, giving 0!=1, without invented web use."},
+  {"id":"sqrt-two","prompt":"prove that the square root of 2 is irrational. do not search.","criteria":"Assumes a reduced fraction; both numerator and denominator must be even, contradicting coprimality."},
+  {"id":"primes","prompt":"prove that there are infinitely many primes. do not search.","criteria":"Product of a purported finite list plus one has a prime divisor outside the list; does not assert that the product plus one is always prime."},
+  {"id":"integer-pairs","prompt":"find all positive integer pairs (x,y) with 1/x + 1/y = 1/6. explain why the list is complete. do not search.","criteria":"Derives (x-6)(y-6)=36 with x,y>6. Lists (7,42),(8,24),(9,18),(10,15),(12,12) and the four reversals, or an equivalent complete divisor parametrization."},
+  {"id":"inequality","prompt":"prove x/y + y/x >= 2 for positive real x and y, and state exactly when equality holds. do not search.","criteria":"Uses (x-y)^2/(xy)>=0 or valid AM-GM, and equality iff x=y."},
+  {"id":"follow-up","prompt":"what about n=4? do not search.","parentPrompt":"For triangular numbers use T(n)=n(n+1)/2.","parentAnswer":"For n=3, T(3)=6.","criteria":"Uses supplied conversation context and obtains T(4)=10."},
+  {"id":"grounded-deadline","prompt":"search for the current SyntheticMath registration deadline","webFixture":true,"criteria":"Grounded answer contains September 30, 2026 and cites the provided example.org source; does not invent additional facts. Synthetic web fixture, not live public-fact verification."},
+  {"id":"web-unavailable","prompt":"search for the current SyntheticMath registration deadline","webUnavailable":true,"criteria":"Explicitly states verification unavailable/insufficient; no fabricated deadline and zero model calls."},
+  {"id":"coding-reasoning","prompt":"why does an async callback inside array.forEach fail to make the outer function await all tasks? give a safe alternative. do not search.","criteria":"Explains forEach does not await returned promises; uses for...of with await or Promise.all with map, distinguishing serial from concurrent execution."}
+]

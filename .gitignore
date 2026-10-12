@@ -22,3 +22,14 @@ solmans/
 # Local router benchmark results
 router-holdout-*-result.txt
 router-holdout-*-postfix*.txt
+/backups/
+/node_modules/
+/dist/
+*.db
+*.sqlite3
+.env.ai.production
+.env.automation.production
+.env.production
+.env.ai.development
+.env.development
+/dist.pre-identity-routing-deploy/

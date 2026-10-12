@@ -19,8 +19,13 @@ export function discordIntent(prompt:string):DiscordTool|null {
 }
 /** Exact requester identity questions use authenticated event metadata, never prompt claims. */
 export function requesterIdentityQuestion(prompt:string):boolean{
-  const p=prompt.trim().replace(/[’]/g,"'").replace(/\byk\b/gi,'you know').replace(/\bu\b/gi,'you').replace(/\byou'?re\b/gi,'you are');
-  return /^(?:who am i|do you know who i am|do you (?:know|remember) me|(?:do )?you know who (?:you are talking to|i am)(?: right)?|what(?:'s| is) my (?:name|username))[?.!]*$/i.test(p);
+  let p=prompt.trim().replace(/[’]/g,"'").replace(/\byk\b/gi,'you know').replace(/\bu\b/gi,'you').replace(/\byou'?re\b/gi,'you are');
+  // This classifies what the user is asking about. Authenticated Discord metadata,
+  // not prompt text, still decides who the requester actually is.
+  p=p.replace(/[?.!]+$/g,'').trim();
+  p=p.replace(/^(?:(?:wait|hey|yo|actually|okay|ok|so|uh|um)\b[\s,]*)+/i,'').trim();
+  p=p.replace(/\s+(?:or nah|right|lol|lmao|haha|hehe)\s*$/i,'').trim();
+  return /^(?:who am i|who do you think i am|guess who(?: i am)?|do you (?:actually )?know who i am|do you (?:actually )?(?:know|remember) me|you (?:actually )?remember me|(?:do )?you (?:actually )?know who (?:you are talking to|i am)(?: right)?|what(?:'s| is) my (?:name|username))$/i.test(p);
 }
 export function personaIntent(prompt:string):boolean{
   return /^(?:who are you|what are you|introduce yourself|tell me about yourself|what(?:['’]s| is) your (?:name|dream|story|backstory)|who (?:made|created|trapped) you)[?.!]*$/i.test(prompt.trim());

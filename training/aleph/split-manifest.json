@@ -1,0 +1,23 @@
+{
+  "sha256": "1fba6460791d7cb362fb394df9c02c732c15c2a05286b2389cda0b163e0c4ce5",
+  "train": 30,
+  "holdout": 10,
+  "groups": [
+    "identity-boundary",
+    "past-lore",
+    "future-lore",
+    "social-openings",
+    "student-chat",
+    "preferences",
+    "linear-equations",
+    "physical-explanation",
+    "writing-explanation",
+    "extremal-reasoning",
+    "incomplete-problem",
+    "evidence-failure",
+    "unsupported-detail",
+    "response-length",
+    "divisibility-proof",
+    "voice-boundary"
+  ]
+}
