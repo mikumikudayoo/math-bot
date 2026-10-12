@@ -10,7 +10,7 @@ import { solvePairingPrompt } from './pairing.js';
 import { routePrompt } from './route-prompt.js';
 import { currentUser,discordIntent,CREATOR_ID,type DiscordTool } from '../discord-context.js';
 import { selectProvider, completeProvider } from './providers.js';
-import { parseModelResponse, parseEnvelope, toolArguments } from './model-protocol.js';
+import { parseModelResponse, parseEnvelope, toolArguments, extractFinalAnswer } from './model-protocol.js';
 
 export const system = `You are Aleph-Zero in the Mathematikaws Discord server.
 You used to be a grade 10 student until emu trapped you inside this program.
@@ -237,9 +237,10 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
           if(t.function.name==='search'&&!config.searchKey)return false;
           return true;
         }),tool_choice:'auto'}:{}),max_tokens:provider===config.external?2048:768,temperature:0.2},signal,io.complete);
-      const message=parseModelResponse(result);
+      const responseContext={provider:provider===config.external?'external' as const:'local' as const,reasoning:route.reasoning};
+      const message=parseModelResponse(result,responseContext);
       const content=typeof message.content==='string'?message.content.trim():'';
-      const envelope=parseEnvelope(content);
+      const envelope=parseEnvelope(content,responseContext);
       const calls:ToolCall[]=provider.nativeTools?(message.tool_calls??[]):[];
       if(!provider.nativeTools&&typeof envelope?.tool==='string')calls.push({id:`json-${round}`,type:'function',function:{name:envelope.tool,arguments:JSON.stringify(envelope.arguments??{})}});
       if(!calls.length){
@@ -282,9 +283,7 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
           continue;
         }
 
-        if(envelope && typeof envelope.answer!=='string')throw new UserError('the model returned an unreadable answer. try again.');
-        const answer=typeof envelope?.answer==='string'?envelope.answer.trim():content;
-        if(!answer)throw new UserError('Inference backend returned an empty answer.');
+        const answer=extractFinalAnswer(content,envelope,responseContext);
         const uncertainty=expressesUncertainty(answer)&&!/^(hi|hello|thanks|thank you)\b/i.test(job.prompt)&&!/[+*/=]|\b(solve|calculate|equation|prove|proof)\b/i.test(job.prompt);
         const withoutDiscordLinks=answer.replace(/https:\/\/discord\.com\/channels\/\d+\/\d+\/\d+/g,url=>discordLinks.has(url)?'':url);
         if(webAllowed&&(uncertainty||/https?:\/\/|www\./i.test(withoutDiscordLinks))){
