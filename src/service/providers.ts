@@ -88,7 +88,10 @@ export async function completeProvider(provider: ProviderConfig, body: Record<st
       raw += decoder.decode();
     } finally { await reader.cancel(); }
     try { return JSON.parse(raw); }
-    catch { throw new UserError('the model returned an unreadable response. try again.'); }
+    catch {
+      console.warn('inference_response_failure', {failure:'invalid_json',httpStatus:response.status,attempt:attempt+1});
+      throw new UserError('the model returned an unreadable response. try again.');
+    }
   }
   throw new UserError('the model is unavailable right now.');
 }
