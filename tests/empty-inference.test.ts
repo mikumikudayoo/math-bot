@@ -85,9 +85,58 @@ test('unexpected HTTP-success shapes and unsupported parts produce controlled fa
 });
 
 test('malformed and invalid answer envelopes fail without publishing JSON or retrying',async()=>{
-  for(const content of ['{"answer":broken-private-sentinel}', '{"answer":null}', '{"answer":42}', '[]']) {
+  for(const content of ['{"answer":broken-private-sentinel}', '{"answer":null}', '{"answer":42}']) {
     const outcome=await infer([response({content})]);assert.ok(outcome.error instanceof UserError);assert.match(outcome.error.message,/unreadable answer/);
     assert.doesNotMatch(outcome.error.message,/sentinel/);assert.equal(outcome.calls,1);assert.equal(outcome.result,undefined);
+  }
+});
+
+test('literal [] remains invalid on the local JSON protocol route',async()=>{
+  const outcome=await infer([response({content:'[]'})],'yo');
+  assert.ok(outcome.error instanceof UserError);assert.match(outcome.error.message,/unreadable answer/);
+});
+
+for(const content of ['[0, 1)', '[1, 2, 3] is the resulting sequence.', '{x | x > 0}',
+  '```python\nprint("hello")\n```', '[note] the endpoints are excluded.', '{left brace} begins the notation.',
+  '[]', '[1, 2, 3]', '[1, "answer"]', '{"x": "answer"}', '{"x": 1}', '```json\n{"x": 1}\n```']) {
+  test(`native plain final preserves ${JSON.stringify(content)}`,async()=>{
+    const outcome=await infer([response({content})]);
+    assert.equal(outcome.result?.answer,content);assert.equal(outcome.calls,1);assert.equal(outcome.tools,0);
+  });
+}
+
+test('native protocol-shaped finals remain invalid, including incomplete tools and reasoning fields',async()=>{
+  for(const content of ['{"answer":', '{answer: null}', '{"answer"}', '{"tool":', '{"tool":"calculate","arguments":',
+    '{"arguments":broken}', '{"\\u0061nswer":broken}', '{"\\u0061nswer":null}',
+    '```json\n{"answer":null}\n```', '[{"answer":null}]', '{"reasoning_content":"private-sentinel"}']) {
+    const outcome=await infer([response({content})]);
+    assert.ok(outcome.error instanceof UserError,content);assert.match(outcome.error.message,/unreadable answer/);
+    assert.doesNotMatch(outcome.error.message,/private-sentinel/);assert.equal(outcome.tools,0);assert.equal(outcome.calls,1);
+  }
+});
+
+test('local JSON and explicit JSON chat do not inherit native plain-final handling',async()=>{
+  for(const content of ['[0, 1)', '[1, 2, 3]', '{x | x > 0}', '```python\nprint(1)\n```']) {
+    const outcome=await infer([response({content})],'yo');
+    assert.ok(outcome.error instanceof UserError);assert.match(outcome.error.message,/unreadable answer/);
+  }
+  const store=new Store(':memory:');try{
+    const job=store.admit({id:'native-chat',guild:'g',channel:'c',user:'u',coach:false,kind:'ask',prompt:'can you imagine'},10);
+    await assert.rejects(runner({...config,nativeTools:true},store,{complete:async()=>Response.json(response({content:'[0, 1)'}))})(job,signal(),()=>{}),/unreadable answer/);
+  }finally{store.close();}
+});
+
+test('native tool intermediate still reaches a bracket-leading plain final without leaking thinking',async()=>{
+  const outcome=await infer([response({content:null,tool_calls:[tool]},'tool_calls'),
+    response({content:'<think>private-sentinel</think>[0, 1)',reasoning_content:'private-sentinel'})]);
+  assert.equal(outcome.result?.answer,'[0, 1)');assert.equal(outcome.tools,1);assert.equal(outcome.calls,2);
+});
+
+test('strict parser stages keep the existing malformed-JSON behavior',()=>{
+  for(const stage of ['answer','clarification','web_synthesis','vision_search'] as const){
+    for(const content of ['[]','[0, 1)','{x | x > 0}','```python\nprint(1)\n```','{"answer":']){
+      assert.throws(()=>parseEnvelope(content,{provider:'external',reasoning:'standard',stage}),/unreadable answer/);
+    }
   }
 });
 
@@ -130,6 +179,13 @@ test('empty, reasoning-only and truncated synthesis preserve the verified ground
   for(const payload of [response({content:null}),response({content:'{"answer":""}'}),response({content:'',reasoning_content:'private-sentinel'}),response({content:'unsafe partial'},'length')]) {
     const r=await webInference(payload);assert.match(r.result.answer,/Philippines news reports/);assert.match(r.result.answer,/https:\/\/example.org\/news/);
     assert.doesNotMatch(r.result.answer,/private-sentinel|unsafe partial/);assert.equal(r.urls.length,2);
+  }
+});
+
+test('web synthesis remains JSON-only even on a native provider',async()=>{
+  for(const content of ['[1, 2, 3]', '{x | x > 0}', '```python\nprint("invented")\n```']) {
+    const r=await webInference(response({content}));assert.match(r.result.answer,/Philippines news reports/);
+    assert.match(r.result.answer,/https:\/\/example.org\/news/);assert.doesNotMatch(r.result.answer,/invented/);
   }
 });
 

@@ -365,7 +365,9 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
       const context=responseContext(provider,'answer');
       const message=parseModelResponse(result,context);
       const content=typeof message.content==='string'?message.content.trim():'';
-      const envelope=parseEnvelope(content,context);
+      const strictEnvelope=!provider.nativeTools||Boolean(message.tool_calls?.length)||
+        (chatPrompt&&!hasImage)||policy.required||evidence.length>0||Boolean(discordRoute);
+      const envelope=parseEnvelope(content,context,strictEnvelope);
       const calls:ToolCall[]=provider.nativeTools?(message.tool_calls??[]):[];
       if(!provider.nativeTools&&typeof envelope?.tool==='string')calls.push({id:`json-${round}`,type:'function',function:{name:envelope.tool,arguments:JSON.stringify(envelope.arguments??{})}});
       if(!calls.length){

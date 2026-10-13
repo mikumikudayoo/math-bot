@@ -93,14 +93,29 @@ export function parseModelResponse(value: unknown, context?: ResponseContext): M
   }
 }
 
-export function parseEnvelope(content: string, context?: ResponseContext): Record<string, unknown> | undefined {
+const protocolFields = ['answer','tool','arguments','claims','insufficient','message','messageId','passage','source','quote','searchQuery','type','requestedTools','result','tool_calls','function_call','reasoning_content','reasoning'];
+const protocolShape = new RegExp(`(?:^|[{,])\\s*["']?(?:${protocolFields.join('|')})["']?\\s*(?::|[},]|$)`, 'i');
+
+export function parseEnvelope(content: string, context?: ResponseContext, strict = true): Record<string, unknown> | undefined {
   const clean = content.replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
+  // Native finals may be notation/code, but recognizable protocol fields never bypass validation.
+  let protocol = protocolShape.test(clean);
+  for (const match of clean.matchAll(/(?:^|[{,])\s*"((?:\\.|[^"\\])*)"\s*(?::|[},]|$)/g)) {
+    try { protocol ||= protocolFields.includes(JSON.parse(`"${match[1]}"`) as string); }
+    catch { protocol = true; }
+  }
   try {
     const value = JSON.parse(clean);
+    if (!strict) {
+      const hasFields = (item: unknown) => Boolean(item && typeof item === 'object' &&
+        Object.keys(item).some(key => protocolFields.includes(key)));
+      protocol = Array.isArray(value) ? value.some(hasFields) : hasFields(value);
+      if (!protocol) return undefined;
+    }
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error();
     return value;
   } catch {
-    if (/^[{\[]|^```/.test(content.trim())) {
+    if ((strict || protocol) && /^[{\[]|^```/.test(content.trim())) {
       console.warn('inference_response_failure', {failure:'malformed_envelope', ...context});
       throw new UserError('the model returned an unreadable answer. try again.');
     }
