@@ -128,7 +128,7 @@ test('trusted context reaches model; internal Discord tool calls cannot enable w
     assert.match((await run(job,AbortSignal.timeout(10000),()=>{})).answer,/you said/);assert.equal(discordCalls,1);assert.equal(webCalls,0);
     const context=requests[0].messages.find((m:any)=>typeof m.content==='string'&&m.content.includes('Trusted current Discord'));
     assert.ok(context.content.includes('"isCreator":false'));assert.ok(context.content.includes(`"userId":"${uid}"`));
-    assert.ok(requests[1].messages.some((m:any)=>String(m.content).includes('Web access is disabled')));
+    assert.ok(requests[1].messages.some((m:any)=>String(m.content).includes('network access is unavailable for this turn')));
     assert.ok(requests[2].messages.some((m:any)=>String(m.content).includes('"authorRelation":"requester"')));
   }finally{s.close();}
 });
