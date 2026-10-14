@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Collection,ChannelType,PermissionFlagsBits,type Client,type GuildBasedChannel,type GuildMember } from 'discord.js';
+import { Collection,ChannelType,PermissionsBitField,PermissionFlagsBits,type Client,type GuildBasedChannel,type GuildMember } from 'discord.js';
 import { currentUser,discordIdentity,CREATOR_ID,type DiscordTask } from '../src/discord-context.js';
 import { executeDiscordTool,canRead } from '../src/discord-tools.js';
 import { DiscordBroker } from '../src/service/discord-broker.js';
@@ -19,14 +19,15 @@ const config:ServiceConfig={mode:'development',secret:'fixture-only-not-a-produc
 function fixture(){
   const calls:string[]=[];const channels=new Collection<string,any>();
   const member:any={id:uid,guild:null,manage:false};const bot:any={id:bid,guild:null,manage:true};
-  const guild:any={id:gid,roles:{fetch:async()=>{}},members:{fetch:async({user}:any)=>{if(user!==uid)throw new Error('unknown');return member;},fetchMe:async()=>bot},channels:{fetch:async(id?:string)=>id?channels.get(id):channels,fetchActiveThreads:async()=>({threads:channels.filter(c=>c.isThread())})}};
+  const guild:any={id:gid,roles:{fetch:async()=>{},everyone:{id:gid}},members:{fetch:async({user}:any)=>{if(user!==uid)throw new Error('unknown');return member;},fetchMe:async()=>bot},channels:{fetch:async(id?:string)=>id?channels.get(id):channels,fetchActiveThreads:async()=>({threads:channels.filter(c=>c.isThread())})}};
   member.guild=bot.guild=guild;
   function channel(id:string,visible=true,type=ChannelType.GuildText,parentId:string|null=null){
-    const c:any={id,guildId:gid,guild,name:visible?'public':'SECRET_CHANNEL',type,parentId,visible,joined:false,
+    const c:any={id,guildId:gid,guild,name:visible?'public':'SECRET_CHANNEL',type,parentId,visible,joined:false,publicAudience:visible,
       isThread:()=>[ChannelType.PublicThread,ChannelType.PrivateThread,ChannelType.AnnouncementThread].includes(type),
-      permissionsFor:(m:any)=>({has:(p:any)=>p===PermissionFlagsBits.ManageThreads?m.manage:m.id===bid||c.visible}),
+      permissionsFor:(m:any)=>({has:(p:any)=>p===PermissionFlagsBits.ManageThreads?m.manage:m.id===gid?c.visible&&c.publicAudience:m.id===bid||c.visible}),
+      permissionOverwrites:{cache:new Collection<string,{deny:PermissionsBitField}>()},
       members:{fetch:async({member:id}:any)=>{if(id===bid||c.joined)return {id};throw new Error('private');}},
-      messages:{fetch:async()=>{calls.push(id);return new Collection([['523456789012345678',{id:'523456789012345678',guildId:gid,channelId:id,author:{id:uid,username:'asker'},content:visible?'phi discussion':'SECRET_CONTENT',createdTimestamp:1000,createdAt:new Date(1000)}]]);}},
+      messages:{fetch:async(options?:{message?:string})=>{calls.push(id);const message={id:'523456789012345678',guildId:gid,channelId:id,author:{id:uid,username:'asker'},content:visible?'phi discussion':'SECRET_CONTENT',createdTimestamp:1000,createdAt:new Date(1000)};return options?.message?message:new Collection([[message.id,message]]);}},
     };channels.set(id,c);return c;
   }
   channel(cid);
@@ -303,5 +304,57 @@ test('author ID filter never returns another member and topic search is bounded'
 });
 test('referenced follow-up messages still exclude inaccessible channels',async()=>{
  const f=fixture();const hidden='623456789012345678';f.channel(hidden,false);const result:any=await executeDiscordTool(f.client,{...f.task,args:{query:'phi',messageRefs:[{id:'523456789012345678',channelId:hidden}]}},true);assert.deepEqual(result.results,[]);assert.ok(!f.calls.includes(hidden));
+});
+
+test('same authorized private channel remains searchable without publishing elsewhere',async()=>{
+ const f=fixture();f.channels.get(cid).publicAudience=false;
+ const result:any=await executeDiscordTool(f.client,f.task,true);
+ assert.equal(result.results.length,1);assert.equal(result.results[0].channelId,cid);assert.deepEqual(f.calls,[cid]);
+});
+test('authorized requester cannot retrieve private-source content into a public origin',async()=>{
+ const f=fixture();const privateId='623456789012345678';const source=f.channel(privateId);source.publicAudience=false;
+ assert.equal(await canRead(source,f.member),true);
+ const result:any=await executeDiscordTool(f.client,{...f.task,args:{query:'phi',messageRefs:[{id:'523456789012345678',channelId:privateId}]}},true);
+ assert.deepEqual(result.results,[]);assert.ok(!f.calls.includes(privateId));
+});
+test('cross-channel public retrieval works and mixed sources exclude restricted audiences',async()=>{
+ const f=fixture();const publicId='623456789012345678',privateId='723456789012345678';f.channel(publicId);f.channel(privateId).publicAudience=false;
+ const result:any=await executeDiscordTool(f.client,f.task,true);
+ assert.deepEqual(new Set(result.results.map((r:any)=>r.channelId)),new Set([cid,publicId]));
+ assert.ok(f.calls.includes(publicId));assert.ok(!f.calls.includes(privateId));
+});
+test('private-thread retrieval stays in that thread despite requester membership',async()=>{
+ const f=fixture();const id='623456789012345678';const source=f.channel(id,true,ChannelType.PrivateThread,cid);source.joined=true;
+ const cross:any=await executeDiscordTool(f.client,{...f.task,args:{query:'phi',messageRefs:[{id:'523456789012345678',channelId:id}]}},true);
+ assert.deepEqual(cross.results,[]);assert.ok(!f.calls.includes(id));
+ const same:any=await executeDiscordTool(f.client,{...f.task,channel:id,args:{query:'phi',messageRefs:[{id:'523456789012345678',channelId:id}]}},true);
+ assert.equal(same.results.length,1);assert.equal(same.results[0].channelId,id);assert.ok(f.calls.includes(id));
+});
+test('source audience restriction introduced during message fetch discards returned content',async()=>{
+ const f=fixture();const id='623456789012345678';const source=f.channel(id);const fetch=source.messages.fetch;
+ source.messages.fetch=async(options:any)=>{const messages=await fetch(options);source.publicAudience=false;return messages;};
+ const result:any=await executeDiscordTool(f.client,{...f.task,args:{query:'phi',messageRefs:[{id:'523456789012345678',channelId:id}]}},true);
+ assert.deepEqual(result.results,[]);assert.ok(f.calls.includes(id));
+});
+test('role-specific deny excludes a nominally public source before content download',async()=>{
+ const f=fixture();const id='623456789012345678';const source=f.channel(id);
+ source.permissionOverwrites.cache.set('restricted-role',{deny:new PermissionsBitField(PermissionFlagsBits.ViewChannel)});
+ const result:any=await executeDiscordTool(f.client,{...f.task,args:{query:'phi',messageRefs:[{id:'523456789012345678',channelId:id}]}},true);
+ assert.deepEqual(result.results,[]);assert.ok(!f.calls.includes(id));
+});
+test('host-only audience broker returns fresh authorization without fetching message content',async()=>{
+ const f=fixture();const publicId='623456789012345678',privateId='723456789012345678';f.channel(publicId);f.channel(privateId).publicAudience=false;
+ const store=new Store(':memory:');const broker=new DiscordBroker(()=>{});
+ try{
+  for(const [source,allowed] of [[publicId,true],[privateId,false]] as const){
+   const job=store.admit({id:source,guild:gid,channel:cid,user:uid,coach:false,kind:'ask',prompt:'follow-up'},10);
+   const pending=broker.request(job,'discord_audience',{sourceChannels:[source]},AbortSignal.timeout(10000));
+   const task=broker.take()[0]!;assert.equal(task.channel,cid);assert.equal(task.user,uid);
+   const result=await executeDiscordTool(f.client,task,false);
+   assert.equal(broker.finish(task.id,result),true);
+   assert.deepEqual(await pending,{type:'DISCORD_AUDIENCE_DATA',allowed});
+  }
+  assert.deepEqual(f.calls,[]);
+ }finally{broker.close();store.close();}
 });
 

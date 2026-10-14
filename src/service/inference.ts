@@ -1,5 +1,5 @@
 import {TurnWebBoundary} from './turn-web-boundary.js';
-import {rowProvenance} from './provenance.js';
+import {rowProvenance,mergeProvenance,type Provenance} from './provenance.js';
 import {assertPrivateOutputURLs} from './output-url-policy.js';
 import type { ServiceConfig } from './config.js';
 import type { Store } from './store.js';
@@ -92,6 +92,15 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
     const discordLinks=new Set<string>();
     webBoundary.observeProvenance(rowProvenance(store.get(job.id)??job));
     const rememberPrivacy=()=>{if(webBoundary.private)store.markProvenance(job.id,webBoundary.provenance);};
+    const authorizePrivateHistory=async(provenance:Provenance)=>{
+      if(provenance.classification==='public')return;
+      const unavailable=()=>new UserError("i can't reuse that server context here. ask in the source channel instead.");
+      if(provenance.audienceUnknown||!provenance.discordSources.length||provenance.discordSources.some(source=>source.guildId!==job.guild)||!io.discord)throw unavailable();
+      try{
+        const result=await io.discord(job,'discord_audience',{sourceChannels:[...new Set(provenance.discordSources.map(source=>source.channelId))]},signal) as {type?:unknown;allowed?:unknown};
+        if(result?.type!=='DISCORD_AUDIENCE_DATA'||result.allowed!==true)throw unavailable();
+      }catch(error){if(signal.aborted)throw error;throw unavailable();}
+    };
     const rememberDiscordLinks=(value:unknown)=>{
       const data=value as {results?:{id?:unknown;channelId?:unknown}[]};
       for(const hit of data?.results??[]){
@@ -165,6 +174,9 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
       previous={};try{previous=JSON.parse(history.at(-1)?.retrievalContext??'{}');}catch{}
       contextPrompt=history.length&&followup?`${previous.question??history.at(-1)!.prompt}\nfollow-up: ${job.prompt}`:job.prompt;
     }
+    // Reauthorize persisted source audiences before any history is fed to a
+    // conversational model, including retries and clarification generations.
+    await authorizePrivateHistory(mergeProvenance(webBoundary.provenance,...history.map(rowProvenance)));
     const imageURL=hasImage?images[0]!.url:undefined;
     const explicitWeb=/\b(?:search(?: the)? web|search online|look (?:this|that|it|them) up|look up|check online|browse(?: the)? web|find (?:this|that|it|them) online|google (?:this|that|it)|latest|current|today|recent|news|weather)\b/i.test(contextPrompt);
     let policy = {
@@ -379,7 +391,7 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
       }
       let result:unknown;
       try{result=await completeProvider(provider,{messages,...(provider.nativeTools&&!evidence.length?{tools:tools.filter(t=>{
-          if(t.function.name.startsWith('discord_')&&(!discordRoute||!io.discord||provider!==config))return false;
+          if(t.function.name.startsWith('discord_')&&(!['discord_search','discord_member'].includes(t.function.name)||!discordRoute||!io.discord||provider!==config))return false;
           if((t.function.name==='search'||t.function.name==='fetch')&&(!webAllowed||webBoundary.private))return false;
           if(t.function.name==='search'&&!config.searchKey)return false;
           if(t.function.name==='python'&&!config.sandbox)return false;

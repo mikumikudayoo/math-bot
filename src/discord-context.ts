@@ -10,7 +10,8 @@ export function discordIdentity(user:{id:string;username?:string;globalName?:str
   const m=member&&typeof member==='object'?member as {displayName?:string;nickname?:string|null;nick?:string|null}:{};
   return currentUser(user.id,guildId,{username:user.username,globalName:user.globalName,displayName:m.displayName??m.nickname??m.nick??user.globalName??user.username,nickname:m.nickname??m.nick});
 }
-export type DiscordTool='discord_search'|'discord_member';
+// discord_audience is host-only and is never advertised to the model.
+export type DiscordTool='discord_search'|'discord_member'|'discord_audience';
 export interface DiscordTask {id:string;job:string;user:string;guild:string;channel:string;sourceMessageId?:string;tool:DiscordTool;args:Record<string,unknown>}
 export function discordIntent(prompt:string):DiscordTool|null {
   if(/\b(?:what did .{1,80}? (?:say|mention|write|post)|did anyone mention|find (?:the |a |my |your |their )?message|search (?:this |the |our )?(?:server|discord|messages)|(?:server|discord) (?:history|search))\b/i.test(prompt))return 'discord_search';

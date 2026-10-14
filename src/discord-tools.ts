@@ -3,6 +3,7 @@ import { currentUser,type DiscordTask } from './discord-context.js';
 import { service } from './ai-client.js';
 import { loadConfig } from './config.js';
 import { isAITester } from './ai-access.js';
+import { publicSource } from './discord-audience.js';
 
 const readable=[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.ReadMessageHistory];
 export async function canRead(channel:GuildBasedChannel,member:GuildMember):Promise<boolean>{
@@ -16,6 +17,15 @@ export async function canRead(channel:GuildBasedChannel,member:GuildMember):Prom
   }
   return true;
 }
+/** Individual read access is necessary, but does not authorize republication.
+ * Restricted sources stay in their own channel; cross-channel sources must be
+ * positively readable by every guild member. Call with fresh permission data.
+ */
+export async function canDisclose(source:GuildBasedChannel,destination:GuildBasedChannel,requester:GuildMember,bot:GuildMember):Promise<boolean>{
+  if(source.guildId!==destination.guildId)return false;
+  for(const channel of [source,destination])if(!await canRead(channel,requester)||!await canRead(channel,bot))return false;
+  return source.id===destination.id||await publicSource(source);
+}
 const unavailable={error:'Discord information unavailable for this request.'};
 /** Only the authenticated task supplies scope; model arguments never supply permissions. */
 export async function executeDiscordTool(client:Client,task:DiscordTask,messageContent:boolean,allowedGuild?:string):Promise<unknown>{
@@ -28,6 +38,15 @@ export async function executeDiscordTool(client:Client,task:DiscordTask,messageC
     const bot=await guild.members.fetchMe({force:true});
     const origin=await guild.channels.fetch(task.channel,{force:true});
     if(!origin||!await canRead(origin,requester)||!await canRead(origin,bot))return unavailable;
+    if(task.tool==='discord_audience'){
+      const sources=task.args.sourceChannels;
+      if(Object.keys(task.args).some(k=>k!=='sourceChannels')||!Array.isArray(sources)||!sources.length||sources.length>100||!sources.every(id=>typeof id==='string'&&/^\d{17,20}$/.test(id)))return unavailable;
+      for(const id of new Set<string>(sources)){
+        const source=await guild.channels.fetch(id,{force:true});
+        if(!source||!await canDisclose(source,origin,requester,bot))return {type:'DISCORD_AUDIENCE_DATA',allowed:false};
+      }
+      return {type:'DISCORD_AUDIENCE_DATA',allowed:true};
+    }
     if(task.tool==='discord_member'){
       if(Object.keys(task.args).some(k=>k!=='userId'))return unavailable;
       const target=task.args.userId??task.user;
@@ -78,7 +97,8 @@ export async function executeDiscordTool(client:Client,task:DiscordTask,messageC
         if(!await canRead(candidate,requester)||!await canRead(candidate,bot))continue;
         const channel=await guild.channels.fetch(candidate.id,{force:true});
         const member=await guild.members.fetch({user:task.user,force:true});
-        if(!channel||!('messages' in channel)||!await canRead(channel,member)||!await canRead(channel,bot))continue;
+        const destination=await guild.channels.fetch(task.channel,{force:true});
+        if(!channel||!destination||!('messages' in channel)||!await canDisclose(channel,destination,member,bot))continue;
         scanned++;
         let cursor:string|undefined=before===null?undefined:String((BigInt(before)-1420070400000n)<<22n);
         for(let page=0;page<(refs?1:2)&&results.length<30&&Date.now()<deadline;page++){
@@ -87,7 +107,9 @@ export async function executeDiscordTool(client:Client,task:DiscordTask,messageC
           if(!messages.size)break;
           const fresh=await guild.channels.fetch(channel.id,{force:true});
           const freshMember=await guild.members.fetch({user:task.user,force:true});
-          if(!fresh||!await canRead(fresh,freshMember))break;
+          const freshBot=await guild.members.fetchMe({force:true});
+          const freshDestination=await guild.channels.fetch(task.channel,{force:true});
+          if(!fresh||!freshDestination||!await canDisclose(fresh,freshDestination,freshMember,freshBot))break;
           for(const m of messages.values()){
             const terms=query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
             if(m.id===task.sourceMessageId||excluded.has(m.id)||m.guildId!==task.guild||m.channelId!==channel.id||!m.content||(!refs&&!terms.every(t=>m.content.toLocaleLowerCase().includes(t)))||(author&&m.author.id!==author)||(after!==null&&m.createdTimestamp<after)||(before!==null&&m.createdTimestamp>=before))continue;
@@ -102,9 +124,10 @@ export async function executeDiscordTool(client:Client,task:DiscordTask,messageC
     await guild.roles.fetch();
     const checked=await guild.members.fetch({user:task.user,force:true});
     const checkedBot=await guild.members.fetchMe({force:true});
+    const checkedDestination=await guild.channels.fetch(task.channel,{force:true});
     const authorized=new Set<string>();
     for(const channelId of new Set(results.map(r=>r.url.split('/')[5]!))){
-      try{const channel=await guild.channels.fetch(channelId,{force:true});if(channel&&await canRead(channel,checked)&&await canRead(channel,checkedBot))authorized.add(channelId);}catch{}
+      try{const channel=await guild.channels.fetch(channelId,{force:true});if(channel&&checkedDestination&&await canDisclose(channel,checkedDestination,checked,checkedBot))authorized.add(channelId);}catch{}
     }
     const ranked=results.filter(r=>authorized.has(r.channelId)).sort((a,b)=>{
       const score=(r:typeof a)=>Number(r.channelId===task.channel)+3*Number(r.content.toLocaleLowerCase().includes(query.toLocaleLowerCase()));

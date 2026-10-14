@@ -1,4 +1,4 @@
-import { AttachmentBuilder, MessageFlags, type ChatInputCommandInteraction, type Client, type Message } from 'discord.js';
+import { MessageFlags, type ChatInputCommandInteraction, type Client, type Message } from 'discord.js';
 import { service } from './ai-client.js';
 import { loadConfig } from './config.js';
 import type { Job, JobKind } from './service/types.js';
@@ -11,6 +11,7 @@ import {imageAttachments} from './service/vision.js';
 import {ServiceError} from './ai-client.js';
 import {publicReply} from './public-reply.js';
 import type {ImageAttachment} from './service/types.js';
+import {studyDeliveryPayload} from './study-audience.js';
 
 export interface StudyRuntime { config: typeof loadConfig; service: typeof service; isQotdDiscussion?: (guild:string,channel:string)=>boolean }
 const defaultRuntime: StudyRuntime = { config: loadConfig, service, isQotdDiscussion:(guild,channel)=>new Competition(qotdStore()).isDiscussion(guild,channel) };
@@ -72,10 +73,7 @@ export function startDelivery(client:Client) {
           const channel=await client.channels.fetch(job.channel);
           if(!channel?.isTextBased()||!channel.isSendable())continue;
           const message=await channel.messages.fetch(job.message);
-          const files=[];
-          if(terminal&&content.length>1900)files.push(new AttachmentBuilder(Buffer.from(content),{name:'answer.txt'}));
-          if(terminal&&job.artifact)files.push(new AttachmentBuilder(Buffer.from(job.artifact,'base64'),{name:'plot.png'}));
-          await message.edit({content:content.slice(0,1900)+(terminal&&content.length>1900?'\n\nfull answer attached.':''),files,allowedMentions:{parse:[]}});
+          await message.edit(await studyDeliveryPayload(client,job,content));
           if(terminal){await service('/delivered',{id:job.id});previous.delete(job.id);}else previous.set(job.id,content);
         }catch(error){
           const code=(error as {code?:number}).code;

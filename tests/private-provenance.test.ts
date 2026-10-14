@@ -15,7 +15,7 @@ async function chain(s:Store){
  const first=s.admit({...input,id:'first',prompt:'what did machica say about calculus?'},10);s.running(first.id);
  const result=await runner(config,s,{discord:async()=>({type:'DISCORD_SEARCH_DATA',results:[{id:'423456789012345678',channelId:input.channel,author:{id:input.user},content:sentinel}]}),complete:async()=>Response.json({choices:[{message:{content:'{"message":1,"passage":1}'},finish_reason:'stop'}]})})(first,AbortSignal.timeout(10000),()=>{});s.complete(first.id,result);
  const second=s.admit({...input,id:'derived',parent:first.id,prompt:'summarize briefly'},10);s.running(second.id);
- const summary=await runner(config,s,{route:fast,complete:async()=>reply(sentinel)})(second,AbortSignal.timeout(10000),()=>{});s.complete(second.id,summary);return summary;
+ const summary=await runner(config,s,{route:fast,discord:async()=>({type:'DISCORD_AUDIENCE_DATA',allowed:true}),complete:async()=>reply(sentinel)})(second,AbortSignal.timeout(10000),()=>{});s.complete(second.id,summary);return summary;
 }
 test('P1 private retrieval then derived answer persists explicit provenance',async()=>{
  const s=new Store(':memory:');try{const result=await chain(s);assert.equal((result as any).provenance?.classification,'private-discord');assert.equal(JSON.parse((s.get('derived') as any).provenance).classification,'private-discord');}finally{s.close();}
@@ -36,7 +36,7 @@ test('P1 public history remains eligible and no-parent conversation is independe
 });
 test('P1 mixed consumed history is private and cannot reset inside turn or complete',async()=>{
  const s=new Store(':memory:');try{await chain(s);const j=s.admit({...input,id:'mixed',parent:'derived',prompt:'summarize briefly'},10);s.running(j.id);
- const r=await runner(config,s,{route:fast,complete:async(_u,init)=>{assert.ok(String(init.body).includes(sentinel));assert.ok(!String(init.body).includes('discordSources'));return reply('a mixed summary');}})(j,AbortSignal.timeout(10000),()=>{});assert.equal(r.provenance?.classification,'private-discord');
+ const r=await runner(config,s,{route:fast,discord:async()=>({type:'DISCORD_AUDIENCE_DATA',allowed:true}),complete:async(_u,init)=>{assert.ok(String(init.body).includes(sentinel));assert.ok(!String(init.body).includes('discordSources'));return reply('a mixed summary');}})(j,AbortSignal.timeout(10000),()=>{});assert.equal(r.provenance?.classification,'private-discord');
  s.complete(j.id,{answer:'safe-looking text',provenance:publicProvenance()});assert.equal(readProvenance(s.get(j.id)!.provenance).classification,'private-discord');
  const b=new TurnWebBoundary('hi');b.observeProvenance(r.provenance!);b.observeProvenance(publicProvenance());b.observeDiscord({type:'DISCORD_SEARCH_DATA',results:[]});assert.ok(b.private);
  }finally{s.close();}
