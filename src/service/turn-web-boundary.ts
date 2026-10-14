@@ -4,6 +4,7 @@ import {mergeProvenance,publicProvenance,readProvenance,rowProvenance,type Prove
 // Authorization is exact canonical URL provenance, separate from network/SSRF validation.
 export class TurnWebBoundary {
   private urls=new Set<string>();
+  private outputURLs=new Set<string>();
   private provenanceState=publicProvenance();
   constructor(prompt:string){
     for(const match of prompt.matchAll(/https:\/\/[^\s<>"`]+/gi)){
@@ -29,6 +30,8 @@ export class TurnWebBoundary {
   observeHistory(context:string|undefined){
     this.observeProvenance(rowProvenance({guild:'',...(context?{retrievalContext:context}:{})}));
   }
-  trust(value:string){try{this.urls.add(publicURL(value).href);}catch{}}
+  trust(value:string){try{const url=publicURL(value).href;this.urls.add(url);this.outputURLs.add(url);}catch{}}
+  trustOutbound(value:string){try{this.outputURLs.add(publicURL(value).href);}catch{}}
+  permitsOutbound(value:string){try{return this.outputURLs.has(publicURL(value).href);}catch{return false;}}
   permits(value:string){try{return !this.private&&this.urls.has(publicURL(value).href);}catch{return false;}}
 }
