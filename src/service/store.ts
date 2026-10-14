@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { Job, Submission, Result } from './types.js';
 import { discordIntent } from '../discord-context.js';
 import { UserError } from './types.js';
+import {mergeProvenance,rowProvenance,readProvenance,type Provenance} from './provenance.js';
 
 export class Store {
   readonly db: DatabaseSync;
@@ -21,6 +22,20 @@ export class Store {
     if(!this.db.prepare('PRAGMA table_info(jobs)').all().some(row=>row.name==='sourceMessageId'))
       this.db.exec("ALTER TABLE jobs ADD COLUMN sourceMessageId TEXT");
     for(const column of ['images','retrievalContext'])if(!this.db.prepare('PRAGMA table_info(jobs)').all().some(row=>row.name===column))this.db.exec(`ALTER TABLE jobs ADD COLUMN ${column} TEXT NOT NULL DEFAULT '[]'`);
+    if(!this.db.prepare('PRAGMA table_info(jobs)').all().some(row=>row.name==='provenance'))this.db.exec("ALTER TABLE jobs ADD COLUMN provenance TEXT NOT NULL DEFAULT '{}'");
+    // Repair old unlabelled descendants using host ancestry, never answer text.
+    const legacy=this.db.prepare(`WITH RECURSIVE private_jobs(id) AS (
+      SELECT id FROM jobs WHERE CASE WHEN json_valid(retrievalContext) THEN json_extract(retrievalContext,'$.kind')='discord' ELSE 0 END
+      OR CASE WHEN json_valid(provenance) THEN json_extract(provenance,'$.classification')='private-discord' ELSE 0 END
+      UNION SELECT child.id FROM jobs child JOIN jobs parent ON child.parent=parent.id JOIN private_jobs p ON p.id=parent.id
+      WHERE child.guild=parent.guild AND child.channel=parent.channel AND child.user=parent.user
+      AND COALESCE(CASE WHEN json_valid(child.provenance) THEN json_extract(child.provenance,'$.version')=1 AND json_extract(child.provenance,'$.classification')='public' ELSE 0 END,0)=0
+    ) SELECT j.* FROM jobs j JOIN private_jobs p ON p.id=j.id ORDER BY j.rowid`).all() as unknown as Job[];
+    const inherited=new Map<string,Provenance>();
+    for(const row of legacy){
+      const value=mergeProvenance(rowProvenance(row),...(row.parent&&inherited.has(row.parent)?[inherited.get(row.parent)!]:[]));
+      inherited.set(row.id,value);this.db.prepare('UPDATE jobs SET provenance=? WHERE id=?').run(JSON.stringify(value),row.id);
+    }
   }
   previousLookupMessageIds(job:Job):string[]{
     const rows=this.db.prepare(
@@ -84,7 +99,11 @@ export class Store {
   queued() { const deferred=this.db.prepare('PRAGMA table_info(jobs)').all().some(r=>r.name==='ready_at');return this.db.prepare(`SELECT * FROM jobs WHERE state='queued' ${deferred?'AND ready_at<=?':''} ORDER BY coach DESC,created,id`).all(...(deferred?[Date.now()]:[])) as unknown as Job[]; }
   running(id: string) { this.db.prepare("UPDATE jobs SET state='running',status='thinking' WHERE id=? AND state='queued'").run(id); }
   status(id: string, status: string) { this.db.prepare("UPDATE jobs SET status=? WHERE id=? AND state='running'").run(status,id); }
-  complete(id: string, result: Result) { this.db.prepare("UPDATE jobs SET state='completed',status='completed',answer=?,artifact=?,retrievalContext=? WHERE id=? AND state='running'").run(result.answer.slice(0, 24000),result.artifact ?? '',result.retrievalContext??'[]',id); }
+  markProvenance(id:string,value:Provenance){const current=this.get(id);if(!current)return;this.db.prepare('UPDATE jobs SET provenance=? WHERE id=?').run(JSON.stringify(mergeProvenance(rowProvenance(current),value)),id);}
+  complete(id: string, result: Result) {
+    const current=this.get(id);const provenance=mergeProvenance(readProvenance(result.provenance),...(current?[rowProvenance(current)]:[]));
+    this.db.prepare("UPDATE jobs SET state='completed',status='completed',answer=?,artifact=?,retrievalContext=?,provenance=? WHERE id=? AND state='running'").run(result.answer.slice(0, 24000),result.artifact ?? '',result.retrievalContext??'[]',JSON.stringify(provenance),id);
+  }
   fail(id: string, message: string) { this.db.prepare("UPDATE jobs SET state='failed',status='failed',answer=? WHERE id=? AND state='running'").run(message,id); }
   cancel(id: string) { this.db.prepare("UPDATE jobs SET state='cancelled',status='cancelled',answer='Request cancelled.' WHERE id=? AND state IN ('running','queued')").run(id); }
   bind(id: string, message: string) { this.db.prepare('UPDATE jobs SET message=? WHERE id=?').run(message,id); }
