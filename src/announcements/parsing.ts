@@ -1,12 +1,11 @@
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { GmailMessage,GmailPart } from './gmail.js';
+import {sanitizeOrganizerEvidence} from './public-facts.js';
 export interface Evidence {id:string;text:string}
 export interface ParsedMail {evidence:Evidence[];blocked:string[];sensitive:boolean}
 const decode=(text:string)=>Buffer.from(text,'base64url').toString('utf8');
 export function redact(text:string){
-  const sensitive=/\b(?:password|passcode|credential|access token|secret|login id|username)\b|https?:\/\/\S*[?&](?:token|key|code|auth|password)=/i.test(text);
-  if(sensitive){const competition=text.match(/\b(TIMO|HKIMO|BBB|PhIMO)\b/i)?.[1]??'mathematics competition';const year=text.match(/\b20\d\d\b/)?.[0]??'';const round=text.match(/\b(?:heat|final) round\b/i)?.[0]??'';return {text:`${competition} ${year} ${round}: login-details notice; credential content withheld; participants should check their own email`,sensitive:true};}
-  return {text:text.replace(/https?:\/\/[^\s<>"']+/g,url=>{try{const u=new URL(url);return u.search||u.username||u.password?'[private or parameterized link withheld]':url;}catch{return '[invalid link]';}}),sensitive:false};
+  return sanitizeOrganizerEvidence(text);
 }
 function htmlText(html:string){
   return html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi,'').replace(/<\/(?:td|th)>/gi,' | ').replace(/<\/(?:tr|p|div|h[1-6])>/gi,'\n').replace(/<br\s*\/?\s*>/gi,'\n').replace(/<[^>]*>/g,'').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&#(\d+);/g,(_,n:string)=>String.fromCodePoint(Math.min(Number(n),0x10ffff)));

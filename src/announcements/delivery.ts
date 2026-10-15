@@ -7,12 +7,13 @@ import { AnnouncementStore,type AnnouncementJob,type Payload } from './store.js'
 import { digest } from './model.js';
 import { staffAlertContent } from './alerts.js';
 import { plan } from './planner.js';
+import {validatePublicDiscordPayload} from './public-facts.js';
 
 export async function deliverAnnouncements(store:AnnouncementStore,config:AutomationConfig,send:(job:AnnouncementJob,payload:Payload)=>Promise<{id:string}>,now=Date.now()){
   if(!config.enabled||!config.autoSend)return;
   for(const candidate of store.dueJobs(config.policy.guild,now)){
     const job=store.claim(candidate.id,now);if(!job)continue;let id:string|null=null;
-    try{id=(await send(job,JSON.parse(job.payload_json) as Payload)).id;}catch{/* No automatic resend after a possibly accepted send. */}
+    try{const payload=JSON.parse(job.payload_json) as Payload;validatePublicDiscordPayload(payload,{role:job.role,channel:job.channel});id=(await send(job,payload)).id;}catch{/* No automatic resend after a possibly accepted send. */}
     store.finish(job,id);
   }
 }
@@ -30,6 +31,7 @@ export function startAnnouncements(client:Client,config:AutomationConfig){
     const bot=await channel.guild.members.fetchMe();if(!channel.permissionsFor(bot)?.has([PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages]))throw new Error('Bot permissions unavailable.');
     if(job.role){const role=await channel.guild.roles.fetch(job.role);if(!role||role.id===job.guild||(!role.mentionable&&!channel.permissionsFor(bot)?.has(PermissionFlagsBits.MentionEveryone)))throw new Error('Role unavailable.');}
     const latest=store.event(job.guild,job.event_key);if(latest?.revision!==job.revision||store.held(job.event_key))throw new Error('Revision changed while delivering; staff must reconcile.');
+    validatePublicDiscordPayload(payload,{role:job.role,channel:job.channel});
     const files=[] as {attachment:Buffer;name:string}[];
     if(job.asset){const asset=store.asset(job.guild,job.asset);if(!asset||!resolve(asset.path).startsWith(resolve(config.assets)+'/')&&!resolve(asset.path).startsWith(resolve(config.assets)+'\\'))throw new Error('Asset unavailable.');const data=readFileSync(asset.path);if(createHash('sha256').update(data).digest('hex')!==asset.hash)throw new Error('Asset integrity failed.');files.push({attachment:data,name:`announcement.${asset.mime==='image/png'?'png':'jpg'}`});}
     return channel.send({...payload,files,nonce:createHash('sha256').update(job.id).digest('hex').slice(0,25),enforceNonce:true});

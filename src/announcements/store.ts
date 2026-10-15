@@ -3,11 +3,12 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { canonical,canonicalEvent,digest,eventKey,validateExtraction,validateEvent,type Catalog,type Extraction,type ScheduleEvent,type Source } from './model.js';
+import {validatePublicText,validatePublicDiscordPayload,sanitizeOrganizerEvidence} from './public-facts.js';
 
-export interface Candidate { id:string;public_id:number;guild:string;batch:string;event_key:string;event_json:string;catalog_json:string;issues_json:string;confidence:string;base_revision:number;review_version:number;state:string }
-export interface ApprovedEvent { event_key:string;guild:string;revision:number;event_json:string;catalog_json:string;approved_by:string;approved_at:number }
+export interface Candidate { id:string;public_id:number;guild:string;batch:string;event_key:string;event_json:string;catalog_json:string;issues_json:string;confidence:string;base_revision:number;review_version:number;state:string;public_safety_version:number }
+export interface ApprovedEvent { event_key:string;guild:string;revision:number;event_json:string;catalog_json:string;approved_by:string;approved_at:number;public_safety_version:number }
 export interface Payload {content:string;allowedMentions:{parse:[];roles:string[];users:string[];repliedUser:boolean}}
-export interface AnnouncementJob {id:string;guild:string;event_key:string;revision:number;policy:string;channel:string;role:string|null;due:number;expires:number;major:number;asset_policy:string;asset:string|null;payload_json:string;state:string;message:string|null;approved_by:string|null}
+export interface AnnouncementJob {id:string;guild:string;event_key:string;revision:number;policy:string;channel:string;role:string|null;due:number;expires:number;major:number;asset_policy:string;asset:string|null;payload_json:string;state:string;message:string|null;approved_by:string|null;public_safety_version?:number}
 export class AnnouncementStore {
   readonly db:DatabaseSync;
   constructor(path:string){
@@ -45,6 +46,16 @@ export class AnnouncementStore {
       END;
       INSERT OR IGNORE INTO schema_version VALUES(2);
       COMMIT;`);
+    this.db.exec('BEGIN IMMEDIATE');
+    try{
+      for(const table of ['candidate_events','events','announcement_jobs']){
+        if(!this.db.prepare(`PRAGMA table_info(${table})`).all().some(c=>c.name==='public_safety_version')){
+          this.db.exec(`ALTER TABLE ${table} ADD COLUMN public_safety_version INTEGER NOT NULL DEFAULT 0`);
+          if(table==='announcement_jobs')this.db.exec("UPDATE announcement_jobs SET state='blocked',approved_by=NULL WHERE state IN ('scheduled','held','pending_approval','blocked','draft')");
+        }
+      }
+      this.db.exec('INSERT OR IGNORE INTO schema_version VALUES(3); COMMIT');
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
   }
   transaction<T>(fn:()=>T):T{if(this.state('maintenance:reset')==='true')throw new Error('Announcement storage reset in progress.');this.db.exec('BEGIN IMMEDIATE');try{const out=fn();this.db.exec('COMMIT');return out;}catch(e){this.db.exec('ROLLBACK');throw e;}}
   audit(guild:string,actor:string,action:string,target:string,snapshot:unknown,now=Date.now()){if(!actor.trim())throw new Error('Actor required.');this.db.prepare('INSERT INTO audit_log(guild,actor,action,target,snapshot,at) VALUES(?,?,?,?,?,?)').run(guild,actor,action,target,canonical(snapshot),now);}
@@ -63,7 +74,13 @@ export class AnnouncementStore {
     if(!this.db.prepare("SELECT id FROM sources WHERE id=? AND guild=? AND state IN ('blocked','retry','pending')").get(id,guild))throw new Error('Source not available for disposition.');
     this.sourceState(id,'dismissed');this.releaseSource(id);this.audit(guild,actor,'dismiss-source',id,{});
   });}
-  saveEvidence(source:string,evidence:unknown){const json=canonical(evidence);if(Buffer.byteLength(json)>100000)throw new Error('Source evidence too large.');this.db.prepare('INSERT INTO source_evidence VALUES(?,?) ON CONFLICT(source) DO UPDATE SET evidence_json=excluded.evidence_json').run(source,json);}
+  saveEvidence(source:string,evidence:unknown){
+    if(!evidence||typeof evidence!=='object'||Array.isArray(evidence))throw new Error('Invalid source evidence.');
+    const data=evidence as {evidence?:{id:string;text:string}[];blocked?:string[];sensitive?:boolean};
+    if(!Array.isArray(data.evidence)||(data.blocked!==undefined&&!Array.isArray(data.blocked)))throw new Error('Invalid source evidence.');
+    const safe={...data,evidence:data.evidence.map(e=>({id:e.id,text:sanitizeOrganizerEvidence(e.text).text})),blocked:(data.blocked??[]).map(x=>sanitizeOrganizerEvidence(x).text)};
+    const json=canonical(safe);if(Buffer.byteLength(json)>100000)throw new Error('Source evidence too large.');this.db.prepare('INSERT INTO source_evidence VALUES(?,?) ON CONFLICT(source) DO UPDATE SET evidence_json=excluded.evidence_json').run(source,json);
+  }
   candidates(guild:string){return this.candidatePage(guild,0,100).items;}
   candidatePage(guild:string,page=0,size=5){
     const limit=Math.min(100,Math.max(1,Math.floor(size))),total=Number(this.db.prepare('SELECT count(*) n FROM candidate_events WHERE guild=?').get(guild)!.n);
@@ -96,6 +113,7 @@ export class AnnouncementStore {
         }
         const unchanged=active?.event_json===json&&active.catalog_json===catalog;
         const candidateId=randomUUID();this.db.prepare('INSERT INTO candidate_events(id,guild,batch,event_key,event_json,catalog_json,issues_json,confidence,base_revision,state) VALUES(?,?,?,?,?,?,?,?,?,?)').run(candidateId,guild,batch,key,json,catalog,canonical(c.issues),c.confidence,active?.revision??0,unchanged?'unchanged':'pending');
+        this.db.prepare('UPDATE candidate_events SET public_safety_version=1 WHERE id=?').run(candidateId);
         this.db.prepare('INSERT INTO candidate_sources VALUES(?,?)').run(candidateId,source);
         if(!unchanged){this.db.prepare("UPDATE announcement_jobs SET held_from=state,state='held' WHERE event_key=? AND state IN ('scheduled','pending_approval','blocked')").run(key);reviews++;if(active)corrections++;}
       }
@@ -108,13 +126,15 @@ export class AnnouncementStore {
     event=canonicalEvent(event);
     const c=this.pending(guild,id,version);validateEvent(event,JSON.parse(c.catalog_json) as Catalog);if(guild+':'+eventKey(event)!==c.event_key)throw new Error('Identity edits require rejection and a new proposal.');
     if(!Array.isArray(issues)||issues.some(x=>typeof x!=='string'||x.length>500))throw new Error('Invalid issues.');
-    this.db.prepare('UPDATE candidate_events SET event_json=?,issues_json=?,review_version=review_version+1 WHERE id=?').run(canonical(event),canonical(issues),id);this.audit(guild,actor,'edit',id,{before:c.event_json,after:event,issues});return this.candidate(guild,id)!;
+    for(const issue of issues)validatePublicText(issue,'review issue');
+    this.db.prepare('UPDATE candidate_events SET event_json=?,issues_json=?,public_safety_version=1,review_version=review_version+1 WHERE id=?').run(canonical(event),canonical(issues),id);this.audit(guild,actor,'edit',id,{beforeHash:digest(c.event_json),after:event,issues});return this.candidate(guild,id)!;
   });}
   approve(guild:string,id:string,version:number,actor:string,now=Date.now()){return this.transaction(()=>{
     const c=this.pending(guild,id,version),active=this.event(guild,c.event_key);if((active?.revision??0)!==c.base_revision)throw new Error('Stale event revision; reject or rebase the proposal after inspecting the latest source.');
+    if(c.public_safety_version!==1)throw new Error('Legacy facts require fresh public-safety review.');
     if((JSON.parse(c.issues_json) as string[]).length)throw new Error('Resolve all factual issues before approval.');validateEvent(JSON.parse(c.event_json) as ScheduleEvent,JSON.parse(c.catalog_json) as Catalog,true);
     const revision=c.base_revision+1;
-    this.db.prepare('INSERT INTO events VALUES(?,?,?,?,?,?,?) ON CONFLICT(event_key) DO UPDATE SET revision=excluded.revision,event_json=excluded.event_json,catalog_json=excluded.catalog_json,approved_by=excluded.approved_by,approved_at=excluded.approved_at').run(c.event_key,guild,revision,c.event_json,c.catalog_json,actor,now);
+    this.db.prepare('INSERT INTO events(event_key,guild,revision,event_json,catalog_json,approved_by,approved_at,public_safety_version) VALUES(?,?,?,?,?,?,?,1) ON CONFLICT(event_key) DO UPDATE SET revision=excluded.revision,event_json=excluded.event_json,catalog_json=excluded.catalog_json,approved_by=excluded.approved_by,approved_at=excluded.approved_at,public_safety_version=1').run(c.event_key,guild,revision,c.event_json,c.catalog_json,actor,now);
     this.db.prepare('INSERT INTO event_revisions VALUES(?,?,?,?,?,?)').run(c.event_key,revision,c.event_json,c.catalog_json,actor,now);
     this.db.prepare("UPDATE candidate_events SET state='approved' WHERE id=?").run(id);
     this.db.prepare("UPDATE announcement_jobs SET state='superseded' WHERE event_key=? AND state IN ('scheduled','held','pending_approval','blocked','draft')").run(c.event_key);
@@ -132,9 +152,14 @@ export class AnnouncementStore {
   jobs(guild:string){return this.db.prepare('SELECT * FROM announcement_jobs WHERE guild=? ORDER BY due DESC LIMIT 100').all(guild) as unknown as AnnouncementJob[];}
   dueJobs(guild:string,now:number){return this.db.prepare("SELECT * FROM announcement_jobs WHERE guild=? AND state='scheduled' AND due<=? ORDER BY due,id LIMIT 25").all(guild,now) as unknown as AnnouncementJob[];}
   job(guild:string,id:string){return this.db.prepare('SELECT * FROM announcement_jobs WHERE guild=? AND id=?').get(guild,id) as unknown as AnnouncementJob|undefined;}
-  addJob(job:Omit<AnnouncementJob,'id'|'asset'|'message'|'approved_by'>){const id=randomUUID();this.db.prepare('INSERT OR IGNORE INTO announcement_jobs(id,guild,event_key,revision,policy,channel,role,due,expires,major,asset_policy,payload_json,state) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id,job.guild,job.event_key,job.revision,job.policy,job.channel,job.role,job.due,job.expires,job.major,job.asset_policy,job.payload_json,job.state);const row=this.db.prepare('SELECT * FROM announcement_jobs WHERE event_key=? AND revision=? AND policy=? AND channel=?').get(job.event_key,job.revision,job.policy,job.channel) as unknown as AnnouncementJob;return row;}
+  addJob(job:Omit<AnnouncementJob,'id'|'asset'|'message'|'approved_by'>){
+    const id=randomUUID();let safety=0;
+    if(job.state!=='blocked'&&job.payload_json!==''&&JSON.parse(job.payload_json).content){validatePublicDiscordPayload(JSON.parse(job.payload_json),{role:job.role,channel:job.channel});safety=1;}
+    this.db.prepare('INSERT OR IGNORE INTO announcement_jobs(id,guild,event_key,revision,policy,channel,role,due,expires,major,asset_policy,payload_json,state,public_safety_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id,job.guild,job.event_key,job.revision,job.policy,job.channel,job.role,job.due,job.expires,job.major,job.asset_policy,job.payload_json,job.state,safety);const row=this.db.prepare('SELECT * FROM announcement_jobs WHERE event_key=? AND revision=? AND policy=? AND channel=?').get(job.event_key,job.revision,job.policy,job.channel) as unknown as AnnouncementJob;return row;
+  }
   approveJob(guild:string,id:string,actor:string,expectedHash:string){this.transaction(()=>{
     const j=this.job(guild,id),e=j?this.event(guild,j.event_key):undefined;if(!j||j.state!=='pending_approval'||!e||e.revision!==j.revision||this.held(j.event_key)||digest([j.payload_json,j.asset])!==expectedHash)throw new Error('Message preview is stale or held.');
+    validatePublicDiscordPayload(JSON.parse(j.payload_json),{role:j.role,channel:j.channel});if(j.public_safety_version!==1||e.public_safety_version!==1)throw new Error('Public-safety review required.');
     if(j.asset_policy==='required'&&!j.asset)throw new Error('Canva asset is required before approval.');
     this.db.prepare("UPDATE announcement_jobs SET state='scheduled',approved_by=? WHERE id=?").run(actor,id);this.audit(guild,actor,'approve-message',id,{hash:expectedHash});
   });}
@@ -144,6 +169,7 @@ export class AnnouncementStore {
   asset(guild:string,id:string){return this.db.prepare('SELECT path,hash,mime FROM announcement_assets WHERE guild=? AND id=?').get(guild,id) as {path:string;hash:string;mime:string}|undefined;}
   claim(id:string,now=Date.now()){return this.transaction(()=>{
     const j=this.db.prepare('SELECT * FROM announcement_jobs WHERE id=?').get(id) as unknown as AnnouncementJob|undefined;if(!j||j.state!=='scheduled'||j.due>now)return undefined;
+    try{if(j.public_safety_version!==1)throw new Error('Legacy safety unknown.');validatePublicDiscordPayload(JSON.parse(j.payload_json),{role:j.role,channel:j.channel});}catch{this.db.prepare("UPDATE announcement_jobs SET state='blocked',approved_by=NULL WHERE id=?").run(id);this.alert(j.guild,'public-safety-review',j.id);return undefined;}
     const e=this.event(j.guild,j.event_key);if(!e||e.revision!==j.revision||this.held(j.event_key)){this.db.prepare("UPDATE announcement_jobs SET state='held' WHERE id=?").run(id);return undefined;}
     if((JSON.parse(e.event_json) as ScheduleEvent).status && (JSON.parse(e.event_json) as ScheduleEvent).status!=='active'){this.db.prepare("UPDATE announcement_jobs SET state='cancelled' WHERE id=?").run(id);return undefined;}
     if(now>j.expires){this.db.prepare("UPDATE announcement_jobs SET state='skipped' WHERE id=?").run(id);this.alert(j.guild,'missed-reminder',id);return undefined;}

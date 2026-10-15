@@ -10,6 +10,7 @@ export function plan(store:AnnouncementStore,policy:PolicyFile,now=Date.now()){
       store.db.prepare("UPDATE announcement_jobs SET state='superseded' WHERE guild=? AND state IN ('scheduled','held','pending_approval','blocked','draft')").run(policy.guild);store.setState(key,revision);
     }
     for(const row of store.events(policy.guild)){
+      if(row.public_safety_version!==1){store.alert(policy.guild,'public-safety-review',row.event_key,now);continue;}
       const e=JSON.parse(row.event_json) as ScheduleEvent,catalog=JSON.parse(row.catalog_json) as Catalog;
       if((e.status??'active')!=='active')continue;
       for(const rule of policy.policies){

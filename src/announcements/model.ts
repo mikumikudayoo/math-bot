@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import {validatePublicCatalog,validatePublicEvent,validatePublicText,validatePublicDiscordPayload} from './public-facts.js';
 
 export const eventTypes = ['training-session','classmarker-deadline','competition-day','registration-deadline','login-details','server-event','schedule-announcement','materials-release','competition-announcement','results','qualification','other-deadline'] as const;
 export type EventType = typeof eventTypes[number];
@@ -54,6 +55,7 @@ function checkKeys(value: unknown, allowed: string[]) {
   if(!value || typeof value!=='object' || Array.isArray(value) || Object.keys(value).some(k=>!allowed.includes(k))) throw new Error('Unexpected fields; do not include raw email bodies or credentials in public candidate data.');
 }
 export function validateCatalog(c: Catalog) {
+  validatePublicCatalog(c);
   checkKeys(c,['competitions','rounds','programs']);
   if(!c || ![c.competitions,c.rounds,c.programs].every(Array.isArray)) throw new Error('Catalog is required.');
   const ids=new Set<string>();
@@ -68,6 +70,7 @@ export function validateCatalog(c: Catalog) {
   for(const p of c.programs) {checkKeys(p,['id','name','version']);if(p.name!=='VTAMPS' || !text(p.version)) throw new Error('Only the mathematics training program VTAMPS is supported.');}
 }
 export function validateEvent(e: ScheduleEvent, catalog: Catalog, requireTimes=false) {
+  validatePublicEvent(e);
   checkKeys(e,['competitionId','roundId','programId','preparesFor','yearLevel','type','slot','start','end','deadline','timezone','url','detailLabel','dateHint','status','timezoneAssumed']);
   if(e.status!==undefined && !['active','cancelled','postponed'].includes(e.status))throw new Error('Invalid event status.');
   if(e.timezoneAssumed!==undefined && typeof e.timezoneAssumed!=='boolean')throw new Error('Invalid timezone assumption.');
@@ -105,6 +108,7 @@ export function validateExtraction(input: Extraction) {
     checkKeys(c,['event','confidence','issues']);
     validateEvent(c.event,input.catalog);
     if (!['high','medium','low'].includes(c.confidence) || !Array.isArray(c.issues) || !c.issues.every(i=>text(i,500))) throw new Error('Invalid extraction review metadata.');
+    for(const issue of c.issues)validatePublicText(issue,'review issue');
     const key=eventKey(c.event); if(keys.has(key)) throw new Error('Duplicate event identity inside extraction.'); keys.add(key);
   }
 }
@@ -141,5 +145,6 @@ export function renderEvent(e: ScheduleEvent, catalog: Catalog, c: PreviewConfig
   const source=c.templates[template]; if(!source) throw new Error('Missing approved template.');
   const content=source.replace(/\{\{(\w+)\}\}/g,(_,key:string)=>{const v=vars[key];if(v===null||v===undefined)throw new Error(`Unresolved placeholder: ${key}`);return v;});
   if(content.includes('{{') || content.length>2000) throw new Error('Malformed template or Discord message too long.');
-  return {content,allowedMentions:{parse:[] as [],roles:c.role?[c.role]:[],users:[] as string[],repliedUser:false}};
+  const payload={content,allowedMentions:{parse:[] as [],roles:c.role?[c.role]:[],users:[] as string[],repliedUser:false}};
+  validatePublicDiscordPayload(payload,{role:c.role,channel:c.channel});return payload;
 }

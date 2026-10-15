@@ -2,9 +2,14 @@ import { ActionRowBuilder,ButtonBuilder,ButtonStyle } from 'discord.js';
 import { AnnouncementStore,type Candidate,type AnnouncementJob } from './store.js';
 import { describeEvent,type Catalog,type ScheduleEvent } from './model.js';
 import { redact } from './parsing.js';
+import {validatePublicDiscordPayload} from './public-facts.js';
 
 export class ReviewError extends Error {}
 export const safeText=(value:string)=>redact(value).text.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,'[internal reference withheld]');
+export function reviewedPayload(j:AnnouncementJob){
+  try{const payload=JSON.parse(j.payload_json) as unknown;if(j.public_safety_version!==1)throw new Error('Legacy payload.');validatePublicDiscordPayload(payload,{role:j.role,channel:j.channel});return (payload as {content:string}).content;}
+  catch{return 'public payload withheld; public-safety review is required before this message can be approved.';}
+}
 const date=(at:number)=>new Intl.DateTimeFormat('en-PH',{dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Manila'}).format(at);
 const row=(buttons:ButtonBuilder[])=>new ActionRowBuilder<ButtonBuilder>().addComponents(buttons);
 const button=(id:string,label:string,style=ButtonStyle.Secondary)=>new ButtonBuilder().setCustomId(id).setLabel(label.slice(0,80)).setStyle(style);

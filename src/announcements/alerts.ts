@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { AnnouncementStore } from './store.js';
 import type { Catalog,ScheduleEvent } from './model.js';
+import {sanitizeOrganizerEvidence} from './public-facts.js';
 
 export const incidentCooldownMs=30*60*1000;
 export interface StaffAlert {id:string;kind:string;target:string}
 export function recordSourceFailure(store:AnnouncementStore,source:string,provider:string,reason:string,now=Date.now()){
+  if(!['groq','gmail','review'].includes(provider))throw new Error('Unknown source failure provider.');
+  reason=sanitizeOrganizerEvidence(reason).text;
   const guild=store.db.prepare('SELECT guild FROM sources WHERE id=?').get(source)?.guild as string|undefined;
   if(guild)store.audit(guild,'automation','source-failure',source,{provider,reason},now);
   store.db.prepare('INSERT INTO source_failures VALUES(?,?,?,?) ON CONFLICT(source) DO UPDATE SET provider=excluded.provider,reason=excluded.reason,at=excluded.at').run(source,provider,reason,now);
@@ -42,7 +45,7 @@ const descriptions:Record<string,string>={
   'uncertain-delivery':'A delivery needs manual reconciliation.', 'stuck-delivery':'A delivery is still awaiting reconciliation.',
   'correction-after-send':'Facts changed after an announcement was sent.', 'cancellation-review':'A cancellation or postponement needs review.'
 };
-function safeLabel(value:string){return value.replace(/[^\p{L}\p{N} .,:()/_-]/gu,' ').slice(0,160);}
+function safeLabel(value:string){return sanitizeOrganizerEvidence(value).text.replace(/[^\p{L}\p{N} .,:()/_-]/gu,' ').slice(0,160);}
 export function staffAlertContent(store:AnnouncementStore,guild:string,alert:StaffAlert){
   const header='⚠️ Announcement automation';
   if(alert.kind==='provider-outage'){

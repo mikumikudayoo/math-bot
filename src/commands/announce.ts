@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync,writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseTime } from '../reminders/types.js';
-import { inboxPanel,reviewPanel,sourcePanel,sourceId,requireCandidate,requireJob,jobCandidate,jobLabel,title,safeText,actionError,ReviewError } from '../announcements/review-ui.js';
+import { inboxPanel,reviewPanel,sourcePanel,sourceId,requireCandidate,requireJob,jobCandidate,jobLabel,title,safeText,reviewedPayload,actionError,ReviewError } from '../announcements/review-ui.js';
 const lockedHash=(job:AnnouncementJob)=>digest([job.payload_json,job.asset]);
 const idOption=(s:SlashCommandSubcommandBuilder)=>s.addStringOption(o=>o.setName('id').setDescription('Candidate number from the inbox (for example 17)').setRequired(true).setAutocomplete(true));
 export function makeAnnounceCommand(getConfig:()=>AutomationConfig=automationConfig,getStore:(path:string)=>AnnouncementStore=announcementStore,fetchAttachment:typeof safeFetch=safeFetch):Command {
@@ -60,7 +60,7 @@ export function makeAnnounceCommand(getConfig:()=>AutomationConfig=automationCon
         if(action==='preview'){
           const j=requireJob(store,guild,id);const buttons=j.major&&j.state==='pending_approval'?[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`announce:post:${j.id}:${lockedHash(j).slice(0,32)}`).setLabel('approve this text + asset').setStyle(ButtonStyle.Success))]:[];
           const asset=j.asset?store.asset(guild,j.asset):undefined;
-          await reply(`${jobLabel(store,guild,j)}\nstatus: ${j.state} · facts revision: ${j.revision}\nsend at: ${new Date(j.due).toISOString()}\nexpires: ${new Date(j.expires).toISOString()}\ndestination: <#${j.channel}>\nasset: ${asset?'attached':j.asset_policy==='required'?'required, missing':'not required'}\npublic auto-send: ${config.autoSend?'ON':'OFF'}\n\n${(JSON.parse(j.payload_json) as {content:string}).content}`,buttons);
+          await reply(`${jobLabel(store,guild,j)}\nstatus: ${j.state} · facts revision: ${j.revision}\nsend at: ${new Date(j.due).toISOString()}\nexpires: ${new Date(j.expires).toISOString()}\ndestination: <#${j.channel}>\nasset: ${asset?'attached':j.asset_policy==='required'?'required, missing':'not required'}\npublic auto-send: ${config.autoSend?'ON':'OFF'}\n\n${reviewedPayload(j)}`,buttons);
           if(asset)await i.followUp({content:'persisted asset preview:',files:[asset.path],flags:MessageFlags.Ephemeral,allowedMentions:{parse:[]}});return;
         }
         if(action==='approve'){store.approve(guild,requireCandidate(store,guild,id).id,i.options.getInteger('version',true),i.user.id);plan(store,config.policy);await reply('facts approved; jobs planned. public auto-send follows the configured gate.');return;}
@@ -96,7 +96,7 @@ export function makeAnnounceButtonHandler(getConfig:()=>AutomationConfig=automat
       if(action==='source'){await reply(sourcePanel(store,guild,id,Number(version)));return;}
       if(action==='preview'){
         const j=requireJob(store,guild,id),asset=j.asset?store.asset(guild,j.asset):undefined;
-        await reply({text:`${jobLabel(store,guild,j)}\nstatus: ${j.state} · revision: ${j.revision}\nsend at: ${new Date(j.due).toISOString()}\nasset: ${asset?'attached':j.asset_policy==='required'?'required, missing':'not required'}\npublic auto-send: ${config.autoSend?'ON':'OFF'}\n\n${(JSON.parse(j.payload_json) as {content:string}).content}`,components:j.major&&j.state==='pending_approval'?[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`announce:post:${j.id}:${lockedHash(j).slice(0,32)}`).setLabel('approve this text + asset').setStyle(ButtonStyle.Success))]:[]});
+        await reply({text:`${jobLabel(store,guild,j)}\nstatus: ${j.state} · revision: ${j.revision}\nsend at: ${new Date(j.due).toISOString()}\nasset: ${asset?'attached':j.asset_policy==='required'?'required, missing':'not required'}\npublic auto-send: ${config.autoSend?'ON':'OFF'}\n\n${reviewedPayload(j)}`,components:j.major&&j.state==='pending_approval'?[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`announce:post:${j.id}:${lockedHash(j).slice(0,32)}`).setLabel('approve this text + asset').setStyle(ButtonStyle.Success))]:[]});
         if(asset)await i.followUp({content:'persisted asset preview:',files:[asset.path],flags:MessageFlags.Ephemeral,allowedMentions:{parse:[]}});return;
       }
       if(action==='facts')store.approve(guild,requireCandidate(store,guild,id).id,Number(version),i.user.id);
