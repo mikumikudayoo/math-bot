@@ -129,3 +129,26 @@ export function assertPrivateOutputURLs(text:string,permits:(url:string)=>boolea
   // without echoing the original text or claiming arbitrary cipher detection.
   if(normalized(view)!==view||addresses(view).length)throw failure();
 }
+
+
+/** Remove directly discoverable unauthorized addresses. The caller MUST run assertPrivateOutputURLs again. */
+export function sanitizePrivateOutputURLs(text:string,permits:(url:string)=>boolean):string{
+  try{assertPrivateOutputURLs(text,permits);return text;}catch{}
+  const candidates=addresses(text);if(!candidates.length)return text;
+  let output=text;
+  for(const address of [...candidates].reverse()){
+    let candidate=address.value;
+    if(/\]\(\s*$/.test(text.slice(0,address.start)))candidate=markdownTarget(candidate);
+    else if(!/[?#]/.test(candidate))candidate=withoutDelimiters(candidate);
+    let keep=false;
+    if(!address.explicit){
+      const prefix=text.slice(0,address.start),suffix=text.slice(address.end);
+      keep=fixedCodeIdentifiers.has(address.value)&&!/(?:\]\(\s*<?|<)\s*$/.test(prefix)&&(!suffix||/^[\s(),;]$/.test(suffix[0]!));
+    }else{
+      keep=authorized(candidate,permits);
+      if(!keep&&!/[?#]/.test(candidate))keep=authorized(withoutDelimiters(candidate.replace(/[.,!;:]+$/,'')),permits);
+    }
+    if(!keep)output=output.slice(0,address.start)+'[external address omitted]'+output.slice(address.end);
+  }
+  return output;
+}

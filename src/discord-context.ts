@@ -10,6 +10,19 @@ export function discordIdentity(user:{id:string;username?:string;globalName?:str
   const m=member&&typeof member==='object'?member as {displayName?:string;nickname?:string|null;nick?:string|null}:{};
   return currentUser(user.id,guildId,{username:user.username,globalName:user.globalName,displayName:m.displayName??m.nickname??m.nick??user.globalName??user.username,nickname:m.nickname??m.nick});
 }
+export interface SpeakerFacts {type:'TRUSTED_SPEAKER_FACTS';speakerIsCreator:boolean;creatorName:'emu';speakerName:'emu'|null;speakerLabel:string|null}
+export function speakerFacts(context:DiscordContext):SpeakerFacts {
+  const speakerLabel=context.displayName??context.nickname??context.globalName??context.username;
+  return {type:'TRUSTED_SPEAKER_FACTS',speakerIsCreator:context.isCreator,creatorName:'emu',speakerName:context.isCreator?'emu':null,speakerLabel:context.isCreator?null:speakerLabel};
+}
+/** Deictic Discord scope only. Topic words such as MPoTD/QOTD do not belong here. */
+export function serverScope(prompt:string):boolean {
+  const q=prompt.trim();
+  return /\b(?:this|our|current)\s+(?:(?:[a-z0-9_-]+\s+){0,3})?(?:discord\s+)?(?:server|guild|community|channel|thread)\b/i.test(q)
+    || /\b(?:in|on)\s+here\b/i.test(q)
+    || /\b(?:server|guild|discord)\s+(?:mods?|moderators?|members?|roles?|messages?|history|activity)\b/i.test(q)
+    || /\b(?:mods?|moderators?|members?|roles?|messages?|history|activity)\s+(?:of|in|on)\s+(?:this|our|the current)\s+(?:(?:[a-z0-9_-]+\s+){0,3})?(?:discord\s+)?(?:server|guild|community)\b/i.test(q);
+}
 // discord_audience is host-only and is never advertised to the model.
 export type DiscordTool='discord_search'|'discord_member'|'discord_audience';
 export interface DiscordTask {id:string;job:string;user:string;guild:string;channel:string;sourceMessageId?:string;tool:DiscordTool;args:Record<string,unknown>}

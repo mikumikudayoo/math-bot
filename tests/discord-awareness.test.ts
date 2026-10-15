@@ -55,9 +55,9 @@ test('basic requester identity does not require a Discord member lookup',async()
       route:identityRoute,
       complete:async(_url,init)=>{
         const body=JSON.parse(String(init.body));
-        const context=body.messages.find((m:any)=>typeof m.content==='string'&&m.content.includes('trustedSpeaker'));
-        assert.ok(context.content.includes('fyuc'));
-        assert.ok(context.content.includes('"isCreator":true'));
+        const context=body.messages.find((m:any)=>typeof m.content==='string'&&m.content.includes('TRUSTED_SPEAKER_FACTS'));
+        assert.ok(context);assert.ok(context.content.includes('"speakerIsCreator":true'));
+        assert.ok(!context.content.includes(CREATOR_ID));assert.ok(!context.content.includes('fyuc'));
         return Response.json({choices:[{message:{content:'you are emu.'}}]});
       },
       discord:async()=>{discordCalls++;return {error:'should not be called'};}
@@ -127,8 +127,8 @@ test('trusted context reaches model; internal Discord tool calls cannot enable w
       return Response.json({choices:[{message:{content:JSON.stringify(content)}}]});
     }});
     assert.match((await run(job,AbortSignal.timeout(10000),()=>{})).answer,/you said/);assert.equal(discordCalls,1);assert.equal(webCalls,0);
-    const context=requests[0].messages.find((m:any)=>typeof m.content==='string'&&m.content.includes('Trusted current Discord'));
-    assert.ok(context.content.includes('"isCreator":false'));assert.ok(context.content.includes(`"userId":"${uid}"`));
+    const context=requests[0].messages.find((m:any)=>typeof m.content==='string'&&m.content.includes('TRUSTED_SPEAKER_FACTS'));
+    assert.ok(context);assert.ok(context.content.includes('"speakerIsCreator":false'));assert.ok(!context.content.includes(uid));
     assert.ok(requests[1].messages.some((m:any)=>String(m.content).includes('network access is unavailable for this turn')));
     assert.ok(requests[2].messages.some((m:any)=>String(m.content).includes('"authorRelation":"requester"')));
   }finally{s.close();}
@@ -138,7 +138,8 @@ test('native mode exposes Discord tools on internal routes and creator context i
   try{const job=s.admit({id:'j',guild:gid,channel:cid,user:CREATOR_ID,coach:false,kind:'ask',prompt:'my Discord profile'},10);
     const run=runner({...config,nativeTools:true},s,{route:identityRoute,discord:async()=>({type:'DISCORD_MEMBER_DATA',userId:CREATOR_ID,isCreator:true}),complete:async(_url,init)=>{
       const body=JSON.parse(String(init.body));assert.ok(body.tools.some((t:any)=>t.function.name==='discord_member'));assert.ok(!body.tools.some((t:any)=>t.function.name==='search'||t.function.name==='fetch'));
-      assert.ok(body.messages.some((m:any)=>String(m.content).includes('"isCreator":true')));
+      assert.ok(body.messages.some((m:any)=>m.role==='system'&&String(m.content).includes('"speakerIsCreator":true')));
+      assert.ok(!body.messages.filter((m:any)=>m.role==='system').some((m:any)=>String(m.content).includes(CREATOR_ID)));
       return Response.json({choices:[{message:++count===1?{content:null,tool_calls:[{id:'member',type:'function',function:{name:'discord_member',arguments:'{}'}}]}:{content:'you are emu; i am Aleph-Zero.'}}]});
     }});assert.match((await run(job,AbortSignal.timeout(10000),()=>{})).answer,/Aleph-Zero/);assert.equal(count,2);
   }finally{s.close();}

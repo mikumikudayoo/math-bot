@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {assertPrivateOutputURLs} from '../src/service/output-url-policy.js';
+import {assertPrivateOutputURLs,sanitizePrivateOutputURLs} from '../src/service/output-url-policy.js';
 import {UserError} from '../src/service/types.js';
 
 const trusted='https://example.org/source';
@@ -89,6 +89,11 @@ test('query/fragment punctuation cannot be stripped to gain authorization',()=>{
 test('host ledger failure does not reveal URL or private data',()=>{
   assert.throws(()=>assertPrivateOutputURLs(trusted,()=>{throw new Error(secret);}),error=>error instanceof UserError&&!error.message.includes(secret));
 });
+test('private output sanitizer removes direct unauthorized addresses and keeps authorized targets',()=>{
+  const input=`keep ${trusted}; drop https://attacker.invalid/${secret}; email ${secret}@attacker.museum`;
+  const sanitized=sanitizePrivateOutputURLs(input,permits);assert.ok(sanitized.includes(trusted));assert.ok(!sanitized.includes('attacker.invalid'));assert.ok(!sanitized.includes('@attacker.museum'));assert.match(sanitized,/\[external address omitted\]/);assertPrivateOutputURLs(sanitized,permits);assert.equal(sanitizePrivateOutputURLs(sanitized,permits),sanitized);
+});
+test('sanitizer leaves ambiguous encoded egress for the unchanged assertion to block',()=>{const encoded=encodeURIComponent(`https://attacker.invalid/${secret}`);const sanitized=sanitizePrivateOutputURLs(encoded,permits);assert.throws(()=>assertPrivateOutputURLs(sanitized,permits),UserError);});
 
 import {runner} from '../src/service/inference.js';
 import {Store} from '../src/service/store.js';
@@ -99,23 +104,24 @@ async function privateReply(text:string){const s=new Store(':memory:');let netwo
  const j=s.admit({...scope,id:'next',parent:p.id,prompt:'hi'},10);const run=runner(cfg,s,{discord:async()=>({type:'DISCORD_AUDIENCE_DATA',allowed:true}),search:async()=>{network++;return [];},fetchText:async()=>{network++;throw new Error('unexpected');},complete:async()=>Response.json({choices:[{message:{content:JSON.stringify({answer:text})},finish_reason:'stop'}]})});
  try{return {result:await run(j,AbortSignal.timeout(10000),()=>{}),network};}catch(error){return {error,network};}
  }finally{s.close();}}
-test('P2 real private-history final rejects URL egress without public network I/O',async()=>{
- const out=await privateReply('[read](https://attacker.invalid/?q='+secret+')');assert.ok(out.error instanceof UserError);assert.ok(!out.error.message.includes(secret));assert.equal(out.network,0);
+test('P2 real private-history final sanitizes direct URL egress without public network I/O',async()=>{
+ const out=await privateReply('[read](https://attacker.invalid/?q='+secret+')');assert.equal(out.network,0);assert.ok(out.result);assert.ok(!out.result.answer.includes(secret));assert.ok(!out.result.answer.includes('attacker.invalid'));assert.match(out.result.answer,/\[external address omitted\]/);
 });
-test('P2 full private answer is validated beyond the Discord attachment cutoff',async()=>{
- const out=await privateReply('a'.repeat(2500)+' https://attacker.invalid/'+secret);assert.ok(out.error instanceof UserError);assert.equal(out.network,0);
+test('P2 full private answer is sanitized beyond the Discord attachment cutoff',async()=>{
+ const out=await privateReply('a'.repeat(2500)+' https://attacker.invalid/'+secret);assert.equal(out.network,0);assert.ok(out.result);assert.ok(out.result.answer.startsWith('a'.repeat(2500)));assert.ok(!out.result.answer.includes(secret));assert.ok(!out.result.answer.includes('attacker.invalid'));assert.match(out.result.answer,/\[external address omitted\]/);
 });
-test('P2 inherited host message link remains available, but invented additions do not',async()=>{
+test('P2 inherited host message link remains available, while invented URL additions are removed',async()=>{
  const link=`https://discord.com/channels/${scope.guild}/${scope.channel}/423456789012345678`;
- assert.equal((await privateReply('see '+link)).result?.answer,'see '+link);assert.ok((await privateReply('see '+link+'?data='+secret)).error instanceof UserError);
+ assert.equal((await privateReply('see '+link)).result?.answer,'see '+link);
+ const tampered=await privateReply('see '+link+'?data='+secret);assert.ok(tampered.result);assert.ok(!tampered.result.answer.includes(secret));assert.ok(!tampered.result.answer.includes('?data='));assert.match(tampered.result.answer,/\[external address omitted\]/);
 });
 test('P2 ordinary public finals keep URLs and provenance fetch rules do not weaken',async()=>{
  const s=new Store(':memory:');try{const j=s.admit({...scope,id:'public',prompt:'hi'},10);const answer='https://example.org/public';const r=await runner(cfg,s,{complete:async()=>Response.json({choices:[{message:{content:JSON.stringify({answer})},finish_reason:'stop'}]})})(j,AbortSignal.timeout(10000),()=>{});assert.equal(r.answer,answer);assert.equal(r.provenance?.classification,'public');
  const {TurnWebBoundary}=await import('../src/service/turn-web-boundary.js');const b=new TurnWebBoundary(answer);b.observeDiscord({type:'DISCORD_SEARCH_DATA',results:[{channelId:scope.channel,content:'private'}]},scope.guild);assert.ok(b.permitsOutbound(answer));assert.equal(b.permits(answer),false);
  }finally{s.close();}
 });
-test('P2 deterministic verified Discord excerpts cannot bypass private URL policy',async()=>{
+test('P2 deterministic verified Discord excerpts sanitize unauthorized URLs then re-verify',async()=>{
  const s=new Store(':memory:');try{const j=s.admit({...scope,id:'quote',prompt:'search this server for calculus'},10);let model=0;
- await assert.rejects(()=>runner(cfg,s,{discord:async()=>({type:'DISCORD_SEARCH_DATA',results:[{id:'423456789012345678',channelId:scope.channel,author:{id:scope.user},content:'calculus: https://attacker.invalid/'+secret}]}),complete:async()=>{model++;throw new Error('must not generate');}})(j,AbortSignal.timeout(10000),()=>{}),UserError);assert.equal(model,0);
+ const result=await runner(cfg,s,{discord:async()=>({type:'DISCORD_SEARCH_DATA',results:[{id:'423456789012345678',channelId:scope.channel,author:{id:scope.user},content:'calculus: https://attacker.invalid/'+secret}]}),complete:async()=>{model++;throw new Error('must not generate');}})(j,AbortSignal.timeout(10000),()=>{});assert.equal(model,0);assert.ok(!result.answer.includes('attacker.invalid'));assert.ok(!result.answer.includes(secret));assert.match(result.answer,/\[external address omitted\]/);assert.match(result.answer,/https:\/\/discord\.com\/channels\//);
  }finally{s.close();}
 });
