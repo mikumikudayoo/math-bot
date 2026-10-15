@@ -4,11 +4,12 @@ import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { canonical,canonicalEvent,digest,eventKey,validateExtraction,validateEvent,type Catalog,type Extraction,type ScheduleEvent,type Source } from './model.js';
 import {validatePublicText,validatePublicDiscordPayload,sanitizeOrganizerEvidence} from './public-facts.js';
+import { effectivePolicy,isEffectivePolicy,projectDelivery,type EffectivePolicySnapshot } from './delivery-identity.js';
 
 export interface Candidate { id:string;public_id:number;guild:string;batch:string;event_key:string;event_json:string;catalog_json:string;issues_json:string;confidence:string;base_revision:number;review_version:number;state:string;public_safety_version:number }
 export interface ApprovedEvent { event_key:string;guild:string;revision:number;event_json:string;catalog_json:string;approved_by:string;approved_at:number;public_safety_version:number }
 export interface Payload {content:string;allowedMentions:{parse:[];roles:string[];users:string[];repliedUser:boolean}}
-export interface AnnouncementJob {id:string;guild:string;event_key:string;revision:number;policy:string;channel:string;role:string|null;due:number;expires:number;major:number;asset_policy:string;asset:string|null;payload_json:string;state:string;message:string|null;approved_by:string|null;public_safety_version?:number}
+export interface AnnouncementJob {id:string;guild:string;event_key:string;revision:number;policy:string;channel:string;role:string|null;due:number;expires:number;major:number;asset_policy:string;asset:string|null;payload_json:string;state:string;message:string|null;approved_by:string|null;public_safety_version?:number;logical_delivery_id?:string|null;rule_id?:string|null;policy_revision?:number|null;plan_hash?:string|null;approved_payload_hash?:string|null}
 export class AnnouncementStore {
   readonly db:DatabaseSync;
   constructor(path:string){
@@ -55,6 +56,27 @@ export class AnnouncementStore {
         }
       }
       this.db.exec('INSERT OR IGNORE INTO schema_version VALUES(3); COMMIT');
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
+    this.db.exec('BEGIN IMMEDIATE');
+    try{
+      const columns=this.db.prepare('PRAGMA table_info(announcement_jobs)').all();
+      for(const [name,type] of [['logical_delivery_id','TEXT'],['rule_id','TEXT'],['policy_revision','INTEGER'],['plan_hash','TEXT'],['approved_payload_hash','TEXT']]){
+        if(!columns.some(c=>c.name===name))this.db.exec(`ALTER TABLE announcement_jobs ADD COLUMN ${name} ${type}`);
+      }
+      this.db.exec(`CREATE INDEX IF NOT EXISTS announcement_logical_jobs ON announcement_jobs(guild,logical_delivery_id);
+        CREATE TABLE IF NOT EXISTS logical_delivery_reservations(logical_delivery_id TEXT PRIMARY KEY,job TEXT NOT NULL UNIQUE REFERENCES announcement_jobs(id),at INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS legacy_delivery_guards(job TEXT PRIMARY KEY REFERENCES announcement_jobs(id),guild TEXT NOT NULL,event_key TEXT NOT NULL,revision INTEGER NOT NULL,channel TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS announcement_legacy_delivery_guard ON legacy_delivery_guards(guild,event_key,revision,channel);`);
+      if(!this.db.prepare('SELECT version FROM schema_version WHERE version=4').get()){
+        // Old policy hashes do not reliably recover a rule identity. Preserve
+        // the ledger and conservatively hold this event revision/destination.
+        this.db.exec(`INSERT OR IGNORE INTO legacy_delivery_guards SELECT id,guild,event_key,revision,channel FROM announcement_jobs WHERE logical_delivery_id IS NULL;
+          UPDATE announcement_jobs SET state='blocked',held_from=NULL,approved_by=NULL WHERE logical_delivery_id IS NULL AND state IN ('scheduled','held','pending_approval','blocked','draft');`);
+        const legacy=this.db.prepare('SELECT job,guild FROM legacy_delivery_guards').all() as {job:string;guild:string}[];
+        for(const row of legacy)this.alert(row.guild,'delivery-identity-review',row.job);
+        this.db.exec('INSERT INTO schema_version VALUES(4)');
+      }
+      this.db.exec('COMMIT');
     }catch(error){this.db.exec('ROLLBACK');throw error;}
   }
   transaction<T>(fn:()=>T):T{if(this.state('maintenance:reset')==='true')throw new Error('Announcement storage reset in progress.');this.db.exec('BEGIN IMMEDIATE');try{const out=fn();this.db.exec('COMMIT');return out;}catch(e){this.db.exec('ROLLBACK');throw e;}}
@@ -152,30 +174,58 @@ export class AnnouncementStore {
   jobs(guild:string){return this.db.prepare('SELECT * FROM announcement_jobs WHERE guild=? ORDER BY due DESC LIMIT 100').all(guild) as unknown as AnnouncementJob[];}
   dueJobs(guild:string,now:number){return this.db.prepare("SELECT * FROM announcement_jobs WHERE guild=? AND state='scheduled' AND due<=? ORDER BY due,id LIMIT 25").all(guild,now) as unknown as AnnouncementJob[];}
   job(guild:string,id:string){return this.db.prepare('SELECT * FROM announcement_jobs WHERE guild=? AND id=?').get(guild,id) as unknown as AnnouncementJob|undefined;}
+  legacyDeliveryGuard(guild:string,key:string,revision:number,channel:string){return !!this.db.prepare('SELECT job FROM legacy_delivery_guards WHERE guild=? AND event_key=? AND revision=? AND channel=? LIMIT 1').get(guild,key,revision,channel);}
+  logicalDeliveryConsumed(logicalId:string){return !!this.db.prepare(`SELECT job FROM logical_delivery_reservations WHERE logical_delivery_id=?
+    UNION ALL SELECT j.id FROM announcement_jobs j WHERE j.logical_delivery_id=? AND (j.state IN ('sent','delivering','uncertain','cancelled','skipped') OR EXISTS(SELECT 1 FROM delivery_attempts a WHERE a.job=j.id)) LIMIT 1`).get(logicalId,logicalId);}
   addJob(job:Omit<AnnouncementJob,'id'|'asset'|'message'|'approved_by'>){
     const id=randomUUID();let safety=0;
     if(job.state!=='blocked'&&job.payload_json!==''&&JSON.parse(job.payload_json).content){validatePublicDiscordPayload(JSON.parse(job.payload_json),{role:job.role,channel:job.channel});safety=1;}
-    this.db.prepare('INSERT OR IGNORE INTO announcement_jobs(id,guild,event_key,revision,policy,channel,role,due,expires,major,asset_policy,payload_json,state,public_safety_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id,job.guild,job.event_key,job.revision,job.policy,job.channel,job.role,job.due,job.expires,job.major,job.asset_policy,job.payload_json,job.state,safety);const row=this.db.prepare('SELECT * FROM announcement_jobs WHERE event_key=? AND revision=? AND policy=? AND channel=?').get(job.event_key,job.revision,job.policy,job.channel) as unknown as AnnouncementJob;return row;
+    this.db.prepare('INSERT OR IGNORE INTO announcement_jobs(id,guild,event_key,revision,policy,channel,role,due,expires,major,asset_policy,payload_json,state,public_safety_version,logical_delivery_id,rule_id,policy_revision,plan_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id,job.guild,job.event_key,job.revision,job.policy,job.channel,job.role,job.due,job.expires,job.major,job.asset_policy,job.payload_json,job.state,safety,job.logical_delivery_id??null,job.rule_id??null,job.policy_revision??null,job.plan_hash??null);const row=this.db.prepare('SELECT * FROM announcement_jobs WHERE event_key=? AND revision=? AND policy=? AND channel=?').get(job.event_key,job.revision,job.policy,job.channel) as unknown as AnnouncementJob;return row;
   }
   approveJob(guild:string,id:string,actor:string,expectedHash:string){this.transaction(()=>{
     const j=this.job(guild,id),e=j?this.event(guild,j.event_key):undefined;if(!j||j.state!=='pending_approval'||!e||e.revision!==j.revision||this.held(j.event_key)||digest([j.payload_json,j.asset])!==expectedHash)throw new Error('Message preview is stale or held.');
     validatePublicDiscordPayload(JSON.parse(j.payload_json),{role:j.role,channel:j.channel});if(j.public_safety_version!==1||e.public_safety_version!==1)throw new Error('Public-safety review required.');
+    const snapshot=effectivePolicy(this,guild);if(!snapshot||!this.jobPolicyCurrent(j,snapshot))throw new Error('Message policy is stale.');
     if(j.asset_policy==='required'&&!j.asset)throw new Error('Canva asset is required before approval.');
-    this.db.prepare("UPDATE announcement_jobs SET state='scheduled',approved_by=? WHERE id=?").run(actor,id);this.audit(guild,actor,'approve-message',id,{hash:expectedHash});
+    this.db.prepare("UPDATE announcement_jobs SET state='scheduled',approved_by=?,approved_payload_hash=? WHERE id=?").run(actor,expectedHash,id);this.audit(guild,actor,'approve-message',id,{hash:expectedHash});
   });}
   attach(guild:string,jobId:string,asset:{hash:string;path:string;mime:string;bytes:number},actor:string){this.transaction(()=>{
-    const j=this.job(guild,jobId);if(!j||!j.major||!['pending_approval','blocked'].includes(j.state))throw new Error('Attach media to an unapproved major post.');const id=randomUUID();this.db.prepare('INSERT INTO announcement_assets VALUES(?,?,?,?,?,?)').run(id,guild,asset.hash,asset.path,asset.mime,asset.bytes);this.db.prepare("UPDATE announcement_jobs SET asset=?,approved_by=NULL,state='pending_approval' WHERE id=?").run(id,jobId);this.audit(guild,actor,'attach',jobId,{hash:asset.hash});
+    const j=this.job(guild,jobId);if(!j||!j.major||!['pending_approval','blocked'].includes(j.state))throw new Error('Attach media to an unapproved major post.');const snapshot=effectivePolicy(this,guild);if(!snapshot||!this.jobPolicyCurrent(j,snapshot))throw new Error('Message policy is stale.');const id=randomUUID();this.db.prepare('INSERT INTO announcement_assets VALUES(?,?,?,?,?,?)').run(id,guild,asset.hash,asset.path,asset.mime,asset.bytes);this.db.prepare("UPDATE announcement_jobs SET asset=?,approved_by=NULL,approved_payload_hash=NULL,state='pending_approval' WHERE id=?").run(id,jobId);this.audit(guild,actor,'attach',jobId,{hash:asset.hash});
   });}
   asset(guild:string,id:string){return this.db.prepare('SELECT path,hash,mime FROM announcement_assets WHERE guild=? AND id=?').get(guild,id) as {path:string;hash:string;mime:string}|undefined;}
-  claim(id:string,now=Date.now()){return this.transaction(()=>{
+  jobPolicyCurrent(j:AnnouncementJob,snapshot:EffectivePolicySnapshot):boolean {
+    if(j.guild!==snapshot.guild||!isEffectivePolicy(this,snapshot)||!j.logical_delivery_id||!j.rule_id||!j.plan_hash)return false;
+    const row=this.event(j.guild,j.event_key),rule=snapshot.policy.policies.find(r=>r.id===j.rule_id);if(!row||row.revision!==j.revision||!rule)return false;
+    try{const p=projectDelivery(row,snapshot.policy,rule);return !p.blocked&&p.logical_delivery_id===j.logical_delivery_id&&p.plan_hash===j.plan_hash&&p.channel===j.channel&&p.role===j.role&&p.due===j.due&&p.expires===j.expires&&p.major===j.major&&p.asset_policy===j.asset_policy&&(!j.major||!!j.rule_id)&&(!j.major?canonical(JSON.parse(j.payload_json))===p.payload_json:true);}catch{return false;}
+  }
+  validateDelivery(id:string,snapshot:EffectivePolicySnapshot,now=Date.now(),expectedPayload?:Payload):AnnouncementJob {
+    const j=this.job(snapshot.guild,id);if(!j||j.state!=='delivering'||!j.logical_delivery_id||!this.jobPolicyCurrent(j,snapshot))throw new Error('Delivery policy/reservation is stale.');
+    if(!this.db.prepare('SELECT job FROM logical_delivery_reservations WHERE logical_delivery_id=? AND job=?').get(j.logical_delivery_id,j.id)||!this.db.prepare("SELECT job FROM delivery_attempts WHERE job=? AND state='reserved'").get(j.id))throw new Error('Delivery reservation is unavailable.');
+    const e=this.event(j.guild,j.event_key);if(!e||e.revision!==j.revision||this.held(j.event_key)||(JSON.parse(e.event_json) as ScheduleEvent).status&& (JSON.parse(e.event_json) as ScheduleEvent).status!=='active')throw new Error('Delivery event changed or is held.');
+    if(now<j.due||now>j.expires)throw new Error('Delivery is outside its publication window.');
+    const payload=JSON.parse(j.payload_json) as Payload;validatePublicDiscordPayload(payload,{role:j.role,channel:j.channel});
+    if(j.public_safety_version!==1||e.public_safety_version!==1)throw new Error('Public-safety review required.');
+    if(expectedPayload!==undefined&&canonical(expectedPayload)!==canonical(payload))throw new Error('Persisted delivery payload changed.');
+    if(j.major&&(!j.approved_by||j.approved_payload_hash!==digest([j.payload_json,j.asset])||(j.asset_policy==='required'&&!j.asset)))throw new Error('Exact message/asset approval is stale.');
+    if(this.legacyDeliveryGuard(j.guild,j.event_key,j.revision,j.channel))throw new Error('Legacy delivery identity requires review.');
+    return j;
+  }
+  claim(id:string,now=Date.now(),snapshot?:EffectivePolicySnapshot){return this.transaction(()=>{
     const j=this.db.prepare('SELECT * FROM announcement_jobs WHERE id=?').get(id) as unknown as AnnouncementJob|undefined;if(!j||j.state!=='scheduled'||j.due>now)return undefined;
+    if(snapshot&&(snapshot.guild!==j.guild||!isEffectivePolicy(this,snapshot)))return undefined;
     try{if(j.public_safety_version!==1)throw new Error('Legacy safety unknown.');validatePublicDiscordPayload(JSON.parse(j.payload_json),{role:j.role,channel:j.channel});}catch{this.db.prepare("UPDATE announcement_jobs SET state='blocked',approved_by=NULL WHERE id=?").run(id);this.alert(j.guild,'public-safety-review',j.id);return undefined;}
     const e=this.event(j.guild,j.event_key);if(!e||e.revision!==j.revision||this.held(j.event_key)){this.db.prepare("UPDATE announcement_jobs SET state='held' WHERE id=?").run(id);return undefined;}
+    if(e.public_safety_version!==1){this.db.prepare("UPDATE announcement_jobs SET state='blocked',approved_by=NULL WHERE id=?").run(id);this.alert(j.guild,'public-safety-review',id);return undefined;}
     if((JSON.parse(e.event_json) as ScheduleEvent).status && (JSON.parse(e.event_json) as ScheduleEvent).status!=='active'){this.db.prepare("UPDATE announcement_jobs SET state='cancelled' WHERE id=?").run(id);return undefined;}
     if(now>j.expires){this.db.prepare("UPDATE announcement_jobs SET state='skipped' WHERE id=?").run(id);this.alert(j.guild,'missed-reminder',id);return undefined;}
-    this.db.prepare("UPDATE announcement_jobs SET state='delivering' WHERE id=? AND state='scheduled'").run(id);this.db.prepare("INSERT INTO delivery_attempts VALUES(?,'reserved',NULL,?)").run(id,now);return j;
+    const current=snapshot??effectivePolicy(this,j.guild);
+    if(!current||!this.jobPolicyCurrent(j,current)||!j.logical_delivery_id||this.legacyDeliveryGuard(j.guild,j.event_key,j.revision,j.channel)){this.db.prepare("UPDATE announcement_jobs SET state='blocked',approved_by=NULL WHERE id=?").run(id);this.alert(j.guild,'delivery-identity-review',id);return undefined;}
+    if(j.major&&(!j.approved_by||j.approved_payload_hash!==digest([j.payload_json,j.asset])||(j.asset_policy==='required'&&!j.asset))){this.db.prepare("UPDATE announcement_jobs SET state='pending_approval',approved_by=NULL,approved_payload_hash=NULL WHERE id=?").run(id);return undefined;}
+    if(this.logicalDeliveryConsumed(j.logical_delivery_id)){this.db.prepare("UPDATE announcement_jobs SET state='superseded' WHERE id=?").run(id);return undefined;}
+    const reserved=this.db.prepare('INSERT OR IGNORE INTO logical_delivery_reservations VALUES(?,?,?)').run(j.logical_delivery_id,id,now);if(!reserved.changes)return undefined;
+    this.db.prepare("UPDATE announcement_jobs SET state='delivering' WHERE id=? AND state='scheduled'").run(id);this.db.prepare("INSERT INTO delivery_attempts VALUES(?,'reserved',NULL,?)").run(id,now);return this.job(j.guild,id)!;
   });}
-  finish(j:AnnouncementJob,message:string|null){this.transaction(()=>{this.db.prepare('UPDATE delivery_attempts SET state=?,message=? WHERE job=?').run(message?'sent':'uncertain',message,j.id);this.db.prepare("UPDATE announcement_jobs SET state=?,message=? WHERE id=? AND state='delivering'").run(message?'sent':'uncertain',message,j.id);if(!message)this.alert(j.guild,'uncertain-delivery',j.id);});}
-  reconcile(guild:string,id:string,message:string|null,actor:string){this.transaction(()=>{const j=this.job(guild,id);if(!j||!['uncertain','delivering'].includes(j.state))throw new Error('Only uncertain deliveries can be reconciled.');this.db.prepare('UPDATE announcement_jobs SET state=?,message=? WHERE id=?').run(message?'sent':'cancelled',message,id);this.audit(guild,actor,'reconcile',id,{message});});}
+  finish(j:AnnouncementJob,message:string|null){this.transaction(()=>{const changed=this.db.prepare("UPDATE announcement_jobs SET state=?,message=? WHERE id=? AND guild=? AND state='delivering'").run(message?'sent':'uncertain',message,j.id,j.guild);if(!changed.changes){if(message)this.alert(j.guild,'delivery-reconciled-during-send',j.id);return;}this.db.prepare("UPDATE delivery_attempts SET state=?,message=? WHERE job=? AND state='reserved'").run(message?'sent':'uncertain',message,j.id);if(!message)this.alert(j.guild,'uncertain-delivery',j.id);});}
+  reconcile(guild:string,id:string,message:string|null,actor:string){this.transaction(()=>{const j=this.job(guild,id);if(!j||!['uncertain','delivering'].includes(j.state))throw new Error('Only uncertain deliveries can be reconciled.');if(j.logical_delivery_id)this.db.prepare('INSERT OR IGNORE INTO logical_delivery_reservations VALUES(?,?,?)').run(j.logical_delivery_id,j.id,Date.now());this.db.prepare('UPDATE announcement_jobs SET state=?,message=? WHERE id=?').run(message?'sent':'cancelled',message,id);this.audit(guild,actor,'reconcile',id,{message,previousState:j.state});});}
   close(){this.db.close();}
 }

@@ -9,9 +9,11 @@ import { draftMajor } from './writing.js';
 import { clearSourceFailure,recordSourceFailure,reconcileExtractionIncident } from './alerts.js';
 import { ProviderBackoff,ProviderPayloadTooLarge,providerHealth } from '../service/providers.js';
 import { digest,type Source } from './model.js';
+import {loadAnnouncementRuntime,capturedAnnouncementRuntime} from './runtime-policy.js';
 
-export async function workerTick(store:AnnouncementStore,config:AutomationConfig,gmail=new GmailClient(config.gmail),extract=extractFacts){
+export async function workerTick(store:AnnouncementStore,config:AutomationConfig,gmail=new GmailClient(config.gmail),extract=extractFacts,reload?:()=>AutomationConfig){
   if(!config.enabled||store.state('maintenance:reset')==='true')return;
+  config=(reload?loadAnnouncementRuntime(store,config.policy.guild,reload):capturedAnnouncementRuntime(store,config)).config;
   const signal=AbortSignal.timeout(120000);
   if(Number(store.state('gmail:retry-at')??0)<=Date.now()){
     try{await syncGmail(store,gmail,config,signal);store.setState('gmail:retry-at','0');}
@@ -45,8 +47,10 @@ export async function workerTick(store:AnnouncementStore,config:AutomationConfig
     }
   }
   reconcileExtractionIncident(store,config.policy.guild,extractionHealthy&&!providerFailed,Date.now(),providerFailed);
-  plan(store,config.policy);
-  try{if(config.provider.backendKey)await draftMajor(store,config.policy,config.provider,signal);}catch{store.alert(config.policy.guild,'writing-unavailable','writer');}
+  const current=reload?loadAnnouncementRuntime(store,config.policy.guild,reload):capturedAnnouncementRuntime(store,config);
+  config=current.config;
+  plan(store,config.policy,Date.now(),current.snapshot);
+  try{if(config.provider.backendKey)await draftMajor(store,config.policy,config.provider,signal,fetch,current.snapshot);}catch{store.alert(config.policy.guild,'writing-unavailable','writer');}
   const health=providerHealth.get(`${config.provider.backend}:${config.provider.model}`);
   if(health){store.setState('provider:health',health.state);store.setState('provider:retry-at',String(health.retryAt));}
   store.setState('worker:last-tick',String(Date.now()));
@@ -54,7 +58,7 @@ export async function workerTick(store:AnnouncementStore,config:AutomationConfig
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
     const config=automationConfig();const store=new AnnouncementStore(config.database);let stopped=false,busy=false;
-    const tick=async()=>{if(stopped||busy)return;busy=true;try{await workerTick(store,config);}catch{console.error('Announcement worker tick failed; inspect private status.');}finally{busy=false;}};
+    const tick=async()=>{if(stopped||busy)return;busy=true;try{const fresh=automationConfig();await workerTick(store,fresh,new GmailClient(fresh.gmail),extractFacts,automationConfig);}catch{console.error('Announcement worker tick failed; inspect private status.');}finally{busy=false;}};
     const timer=setInterval(()=>void tick(),config.pollMs);void tick();console.log(`Announcement worker: ${config.enabled?'shadow ingestion enabled':'disabled'}; public delivery is controlled only by the Discord bot gate.`);
     for(const s of ['SIGINT','SIGTERM'] as const)process.once(s,()=>{stopped=true;clearInterval(timer);const wait=setInterval(()=>{if(!busy){clearInterval(wait);store.close();}},50);});
   }catch{console.error('Announcement configuration failed. Check the private automation env and policy file.');process.exitCode=1;}

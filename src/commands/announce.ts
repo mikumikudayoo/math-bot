@@ -6,6 +6,7 @@ import { announcementStore } from '../announcements/delivery.js';
 import { AnnouncementStore,type AnnouncementJob } from '../announcements/store.js';
 import { describeEvent,digest,type ScheduleEvent,type Catalog,type Extraction } from '../announcements/model.js';
 import { plan } from '../announcements/planner.js';
+import {loadAnnouncementRuntime} from '../announcements/runtime-policy.js';
 import { safeFetch } from '../service/network.js';
 import { createHash } from 'node:crypto';
 import { mkdirSync,writeFileSync } from 'node:fs';
@@ -49,6 +50,7 @@ export function makeAnnounceCommand(getConfig:()=>AutomationConfig=automationCon
       try{
         const config=getConfig();if(!config.enabled||i.guildId!==config.policy.guild)throw new Error('Automation is disabled or not configured for this server.');const store=getStore(config.database),guild=i.guildId!,action=i.options.getSubcommand();
         if(store.state('maintenance:reset')==='true')throw new Error('Announcement storage is undergoing a verified reset. Please retry shortly.');
+        const planCurrent=()=>{const current=loadAnnouncementRuntime(store,guild,getConfig);plan(store,current.config.policy,Date.now(),current.snapshot);};
         const reply=async(text:string,components:ActionRowBuilder<ButtonBuilder>[]=[])=>{await i.editReply(text.length>1800?{content:'private review attached:',files:[{attachment:Buffer.from(text),name:'announcement-review.txt'}],components,allowedMentions:{parse:[]}}:{content:text,components,allowedMentions:{parse:[]}});};
         if(action==='inbox'){const panel=inboxPanel(store,guild,(i.options.getInteger('page')??1)-1,i.options.getString('kind')??'candidates');await reply(panel.text,panel.components);return;}
         if(action==='status'){await reply(`announcement status\nenabled: ${config.enabled} · public auto-send: ${config.autoSend?'ON':'OFF'}\ngmail configured: ${!!config.gmail.refreshToken} · health: ${safeText(store.state(`gmail:${config.gmail.account}:health`)??'not started')}\nbootstrap: ${safeText(store.state(`gmail:${config.gmail.account}:bootstrap-mode`)??'not started')}\ngroq configured: ${!!config.provider.backendKey} · health: ${safeText(store.state('provider:health')??'not started')}\npolicies: ${config.policy.policies.length} · uncertain deliveries: ${store.jobs(guild).filter(j=>['uncertain','delivering'].includes(j.state)).length}\nworker last tick: ${safeText(store.state('worker:last-tick')??'not started')}`);return;}
@@ -63,7 +65,7 @@ export function makeAnnounceCommand(getConfig:()=>AutomationConfig=automationCon
           await reply(`${jobLabel(store,guild,j)}\nstatus: ${j.state} · facts revision: ${j.revision}\nsend at: ${new Date(j.due).toISOString()}\nexpires: ${new Date(j.expires).toISOString()}\ndestination: <#${j.channel}>\nasset: ${asset?'attached':j.asset_policy==='required'?'required, missing':'not required'}\npublic auto-send: ${config.autoSend?'ON':'OFF'}\n\n${reviewedPayload(j)}`,buttons);
           if(asset)await i.followUp({content:'persisted asset preview:',files:[asset.path],flags:MessageFlags.Ephemeral,allowedMentions:{parse:[]}});return;
         }
-        if(action==='approve'){store.approve(guild,requireCandidate(store,guild,id).id,i.options.getInteger('version',true),i.user.id);plan(store,config.policy);await reply('facts approved; jobs planned. public auto-send follows the configured gate.');return;}
+        if(action==='approve'){store.approve(guild,requireCandidate(store,guild,id).id,i.options.getInteger('version',true),i.user.id);planCurrent();await reply('facts approved; jobs planned. public auto-send follows the configured gate.');return;}
         if(action==='reject'){store.reject(guild,requireCandidate(store,guild,id).id,i.options.getInteger('version',true),i.user.id);await reply('proposal rejected.');return;}
         if(action==='edit'){
           const c=requireCandidate(store,guild,id);const e=JSON.parse(c.event_json) as ScheduleEvent;
@@ -90,6 +92,7 @@ export function makeAnnounceButtonHandler(getConfig:()=>AutomationConfig=automat
       const config=getConfig();if(!config.enabled||i.guildId!==config.policy.guild)throw new ReviewError('announcement reviews are unavailable in this server.');
       const store=getStore(config.database),guild=i.guildId!,[,action,id,version]=i.customId.split(':');if(!id||!version)throw new ReviewError('invalid review action. open the inbox again.');
       if(store.state('maintenance:reset')==='true')throw new ReviewError('announcement storage is under maintenance. try again shortly.');
+      const planCurrent=()=>{const current=loadAnnouncementRuntime(store,guild,getConfig);plan(store,current.config.policy,Date.now(),current.snapshot);};
       const reply=async(panel:{text:string;components:ActionRowBuilder<ButtonBuilder>[]})=>{await i.editReply(panel.text.length>1800?{content:'private review attached:',files:[{attachment:Buffer.from(panel.text),name:'announcement-review.txt'}],components:panel.components,allowedMentions:{parse:[]}}:{content:panel.text,components:panel.components,allowedMentions:{parse:[]}});};
       if(action==='page'){await reply(inboxPanel(store,guild,Number(version),id));return;}
       if(action==='review'){await reply(reviewPanel(store,guild,id));return;}
@@ -104,7 +107,7 @@ export function makeAnnounceButtonHandler(getConfig:()=>AutomationConfig=automat
       else if(action==='dismiss')store.dismissSource(guild,sourceId(store,guild,id),i.user.id);
       else if(action==='post'){const j=store.job(guild,id);if(!j||lockedHash(j).slice(0,32)!==version)throw new ReviewError('that preview changed. open the latest delivery preview.');store.approveJob(guild,id,i.user.id,lockedHash(j));}
       else throw new ReviewError('unknown review action.');
-      if(action==='facts'||action==='reject'||action==='post')plan(store,config.policy);
+      if(action==='facts'||action==='reject'||action==='post')planCurrent();
       await i.editReply({content:'review action saved. public auto-send remains controlled by the configured gate.',components:[],allowedMentions:{parse:[]}});
     }catch(error){await i.editReply({content:actionError(error),components:[],allowedMentions:{parse:[]}});}
   };

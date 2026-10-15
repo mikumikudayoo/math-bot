@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { AnnouncementStore } from '../src/announcements/store.js';
 import { digest,documentTemplates,type Extraction,type ScheduleEvent } from '../src/announcements/model.js';
 import { plan } from '../src/announcements/planner.js';
+import {effectivePolicy,registerEffectivePolicy} from '../src/announcements/delivery-identity.js';
 import { deliverAnnouncements } from '../src/announcements/delivery.js';
 import { validatePolicy,type AutomationConfig,type PolicyFile } from '../src/announcements/config.js';
 import { parseMail,redact } from '../src/announcements/parsing.js';
@@ -98,7 +99,7 @@ test('major results/qualification require separate message and exact Canva appro
   }finally{s.close();}
 });
 test('rejected correction restores original blocked state rather than authorizing an empty message',()=>{
-  const s=new AnnouncementStore(':memory:');try{activate(s);const p={...policy,templates:{session:'{{missing}}'}};plan(s,p,now);const x=input('bad');x.events=[x.events[0]!];x.events[0]!.event.start!+=60000;s.ingest(guild,x);const c=s.candidates(guild).find(c=>c.state==='pending')!;assert.equal(s.jobs(guild).find(j=>j.event_key===c.event_key&&j.state==='held')!.state,'held');s.reject(guild,c.id,1,'staff');assert.equal(s.jobs(guild).find(j=>j.event_key===c.event_key&&j.state==='blocked')!.state,'blocked');}finally{s.close();}
+  const s=new AnnouncementStore(':memory:');try{activate(s);const p={...policy,templates:{session:'{{missing}}'}};plan(s,p,now,registerEffectivePolicy(s,p,effectivePolicy(s,guild)!.revision).snapshot);const x=input('bad');x.events=[x.events[0]!];x.events[0]!.event.start!+=60000;s.ingest(guild,x);const c=s.candidates(guild).find(c=>c.state==='pending')!;assert.equal(s.jobs(guild).find(j=>j.event_key===c.event_key&&j.state==='held')!.state,'held');s.reject(guild,c.id,1,'staff');assert.equal(s.jobs(guild).find(j=>j.event_key===c.event_key&&j.state==='blocked')!.state,'blocked');}finally{s.close();}
 });
 test('credential redaction removes values/secret links while preserving login-notice workflow',async()=>{
   const raw='BBB 2030 Heat Round credentials: username: alice password: unique-secret https://example.org/?token=individual';assert.ok(!redact(raw).text.includes('unique-secret'));assert.ok(!redact(raw).text.includes('alice'));assert.ok(redact(raw).text.includes('BBB'));
