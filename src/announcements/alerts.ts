@@ -45,6 +45,8 @@ export function alertActionable(store:AnnouncementStore,guild:string,alert:Staff
   if(alert.kind==='gmail-unavailable')return store.state(`gmail:${alert.target}:health`)!=='healthy'&&store.state('gmail:retry-at')!=='0';
   if(alert.kind==='gmail-history-gap')return !!store.db.prepare("SELECT key FROM gmail_state WHERE key LIKE 'gmail:%:history-gap' AND value<>'' LIMIT 1").get();
   if(alert.kind==='gmail-pagination-review')return !!store.state(`gmail:${alert.target}:pagination-hold`);
+  if(alert.kind==='extraction-provider-misconfigured')return store.state('provider:health')==='misconfigured'&&!!store.db.prepare("SELECT id FROM sources WHERE guild=? AND state IN ('pending','retry') LIMIT 1").get(guild);
+  if(alert.kind==='writing-unavailable')return !!store.db.prepare("SELECT j.id FROM announcement_jobs j JOIN events e ON e.event_key=j.event_key AND e.revision=j.revision WHERE j.guild=? AND j.major=1 AND j.state='pending_approval' AND j.expires>=? AND NOT EXISTS(SELECT 1 FROM announcement_drafts d WHERE d.job=j.id AND d.state='ready') LIMIT 1").get(guild,now);
   if(alert.kind==='extraction-provider-unavailable')return false;
   return true;
 }

@@ -164,7 +164,9 @@ export function semanticIssues(event:ScheduleEvent,context:SemanticContext={}):s
     if(a.state==='expected'&&a.expectedAt===null)issues.push('Expected availability time is unresolved.');
     if((a.state==='available'||a.state==='partial'||a.state==='unavailable')&&a.asOf===null)issues.push('Availability as-of time is unresolved.');
     if(a.state==='available'&&a.expectedAt!==null)issues.push('Current availability cannot retain a future expected-availability claim.');
-    if(a.state==='available'&&context.evidence!==undefined){const text=citedEvidence(context),completeSource=(context.sourceEvidence??context.evidence).map(item=>item.text).join('\n');if(uncertainAvailability.test(completeSource)||!currentAvailability.test(text))issues.push('Available-now claim is not supported by the complete source and cited evidence.');}
+    if(a.state==='available'&&context.evidence!==undefined){const text=citedEvidence(context),completeSource=(context.sourceEvidence??context.evidence).map(item=>item.text).join('\n');if(uncertainAvailability.test(completeSource)||!currentAvailability.test(text))issues.push('Available-now claim is not supported by the complete source and cited evidence.');
+      if(context.timezoneConfirmed!==true&&/\[(?:private participant\/account detail|private or unsafe link) withheld\]/iu.test(completeSource))issues.push('Availability requires explicit factual confirmation because redaction removed source context.');
+    }
     if(a.state==='available'&&timestamp(context.sourceTime)&&a.asOf!==null&&a.asOf>context.sourceTime)issues.push('Availability cannot be confirmed at a time later than its source.');
   }
   return [...new Set(issues)];

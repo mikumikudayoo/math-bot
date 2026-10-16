@@ -40,3 +40,14 @@ test('fresh disabled configuration blocks a pending staff alert after awaited ch
     await deliverStaffAlerts({channels:{fetch:async()=>channel}} as unknown as Client,store,config,()=>({...config,enabled:false}));assert.equal(sends,0);
   }finally{store.close();}
 });
+
+test('operational provider and writer notices become obsolete when their actionable work is gone',()=>{
+  const store=new AnnouncementStore(':memory:');try{
+    propose(store);store.setState('provider:health','misconfigured');
+    assert.equal(alertActionable(store,guild,{id:'synthetic',kind:'extraction-provider-misconfigured',target:'groq'},now),false);
+    assert.equal(alertActionable(store,guild,{id:'synthetic',kind:'writing-unavailable',target:'writer'},now),false);
+    const source=store.source(guild,{account:'synthetic',messageId:'synthetic-waiting',attachment:null,sha256:'b'.repeat(64),locator:'body'});
+    assert.equal(alertActionable(store,guild,{id:'synthetic',kind:'extraction-provider-misconfigured',target:'groq'},now),true);
+    store.resolveSource(guild,source,'ignore','Synthetic unsupported source.');assert.equal(alertActionable(store,guild,{id:'synthetic',kind:'extraction-provider-misconfigured',target:'groq'},now),false);
+  }finally{store.close();}
+});

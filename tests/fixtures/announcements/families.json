@@ -1,0 +1,71 @@
+{
+  "a-guidelines": {
+    "family": "A", "receivedAt": "2030-01-01T08:00:00+08:00",
+    "subject": "VTAMPS V.30.0 TRAINING GUIDELINES: SENIOR SECONDARY",
+    "body": [
+      "VTAMPS V.30.0 mathematics training for Senior Secondary.",
+      "Session 1: January 8, 2030, 1:00 PM to 3:00 PM Asia/Manila.",
+      "Username: TEST-USER-12345", "Password: TEST-PASSWORD-6789",
+      "Session 2: January 15, 2030, 1:00 PM to 3:00 PM Asia/Manila.",
+      "HKIMO 2030 Heat Round registration deadline: January 20, 2030, 5:00 PM Asia/Manila.",
+      "Public resources: https://example.org/resources/vtamps",
+      "Student name: Synthetic Student", "School: Synthetic School",
+      "Personal link: https://example.invalid/candidate/TEST-CANDIDATE-12345"
+    ]
+  },
+  "a-correction": {
+    "family": "A", "receivedAt": "2030-01-02T08:00:00+08:00",
+    "subject": "VTAMPS V.30.0 corrected Session 1 timetable",
+    "body": ["VTAMPS V.30.0 Senior Secondary Session 1 is rescheduled to January 9, 2030, 1:00 PM to 3:00 PM Asia/Manila.", "No other details changed."]
+  },
+  "b-expected": {
+    "family": "B", "receivedAt": "2030-01-01T08:00:00+08:00",
+    "subject": "VTAMPS V.30.0 SOLMAN AND VIDEO: SENIOR SECONDARY Session 1",
+    "body": ["VTAMPS V.30.0 Senior Secondary Session 1 folders are currently EMPTY. Materials will be uploaded tomorrow afternoon Asia/Manila.", "Public folder: https://example.org/resources/vtamps", "Session 2 ClassMarker pretest deadline: January 15, 2030, 5:00 PM Asia/Manila."]
+  },
+  "b-available": {
+    "family": "B", "receivedAt": "2030-01-03T15:00:00+08:00",
+    "subject": "VTAMPS V.30.0 Session 1 materials confirmation",
+    "body": ["VTAMPS V.30.0 Senior Secondary Session 1 materials are now available as of January 3, 2030, 2:00 PM Asia/Manila.", "Public folder: https://example.org/resources/vtamps"]
+  },
+  "c-unsupported": {
+    "family": "C", "receivedAt": "2030-01-02T08:00:00+08:00", "image": true,
+    "subject": "ERRATUM: VTASP V.9.0 UPDATED REVIEW SCHEDULE",
+    "body": ["VTASP V.9.0 Senior Secondary lecture schedule has changed. The replacement schedule is in the attached image. No other details changed."]
+  },
+  "c-supported": {
+    "family": "C", "receivedAt": "2030-01-02T09:00:00+08:00", "image": true,
+    "subject": "ERRATUM: VTAMPS V.30.0 UPDATED REVIEW SCHEDULE",
+    "body": ["VTAMPS V.30.0 Senior Secondary Session 1 lecture schedule has changed. The replacement schedule is in the attached image. No other details changed. Asia/Manila."]
+  },
+  "d-timo": {
+    "family": "D", "receivedAt": "2030-01-01T08:00:00+08:00",
+    "subject": "TIMO 2030 Heat Round guidelines: Senior Secondary",
+    "body": ["TIMO 2030 Heat Round mathematics examination for Senior Secondary: January 25, 2030, 9:00 AM to 10:00 AM Asia/Manila.", "Mock-test window: January 24, 2030, 9:00 AM to 6:00 PM Asia/Manila.", "General guidebook: https://example.org/resources/timo", "Candidate ID: TEST-CANDIDATE-12345", "PIN: TEST-PIN-9876", "Student name: Synthetic Student", "School: Synthetic School", "Personal link: https://example.invalid/candidate/TEST-CANDIDATE-12345"]
+  },
+  "d-hkiso": {
+    "family": "D", "receivedAt": "2030-01-01T08:00:00+08:00",
+    "subject": "HKISO 2030 Heat Round science guidelines",
+    "body": ["HKISO 2030 science examination guidelines for Senior Secondary.", "Candidate ID: TEST-CANDIDATE-12345", "PIN: TEST-PIN-9876", "Personal link: https://example.invalid/candidate/TEST-CANDIDATE-12345"]
+  },
+  "e-onsite": {
+    "family": "E", "receivedAt": "2030-01-01T08:00:00+08:00",
+    "subject": "PIMSO 2030 National Round mathematics onsite guidelines",
+    "body": ["PIMSO 2030 National Round mathematics for Senior Secondary at Synthetic Civic Hall.", "Check-in: January 26, 2030, 8:00 AM to 8:30 AM Asia/Manila.", "Exam: January 26, 2030, 9:00 AM to 10:00 AM Asia/Manila.", "Bring two pencils and a clear water bottle.", "Wear a plain white shirt. Parents wait in the public lobby. Pickup is at 10:30 AM Asia/Manila."]
+  },
+  "f-invitation": {
+    "family": "F", "receivedAt": "2030-01-01T08:00:00+08:00",
+    "subject": "BBB 2030 Heat Round invitation: Senior Secondary",
+    "body": ["BBB 2030 Heat Round mathematics for Senior Secondary: February 1, 2030, 9:00 AM to 10:00 AM Asia/Manila.", "Registration deadline: January 20, 2030, 5:00 PM Asia/Manila.", "VTAMPS V.30.0 training opportunity: Session 1 on January 8, 2030, 1:00 PM to 3:00 PM Asia/Manila.", "Public invitation: https://example.org/resources/bbb"]
+  },
+  "f-deadline": {
+    "family": "F", "receivedAt": "2030-01-02T08:00:00+08:00",
+    "subject": "BBB 2030 Heat Round registration reminder",
+    "body": ["BBB 2030 Heat Round mathematics for Senior Secondary registration deadline: January 21, 2030, 5:00 PM Asia/Manila.", "Public invitation: https://example.org/resources/bbb"]
+  },
+  "g-personal": {
+    "family": "G", "receivedAt": "2030-01-01T08:00:00+08:00",
+    "subject": "Your ClassMarker is ready to take",
+    "body": ["Your ClassMarker is ready to take.", "Student name: Synthetic Student", "Candidate ID: TEST-CANDIDATE-12345", "PIN: TEST-PIN-9876", "Personal link: https://example.invalid/candidate/TEST-CANDIDATE-12345"]
+  }
+}

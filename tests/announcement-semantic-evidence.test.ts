@@ -14,6 +14,13 @@ test('citing an early chunk cannot hide a later empty/future material qualifier'
   assert.doesNotThrow(()=>validateSemanticEvent(e,{...context,evidence:context.evidence.slice(0,1)}));
 });
 
+test('redaction cannot silently remove an availability qualifier and certify a mixed source as available',()=>{
+  const e=event({type:'materials-release',start:null,end:null,availability:{state:'available',asOf:now,expectedAt:null}});delete e.temporal;
+  const context={sourceTime:now,evidence:[{id:'body',text:'VTAMPS V.30.0 materials are now available.\n[private participant/account detail withheld] (credential content withheld)'}],evidenceIds:['body']};
+  assert.ok(semanticIssues(e,context).some(issue=>issue.includes('redaction removed source context')));assert.throws(()=>validateSemanticEvent(e,context,true));
+  assert.doesNotThrow(()=>validateSemanticEvent(e,{...context,timezoneConfirmed:true},true));
+});
+
 test('affirmative current availability still has to exist in the pieces cited by that proposal',()=>{
   const e=event({type:'materials-release',availability:{state:'available',asOf:now,expectedAt:null}});
   assert.throws(()=>validateSemanticEvent(e,{evidence:[{id:'uncited',text:'Materials are now available.'},{id:'cited',text:'A folder link exists.'}],evidenceIds:['cited'],sourceTime:now}));
