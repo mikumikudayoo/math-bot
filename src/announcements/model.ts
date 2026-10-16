@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {validatePublicCatalog,validatePublicEvent,validatePublicText,validatePublicDiscordPayload} from './public-facts.js';
 import {supportedCompetition,canonicalProgramVersion,validateSemanticEvent,validateRenderedSemantics,type SemanticContext,type Availability,type TemporalFacts,type Logistics,type SourceDisposition} from './semantics.js';
+import {validateCorrectionPatch,type CorrectionPatch} from './corrections.js';
 export type {Availability,TemporalFact,TemporalFacts,Logistics,SourceDisposition,SemanticContext} from './semantics.js';
 
 export const eventTypes = ['training-session','classmarker-deadline','competition-day','registration-deadline','login-details','server-event','schedule-announcement','materials-release','competition-announcement','results','qualification','other-deadline','check-in','mock-test-window'] as const;
@@ -45,7 +46,7 @@ export interface Extraction {
   sourceTime?: number | null;
   catalog: Catalog;
   source: Source;
-  events: { event: ScheduleEvent; confidence: 'high'|'medium'|'low'; issues: string[]; evidenceIds?: string[] }[];
+  events: { event: ScheduleEvent; confidence: 'high'|'medium'|'low'; issues: string[]; evidenceIds?: string[]; correctionPatch?:CorrectionPatch }[];
 }
 export const canonical = (value:unknown):string => JSON.stringify(value,(_key,v:unknown)=>v && typeof v==='object' && !Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b))):v);
 export const digest = (value: unknown) => createHash('sha256').update(canonical(value)).digest('hex');
@@ -121,7 +122,8 @@ export function validateExtraction(input: Extraction) {
   if(input.events.length&&(input.disposition==='private'||input.disposition==='ignore'))throw new Error('Private or ignored sources cannot propose public facts.');
   const keys=new Set<string>();
   for (const c of input.events) {
-    checkKeys(c,['event','confidence','issues','evidenceIds']);
+    checkKeys(c,['event','confidence','issues','evidenceIds','correctionPatch']);
+    if(c.correctionPatch!==undefined)validateCorrectionPatch(c.correctionPatch);
     validateEvent(c.event,input.catalog);
     if (!['high','medium','low'].includes(c.confidence) || !Array.isArray(c.issues) || !c.issues.every(i=>text(i,500))) throw new Error('Invalid extraction review metadata.');
     for(const issue of c.issues)validatePublicText(issue,'review issue');

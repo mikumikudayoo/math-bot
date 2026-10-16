@@ -7,7 +7,7 @@ import type {ScheduleEvent} from '../src/announcements/model.js';
 const now=Date.parse('2030-01-01T00:00:00Z');
 const source={account:'synthetic',messageId:'synthetic-source',attachment:null,sha256:'a'.repeat(64),locator:'body'};
 const provider={backend:'https://example.invalid/v1',model:'synthetic-model',backendKey:'synthetic-key',nativeTools:false,vision:false};
-function output(patch:Partial<ScheduleEvent>={}){return {disposition:'public',dispositionReason:null,correction:false,catalog:{competitions:[],rounds:[],programs:[{id:'model-choice',name:'VTAMPS',version:'30.0'}]},events:[{event:{competitionId:null,roundId:null,programId:'model-choice',preparesFor:[],yearLevel:'Senior Secondary',type:'training-session',slot:'Session 1',start:now+86400000,end:now+86400000+7200000,deadline:null,timezone:'Asia/Manila',timezoneAssumed:false,url:null,detailLabel:null,dateHint:null,status:'active',availability:null,temporal:{start:null,end:null,deadline:null},logistics:null,...patch},confidence:'high',issues:[],evidenceIds:['body']}],issues:[]};}
+function output(patch:Partial<ScheduleEvent>={}){return {disposition:'public',dispositionReason:null,correction:false,catalog:{competitions:[],rounds:[],programs:[{id:'model-choice',name:'VTAMPS',version:'30.0'}]},events:[{event:{competitionId:null,roundId:null,programId:'model-choice',preparesFor:[],yearLevel:'Senior Secondary',type:'training-session',slot:'Session 1',start:now+86400000,end:now+86400000+7200000,deadline:null,timezone:'Asia/Manila',timezoneAssumed:false,url:null,detailLabel:null,dateHint:null,status:'active',availability:null,temporal:{start:null,end:null,deadline:null},logistics:null,...patch},confidence:'high',issues:[],evidenceIds:['body'],correctionPatch:null}],issues:[]};}
 const mail=(text:string)=>({evidence:[{id:'body',text}],blocked:[] as string[],sensitive:false,sourceTime:now});
 
 test('strict extraction schema requires explicit disposition and semantic fields and rejects authority injection',()=>{
@@ -52,6 +52,16 @@ test('empty/future materials retain expected semantics and do not swallow the ne
 test('supported unreadable erratum is explicit needs_review even if a provider returns an old schedule',()=>{
   const m=mail('ERRATUM: VTAMPS V.30.0 updated review schedule. Replacement timetable is attached. No other details changed.');m.blocked=['body.1: image schedule requires manual factual review'];
   const result=validateOutput(output(),m,source);assert.equal(result.disposition,'needs_review');assert.equal(result.correction,true);assert.ok(result.events[0]!.issues.some(issue=>issue.includes('unreadable')));
+});
+
+test('provider correction patches retain explicit changed and cleared fields without authorizing identity mutation',()=>{
+  const x=output();x.correction=true;
+  Object.assign(x.events[0]!,{correctionPatch:{kind:'partial',changedFields:['start','end','temporal'],clearFields:[]}});
+  const m=mail('ERRATUM: VTAMPS V.30.0 Senior Secondary Session 1 changed opening and closing times. No other details changed.');
+  const result=validateOutput(x,m,source);
+  assert.equal(result.correction,true);assert.equal(result.events[0]!.correctionPatch!.kind,'partial');
+  Object.assign(x.events[0]!,{correctionPatch:{kind:'partial',changedFields:['programId'],clearFields:[]}});
+  assert.throws(()=>validateOutput(x,m,source));
 });
 
 test('parser supplies organizer source-time anchor while retaining safely redacted schedule evidence',async()=>{

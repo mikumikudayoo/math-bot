@@ -22,6 +22,8 @@ test('personal and unsupported messages have clean host disposition while mixed/
   assert.equal(classify('VTAMPS V.30.0 and VTASP V.9.0 revised schedule').disposition,'needs_review');
   const unreadable=classify('ERRATUM: VTAMPS V.30.0 updated review schedule',['body.1: image schedule requires review']);
   assert.equal(unreadable.disposition,'needs_review');assert.equal(unreadable.correction,true);
+  assert.equal(classify('ERRATUM: VTAMPS V.30.0 updated schedule. Your ClassMarker is ready to take.',['replacement image unreadable']).disposition,'needs_review');
+  assert.equal(classify('ERRATUM: VTAMPS V.30.0 updated schedule. Your ClassMarker is ready to take.').disposition,'needs_review');
   assert.equal(classify('VTAMPS V.30.0 training guidelines').disposition,'public');
 });
 
