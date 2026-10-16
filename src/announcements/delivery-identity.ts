@@ -103,8 +103,24 @@ export function projectDelivery(row:DeliveryEventProjection,policy:PolicyFile,ru
   const logical_delivery_id=logicalDeliveryId({guild:policy.guild,eventKey:row.event_key,revision:row.revision,ruleId:rule.id,anchor:rule.anchor,channel});
   const anchor=rule.anchor==='approval'?row.approved_at:event[rule.anchor];
   // An unresolved anchor remains blocked and stable across planner retries.
-  const due=anchor===null?row.approved_at:anchor-rule.beforeMinutes*60000;
-  const expires=Math.min(due+60000,rule.anchor==='start'?anchor??Infinity:Infinity);
+  const scheduled=anchor===null?row.approved_at:anchor-rule.beforeMinutes*60000;
+  const due=rule.major?Math.max(row.approved_at,scheduled):scheduled;
+  const grace=(rule.reminderGraceMinutes??1)*60000;
+  // Scheduled reminders get a short clock-based grace, never a late catch-up
+  // horizon. At offset zero the grace starts at the anchor, rather than creating
+  // an unusable zero-length interval. Earlier reminders stop at their anchor.
+  let expires=due+grace;
+  if(!rule.major&&rule.anchor!=='approval'&&rule.beforeMinutes>0&&anchor!==null)expires=Math.min(expires,anchor);
+  if(rule.major){
+    // Fact approval fixes editorial freshness. A restart or delayed asset/text
+    // review cannot move this horizon forward to the current clock time.
+    expires=row.approved_at+(rule.editorialWindowMinutes??1440)*60000;
+    // Results, qualification, resources, and login notices may be announced
+    // after their occurrence. Operative schedule/deadline announcements stop
+    // being timely when participation is no longer possible.
+    const operative=['training-session','competition-day','check-in','mock-test-window','schedule-announcement','competition-announcement','server-event'].includes(event.type)?event.start:event.type.endsWith('deadline')?event.deadline:null;
+    if(operative!==null){const zeroOffsetGrace=rule.anchor!=='approval'&&rule.beforeMinutes===0&&anchor===operative?grace:0;expires=Math.min(expires,operative+zeroOffsetGrace);}
+  }
   let blocked=anchor===null,payload={content:'',allowedMentions:{parse:[] as [],roles:[] as string[],users:[] as string[],repliedUser:false}};
   const config:PreviewConfig={guild:policy.guild,channel,role,rules:[],templates:policy.templates};
   try{payload=renderEvent(event,catalog,config,rule.template);}catch{blocked=true;}

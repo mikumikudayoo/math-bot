@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { documentTemplates,validateConfig,type PreviewConfig,type EventType } from './model.js';
 import type { ProviderConfig } from '../service/providers.js';
 
-export interface Policy { id:string; type:EventType; anchor:'start'|'deadline'|'approval'; beforeMinutes:number; template:string; major:boolean; asset:'none'|'optional'|'required'; competitionId?:string; programId?:string; roundId?:string;channel?:string;role?:string|null }
+export interface Policy { id:string; type:EventType; anchor:'start'|'deadline'|'approval'; beforeMinutes:number; template:string; major:boolean; asset:'none'|'optional'|'required'; competitionId?:string; programId?:string; roundId?:string;channel?:string;role?:string|null;reminderGraceMinutes?:number;editorialWindowMinutes?:number }
 export interface PolicyFile { guild:string; channel:string; role:string|null; staffChannel:string|null; policies:Policy[]; templates:Record<string,string> }
 export interface AutomationConfig { enabled:boolean; autoSend:boolean; database:string; assets:string; policy:PolicyFile; gmail:{clientId:string;clientSecret:string;refreshToken:string;account:string;query:string;senders:string[]}; provider:ProviderConfig; pollMs:number }
 export function validatePolicy(p:PolicyFile){
@@ -15,6 +15,8 @@ export function validatePolicy(p:PolicyFile){
     if(r.role!==undefined&&r.role!==null&&(!/^\d{17,20}$/.test(r.role)||r.role===p.guild))throw new Error('Invalid policy role.');
     if(!['start','deadline','approval'].includes(r.anchor))throw new Error('Invalid reminder anchor.');
     if(typeof r.major!=='boolean'||!['none','optional','required'].includes(r.asset))throw new Error('Invalid asset policy.');
+    if(r.reminderGraceMinutes!==undefined&&(!Number.isSafeInteger(r.reminderGraceMinutes)||r.reminderGraceMinutes<1||r.reminderGraceMinutes>60))throw new Error('Reminder grace must be 1–60 whole minutes.');
+    if(r.editorialWindowMinutes!==undefined&&(!Number.isSafeInteger(r.editorialWindowMinutes)||r.editorialWindowMinutes<1||r.editorialWindowMinutes>10080))throw new Error('Editorial publication window must be 1–10080 whole minutes.');
     if(['schedule-announcement','competition-announcement','results','qualification','materials-release'].includes(r.type)&&!r.major)throw new Error('Major milestones require message approval.');
     if(!r.major && r.asset==='required')throw new Error('Routine reminders cannot depend on unreviewed assets.');
   }

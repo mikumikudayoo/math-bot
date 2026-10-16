@@ -33,6 +33,7 @@ export function alertActionable(store:AnnouncementStore,guild:string,alert:Staff
     if(alert.kind==='stuck-delivery')return job.state==='delivering';
     if(alert.kind==='missed-reminder')return job.state==='skipped';
     if(alert.kind==='delivery-preflight-blocked')return job.state==='cancelled';
+    if(job.expires<now)return false;
     if(store.event(guild,job.event_key)?.revision!==job.revision||store.held(job.event_key))return false;
     if(alert.kind==='blocked-announcement')return job.state==='blocked';
     return job.state==='pending_approval'&&(alert.kind!=='waiting-for-canva'||job.asset_policy==='required'&&!job.asset);

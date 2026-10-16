@@ -41,7 +41,7 @@ export function plan(store:AnnouncementStore,policy:PolicyFile,now=Date.now(),sn
     }
     const obsolete=store.db.prepare("SELECT id,logical_delivery_id FROM announcement_jobs WHERE guild=? AND logical_delivery_id IS NOT NULL AND state IN ('scheduled','held','pending_approval','blocked','draft') AND NOT EXISTS(SELECT 1 FROM delivery_attempts WHERE job=announcement_jobs.id)").all(policy.guild) as {id:string;logical_delivery_id:string}[];
     for(const job of obsolete)if(!desired.has(job.logical_delivery_id))store.db.prepare("UPDATE announcement_jobs SET state='superseded' WHERE id=?").run(job.id);
-    const expired=store.db.prepare("SELECT id FROM announcement_jobs WHERE guild=? AND expires<? AND state='scheduled'").all(policy.guild,now) as {id:string}[];
+    const expired=store.db.prepare("SELECT id FROM announcement_jobs WHERE guild=? AND expires<? AND state IN ('scheduled','pending_approval','held','blocked','draft')").all(policy.guild,now) as {id:string}[];
     for(const job of expired){store.db.prepare("UPDATE announcement_jobs SET state='skipped' WHERE id=?").run(job.id);store.alert(policy.guild,'missed-reminder',job.id,now);}
     const pending=store.db.prepare("SELECT id,event_json FROM candidate_events WHERE guild=? AND state='pending' ORDER BY rowid").iterate(policy.guild);
     for(const c of pending){const e=JSON.parse(String(c.event_json)) as ScheduleEvent;const time=e.deadline??e.start;if((e.status??'active')==='active'&&time!==null&&time>now&&time-now<86400000)store.alert(policy.guild,'approaching-unapproved',String(c.id),now);}

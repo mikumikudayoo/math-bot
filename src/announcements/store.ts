@@ -142,6 +142,16 @@ export class AnnouncementStore {
         END;
         INSERT OR IGNORE INTO schema_version VALUES(8); COMMIT;`);
     }catch(error){this.db.exec('ROLLBACK');throw error;}
+    this.db.exec('BEGIN IMMEDIATE');
+    try{
+      if(!this.db.prepare('PRAGMA table_info(sources)').all().some(c=>c.name==='unresolved_barrier'))this.db.exec('ALTER TABLE sources ADD COLUMN unresolved_barrier INTEGER NOT NULL DEFAULT 1');
+      this.db.exec(`CREATE INDEX IF NOT EXISTS unresolved_organizer_sources ON sources(guild,unresolved_barrier,state);
+        CREATE TRIGGER IF NOT EXISTS source_admission_barrier AFTER INSERT ON sources WHEN NEW.state IN ('pending','retry','blocked') BEGIN
+          INSERT OR IGNORE INTO source_holds SELECT NEW.id,event_key FROM events WHERE guild=NEW.guild;
+          UPDATE announcement_jobs SET held_from=state,state='held' WHERE guild=NEW.guild AND state IN ('scheduled','pending_approval','blocked','draft');
+        END;
+        INSERT OR IGNORE INTO schema_version VALUES(9); COMMIT;`);
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
   }
   transaction<T>(fn:()=>T):T{if(this.state('maintenance:reset')==='true')throw new Error('Announcement storage reset in progress.');this.db.exec('BEGIN IMMEDIATE');try{const out=fn();this.db.exec('COMMIT');return out;}catch(e){this.db.exec('ROLLBACK');throw e;}}
   audit(guild:string,actor:string,action:string,target:string,snapshot:unknown,now=Date.now()){if(!actor.trim())throw new Error('Actor required.');this.db.prepare('INSERT INTO audit_log(guild,actor,action,target,snapshot,at) VALUES(?,?,?,?,?,?)').run(guild,actor,action,target,canonical(snapshot),now);}
@@ -149,7 +159,7 @@ export class AnnouncementStore {
   setState(key:string,value:string){this.db.prepare('INSERT INTO gmail_state VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key,value);}
   alert(guild:string,kind:string,target:string,now=Date.now()){this.db.prepare('INSERT OR IGNORE INTO staff_alerts(id,guild,kind,target,at) VALUES(?,?,?,?,?)').run(randomUUID(),guild,kind,target,now);}
   source(guild:string,source:Source){const id=digest([source.account,source.messageId]);this.db.prepare("INSERT OR IGNORE INTO sources(id,guild,account,message_id,hash,metadata,state) VALUES(?,?,?,?,?,?,'pending')").run(id,guild,source.account,source.messageId,source.sha256,canonical(source));return id;}
-  sourceState(id:string,state:string,retryAt=0){this.db.prepare('UPDATE sources SET state=?,attempts=attempts+1,retry_at=? WHERE id=?').run(state,retryAt,id);}
+  sourceState(id:string,state:string,retryAt=0){this.db.prepare("UPDATE sources SET state=?,attempts=attempts+1,retry_at=?,unresolved_barrier=CASE WHEN ? IN ('extracted','private','ignored','dismissed') THEN 0 ELSE unresolved_barrier END WHERE id=?").run(state,retryAt,state,id);}
   private applySourceDisposition(guild:string,id:string,disposition:SourceDisposition,reason:string,sourceTime:number|null=null,correction=false){
     if(!sourceDispositions.includes(disposition)||!this.db.prepare('SELECT id FROM sources WHERE id=? AND guild=?').get(id,guild))throw new Error('Invalid source disposition.');
     validatePublicText(reason,'source disposition');
@@ -168,7 +178,7 @@ export class AnnouncementStore {
     this.db.prepare('INSERT OR IGNORE INTO source_holds SELECT ?,event_key FROM events WHERE guild=?').run(id,guild);
     this.db.prepare("UPDATE announcement_jobs SET held_from=state,state='held' WHERE guild=? AND state IN ('scheduled','pending_approval','blocked')").run(guild);
   });}
-  private releaseSource(id:string){const rows=this.db.prepare('SELECT event_key FROM source_holds WHERE source=?').all(id) as {event_key:string}[];this.db.prepare('DELETE FROM source_holds WHERE source=?').run(id);for(const row of rows)this.unhold(row.event_key);}
+  private releaseSource(id:string){const rows=this.db.prepare('SELECT e.event_key FROM events e JOIN sources s ON s.guild=e.guild WHERE s.id=?').all(id) as {event_key:string}[];this.db.prepare('UPDATE sources SET unresolved_barrier=0 WHERE id=?').run(id);this.db.prepare('DELETE FROM source_holds WHERE source=?').run(id);for(const row of rows)this.unhold(row.event_key);}
   dismissSource(guild:string,id:string,actor:string){this.transaction(()=>{
     if(!this.db.prepare("SELECT id FROM sources WHERE id=? AND guild=? AND state IN ('blocked','retry','pending')").get(id,guild))throw new Error('Source not available for disposition.');
     this.sourceState(id,'dismissed');this.releaseSource(id);this.audit(guild,actor,'dismiss-source',id,{});
@@ -368,6 +378,13 @@ export class AnnouncementStore {
       }
       if(reviews)this.alert(guild,corrections?'correction-held':'factual-review',batch,now);
       if(disposition==='public'){this.sourceState(source,'extracted');this.releaseSource(source);}
+      else{
+        // Identified proposals narrow an unresolved message to these milestones.
+        // The blocked source/candidate remains reviewable; unrelated jobs resume.
+        this.db.prepare('UPDATE sources SET unresolved_barrier=0 WHERE id=?').run(source);
+        const keys=new Set(input.events.map(c=>guild+':'+eventKey(c.event)));
+        for(const row of this.db.prepare('SELECT event_key FROM events WHERE guild=?').all(guild))if(!keys.has(String(row.event_key))){this.db.prepare('DELETE FROM source_holds WHERE source=? AND event_key=?').run(source,String(row.event_key));this.unhold(String(row.event_key));}
+      }
       this.audit(guild,'ingestion','propose',batch,{hash},now);return batch;
     });
   }
@@ -438,7 +455,7 @@ export class AnnouncementStore {
     this.db.prepare('UPDATE events SET field_evidence_json=? WHERE event_key=?').run(canonical(links),key);this.db.prepare('UPDATE event_revisions SET field_evidence_json=? WHERE event_key=? AND revision=?').run(canonical(links),key,revision);this.releaseSource(source);
     this.db.prepare("UPDATE announcement_jobs SET state='cancelled' WHERE event_key=? AND state IN ('scheduled','held','pending_approval','blocked','draft')").run(key);this.alert(guild,'cancellation-review',`${key}:${revision}`);this.audit(guild,actor,status,key,event);return this.event(guild,key)!;
   });}
-  held(key:string){return Boolean(this.db.prepare("SELECT id FROM candidate_events WHERE event_key=? AND state='pending'").get(key)||this.db.prepare('SELECT source FROM source_holds WHERE event_key=?').get(key));}
+  held(key:string){return Boolean(this.db.prepare("SELECT id FROM candidate_events WHERE event_key=? AND state='pending'").get(key)||this.db.prepare('SELECT source FROM source_holds WHERE event_key=?').get(key)||this.db.prepare("SELECT s.id FROM sources s JOIN events e ON e.guild=s.guild WHERE e.event_key=? AND s.unresolved_barrier=1 AND s.state IN ('pending','retry','blocked') LIMIT 1").get(key));}
   jobs(guild:string){return this.db.prepare('SELECT * FROM announcement_jobs WHERE guild=? ORDER BY due DESC LIMIT 100').all(guild) as unknown as AnnouncementJob[];}
   dueJobs(guild:string,now:number){return this.db.prepare("SELECT * FROM announcement_jobs WHERE guild=? AND state='scheduled' AND due<=? ORDER BY due,id LIMIT 25").all(guild,now) as unknown as AnnouncementJob[];}
   job(guild:string,id:string){return this.db.prepare('SELECT * FROM announcement_jobs WHERE guild=? AND id=?').get(guild,id) as unknown as AnnouncementJob|undefined;}
@@ -452,6 +469,7 @@ export class AnnouncementStore {
   }
   approveJob(guild:string,id:string,actor:string,expectedHash:string){this.transaction(()=>{
     const j=this.job(guild,id),e=j?this.event(guild,j.event_key):undefined;if(!j||j.state!=='pending_approval'||!e||e.revision!==j.revision||this.held(j.event_key)||digest([j.payload_json,j.asset])!==expectedHash)throw new Error('Message preview is stale or held.');
+    if(Date.now()>j.expires)throw new Error('Publication window expired; review the missed-publication notice.');
     validatePublicDiscordPayload(JSON.parse(j.payload_json),{role:j.role,channel:j.channel});if(j.public_safety_version!==1||e.public_safety_version!==1||e.fact_semantics_version!==1||!this.eventEvidenceCurrent(e))throw new Error('Public-safety, evidence and fact-semantics review required.');
     const snapshot=effectivePolicy(this,guild);if(!snapshot||!this.jobPolicyCurrent(j,snapshot))throw new Error('Message policy is stale.');
     if(j.asset_policy==='required'&&!j.asset)throw new Error('Canva asset is required before approval.');
