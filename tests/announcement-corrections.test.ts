@@ -78,6 +78,19 @@ test('delayed older corrections cannot displace the latest pending or already ap
   }finally{store.close();}
 });
 
+test('a newer equivalent confirmation refreshes authority and evidence without recycling candidate identity',()=>{
+  const store=new AnnouncementStore(':memory:');try{
+    activate(store);ingest(store,correction('equivalent-first',sourceAt+1000,3600000));const first=pending(store)[0]!;
+    const confirmed=correction('equivalent-later-confirmation',sourceAt+3000,3600000),confirmedSource=ingest(store,confirmed);
+    const refreshed=store.candidate(guild,first.id)!;assert.equal(pending(store).length,1);assert.equal(refreshed.public_id,first.public_id);assert.ok(refreshed.review_version>first.review_version);assert.throws(()=>approve(store,first));
+    const primary=store.db.prepare('SELECT source FROM candidate_batches WHERE id=?').get(refreshed.batch)!;assert.equal(primary.source,confirmedSource);assert.ok(store.candidateEvidence(refreshed).some(link=>link.source===confirmedSource));
+    ingest(store,correction('delayed-change-before-confirmation',sourceAt+2000,7200000));assert.deepEqual(pending(store).map(c=>c.id),[first.id]);assert.equal(store.candidates(guild)[0]!.state,'superseded');
+    const olderEquivalent=correction('older-equivalent-retry',sourceAt+500,3600000);ingest(store,olderEquivalent);const retained=store.candidate(guild,first.id)!;assert.equal(store.db.prepare('SELECT source FROM candidate_batches WHERE id=?').get(retained.batch)!.source,confirmedSource);
+    approve(store,retained);assert.equal(store.event(guild,retained.event_key)!.authoritative_source_time,sourceAt+3000);assert.ok(store.db.prepare("SELECT id FROM audit_log WHERE action='refresh-equivalent-provenance'").get());
+    ingest(store,correction('delayed-change-after-confirmation-approved',sourceAt+2000,7200000));assert.equal(pending(store).length,0);
+  }finally{store.close();}
+});
+
 for(const time of [sourceAt+1000,null])test(`competing correction order ${time===null?'without timestamps':'at equal timestamps'} blocks approval until explicit rejection`,()=>{
   const store=new AnnouncementStore(':memory:');try{
     activate(store);ingest(store,correction('competing-one',time,3600000));const first=pending(store)[0]!;ingest(store,correction('competing-two',time,7200000));assert.equal(pending(store).length,2);assert.throws(()=>approve(store,first));

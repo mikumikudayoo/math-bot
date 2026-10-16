@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import {validatePublicCatalog,validatePublicEvent,validatePublicText,validatePublicDiscordPayload} from './public-facts.js';
 import {supportedCompetition,canonicalProgramVersion,validateSemanticEvent,validateRenderedSemantics,type SemanticContext,type Availability,type TemporalFacts,type Logistics,type SourceDisposition} from './semantics.js';
 import {validateCorrectionPatch,type CorrectionPatch} from './corrections.js';
+import {validateFieldEvidence,type FieldEvidence,type RetainedEvidence} from './evidence.js';
 export type {Availability,TemporalFact,TemporalFacts,Logistics,SourceDisposition,SemanticContext} from './semantics.js';
 
 export const eventTypes = ['training-session','classmarker-deadline','competition-day','registration-deadline','login-details','server-event','schedule-announcement','materials-release','competition-announcement','results','qualification','other-deadline','check-in','mock-test-window'] as const;
@@ -44,9 +45,10 @@ export interface Extraction {
   dispositionReason?: string | null;
   correction?: boolean;
   sourceTime?: number | null;
+  evidence?:RetainedEvidence[];
   catalog: Catalog;
   source: Source;
-  events: { event: ScheduleEvent; confidence: 'high'|'medium'|'low'; issues: string[]; evidenceIds?: string[]; correctionPatch?:CorrectionPatch }[];
+  events: { event: ScheduleEvent; confidence: 'high'|'medium'|'low'; issues: string[]; evidenceIds?: string[]; correctionPatch?:CorrectionPatch;fieldEvidence?:FieldEvidence[] }[];
 }
 export const canonical = (value:unknown):string => JSON.stringify(value,(_key,v:unknown)=>v && typeof v==='object' && !Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b))):v);
 export const digest = (value: unknown) => createHash('sha256').update(canonical(value)).digest('hex');
@@ -109,7 +111,8 @@ export function validateEvent(e: ScheduleEvent, catalog: Catalog, requireTimes=f
   validateSemanticEvent(e,context,requireTimes);
 }
 export function validateExtraction(input: Extraction) {
-  checkKeys(input,['catalog','source','events','disposition','dispositionReason','correction','sourceTime']);
+  checkKeys(input,['catalog','source','events','disposition','dispositionReason','correction','sourceTime','evidence']);
+  if(input.evidence!==undefined&&(!Array.isArray(input.evidence)||input.evidence.length>100||input.evidence.some(e=>!e||typeof e.id!=='string'||!e.id.trim()||e.id.length>200||typeof e.text!=='string')||Buffer.byteLength(JSON.stringify(input.evidence))>60000))throw new Error('Manual source evidence must be bounded retained statements.');
   if(input.disposition!==undefined&&!['public','private','ignore','needs_review'].includes(input.disposition))throw new Error('Invalid source disposition.');
   if(input.dispositionReason!==undefined&&input.dispositionReason!==null){if(!text(input.dispositionReason,500))throw new Error('Invalid source disposition reason.');validatePublicText(input.dispositionReason,'source disposition');}
   if(input.correction!==undefined&&typeof input.correction!=='boolean')throw new Error('Invalid correction marker.');
@@ -122,8 +125,9 @@ export function validateExtraction(input: Extraction) {
   if(input.events.length&&(input.disposition==='private'||input.disposition==='ignore'))throw new Error('Private or ignored sources cannot propose public facts.');
   const keys=new Set<string>();
   for (const c of input.events) {
-    checkKeys(c,['event','confidence','issues','evidenceIds','correctionPatch']);
+    checkKeys(c,['event','confidence','issues','evidenceIds','correctionPatch','fieldEvidence']);
     if(c.correctionPatch!==undefined)validateCorrectionPatch(c.correctionPatch);
+    if(c.fieldEvidence!==undefined)validateFieldEvidence(c.fieldEvidence);
     validateEvent(c.event,input.catalog);
     if (!['high','medium','low'].includes(c.confidence) || !Array.isArray(c.issues) || !c.issues.every(i=>text(i,500))) throw new Error('Invalid extraction review metadata.');
     for(const issue of c.issues)validatePublicText(issue,'review issue');

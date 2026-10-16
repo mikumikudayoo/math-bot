@@ -5,8 +5,9 @@ import { randomUUID } from 'node:crypto';
 import { canonical,canonicalEvent,digest,eventKey,validateExtraction,validateEvent,type Catalog,type Extraction,type ScheduleEvent,type Source } from './model.js';
 import {validatePublicText,validatePublicDiscordPayload,sanitizeOrganizerEvidence} from './public-facts.js';
 import { effectivePolicy,isEffectivePolicy,projectDelivery,type EffectivePolicySnapshot } from './delivery-identity.js';
-import {normalizeCatalogAndEvents,catalogForEvent,semanticIssues,entityEvidenceIssues,sourceDispositions,type SourceDisposition,type SemanticContext} from './semantics.js';
+import {normalizeCatalogAndEvents,catalogForEvent,semanticIssues,entityEvidenceIssues,sourceDispositions,classifySource,type SourceDisposition,type SemanticContext} from './semantics.js';
 import {applyCorrectionPatch,assessCorrection,compareCorrectionSources,factFingerprint,type CorrectionSourceOrder} from './corrections.js';
+import {attributeFields,attributionIssues,type EvidenceLink,type RetainedEvidence} from './evidence.js';
 
 export interface Candidate { id:string;public_id:number;guild:string;batch:string;event_key:string;event_json:string;catalog_json:string;issues_json:string;confidence:string;base_revision:number;review_version:number;state:string;public_safety_version:number;fact_semantics_version:number;evidence_ids_json:string;timezone_confirmed:number;fact_fingerprint:string|null;correction_patch_json:string|null;superseded_by:string|null;reconsideration_of:string|null;requires_correction_resolution:number }
 export interface ApprovedEvent { event_key:string;guild:string;revision:number;event_json:string;catalog_json:string;approved_by:string;approved_at:number;public_safety_version:number;fact_semantics_version:number;authoritative_source_time:number|null;authoritative_source_hash:string|null }
@@ -123,6 +124,15 @@ export class AnnouncementStore {
       }
       this.db.exec('COMMIT');
     }catch(error){this.db.exec('ROLLBACK');throw error;}
+    this.db.exec('BEGIN IMMEDIATE');
+    try{
+      for(const table of ['candidate_events','events','event_revisions']){
+        const columns=this.db.prepare(`PRAGMA table_info(${table})`).all();
+        if(!columns.some(c=>c.name==='field_evidence_json'))this.db.exec(`ALTER TABLE ${table} ADD COLUMN field_evidence_json TEXT NOT NULL DEFAULT '[]'`);
+      }
+      // A migration does not certify legacy fields as source-supported.
+      this.db.exec('INSERT OR IGNORE INTO schema_version VALUES(7); COMMIT');
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
   }
   transaction<T>(fn:()=>T):T{if(this.state('maintenance:reset')==='true')throw new Error('Announcement storage reset in progress.');this.db.exec('BEGIN IMMEDIATE');try{const out=fn();this.db.exec('COMMIT');return out;}catch(e){this.db.exec('ROLLBACK');throw e;}}
   audit(guild:string,actor:string,action:string,target:string,snapshot:unknown,now=Date.now()){if(!actor.trim())throw new Error('Actor required.');this.db.prepare('INSERT INTO audit_log(guild,actor,action,target,snapshot,at) VALUES(?,?,?,?,?,?)').run(guild,actor,action,target,canonical(snapshot),now);}
@@ -156,9 +166,12 @@ export class AnnouncementStore {
   });}
   saveEvidence(source:string,evidence:unknown){
     if(!evidence||typeof evidence!=='object'||Array.isArray(evidence))throw new Error('Invalid source evidence.');
-    const data=evidence as {evidence?:{id:string;text:string}[];blocked?:string[];sensitive?:boolean};
+    const data=evidence as {evidence?:RetainedEvidence[];blocked?:string[];sensitive?:boolean;incomplete?:boolean};
     if(!Array.isArray(data.evidence)||(data.blocked!==undefined&&!Array.isArray(data.blocked)))throw new Error('Invalid source evidence.');
-    const safe={...data,evidence:data.evidence.map(e=>({id:e.id,text:sanitizeOrganizerEvidence(e.text).text})),blocked:(data.blocked??[]).map(x=>sanitizeOrganizerEvidence(x).text)};
+    const safe={sensitive:data.sensitive===true,incomplete:data.incomplete===true,evidence:data.evidence.map(e=>{
+      if(typeof e.id!=='string'||!e.id.trim()||e.id.length>200||typeof e.text!=='string')throw new Error('Invalid retained evidence statement.');
+      return {id:e.id,text:sanitizeOrganizerEvidence(e.text).text,locations:(e.locations??[e.id]).filter(location=>typeof location==='string'&&/^(?:subject|body(?:\.\d+)*)(?::(?:pdf|page-\d+))?(?::chunk-\d+)?$/u.test(location))};
+    }),blocked:(data.blocked??[]).map(x=>sanitizeOrganizerEvidence(x).text)};
     const json=canonical(safe);if(Buffer.byteLength(json)>100000)throw new Error('Source evidence too large.');this.db.prepare('INSERT INTO source_evidence VALUES(?,?) ON CONFLICT(source) DO UPDATE SET evidence_json=excluded.evidence_json').run(source,json);
   }
   candidates(guild:string){return this.candidatePage(guild,0,100).items;}
@@ -178,12 +191,29 @@ export class AnnouncementStore {
   private sourceSemanticContext(source:string,evidenceIds?:string[],timezoneConfirmed=false):SemanticContext {
     const row=this.db.prepare('SELECT s.source_time,e.evidence_json FROM sources s LEFT JOIN source_evidence e ON e.source=s.id WHERE s.id=?').get(source);
     let evidence:{id:string;text:string}[]=[];try{evidence=(JSON.parse(String(row?.evidence_json??'{}')) as {evidence?:{id:string;text:string}[]}).evidence??[];}catch{}
-    return {evidence,...(evidenceIds?.length?{evidenceIds}:{}),sourceTime:typeof row?.source_time==='number'?row.source_time:null,timezoneConfirmed};
+    return {evidence,sourceEvidence:evidence,...(evidenceIds?.length?{evidenceIds}:{}),sourceTime:typeof row?.source_time==='number'?row.source_time:null,timezoneConfirmed};
+  }
+  retainedEvidence(source:string,id:string):RetainedEvidence|undefined{
+    try{return (JSON.parse(String(this.db.prepare('SELECT evidence_json FROM source_evidence WHERE source=?').get(source)?.evidence_json??'{}')) as {evidence?:RetainedEvidence[]}).evidence?.find(e=>e.id===id);}catch{return undefined;}
+  }
+  candidateEvidence(c:Candidate):EvidenceLink[]{try{return JSON.parse(String((c as Candidate&{field_evidence_json?:string}).field_evidence_json??'[]')) as EvidenceLink[];}catch{return [];}}
+  private evidenceIssues(c:Candidate,event:ScheduleEvent){return attributionIssues(event,this.candidateEvidence(c),(source,id)=>this.db.prepare('SELECT id FROM sources WHERE id=? AND guild=?').get(source,c.guild)?this.retainedEvidence(source,id):undefined);}
+  eventEvidenceCurrent(row:ApprovedEvent):boolean {
+    try{const event=JSON.parse(row.event_json) as ScheduleEvent,links=JSON.parse(String((row as ApprovedEvent&{field_evidence_json?:string}).field_evidence_json??'[]')) as EvidenceLink[];
+      return Array.isArray(links)&&!attributionIssues(event,links,(source,id)=>this.db.prepare('SELECT id FROM sources WHERE id=? AND guild=?').get(source,row.guild)?this.retainedEvidence(source,id):undefined).length;
+    }catch{return false;}
   }
   private candidateSemanticContext(c:Candidate):SemanticContext{
     const source=String(this.db.prepare('SELECT source FROM candidate_batches WHERE id=?').get(c.batch)!.source);
     const context=this.sourceSemanticContext(source,JSON.parse(c.evidence_ids_json) as string[],c.timezone_confirmed===1);
-    if(c.correction_patch_json){
+    const links=this.candidateEvidence(c);
+    if(links.length){
+      const retained=[...new Map(links.map(link=>[`${link.source}/${link.id}`,link])).entries()].flatMap(([key,link])=>{
+        if(!this.db.prepare('SELECT id FROM sources WHERE id=? AND guild=?').get(link.source,c.guild))return [];
+        const e=this.retainedEvidence(link.source,link.id);return e?[{id:key,text:e.text}]:[];
+      });
+      context.evidence=[...(context.evidence??[]),...retained];context.evidenceIds=retained.map(e=>e.id);
+    }else if(c.correction_patch_json){
       const related=this.db.prepare('SELECT source FROM candidate_sources WHERE candidate=? AND source<>?').all(c.id,source);
       context.evidence=[...(context.evidence??[]),...related.flatMap(row=>this.sourceSemanticContext(String(row.source)).evidence??[])];
     }
@@ -226,10 +256,28 @@ export class AnnouncementStore {
     if(!/^\d{17,20}$/.test(guild))throw new Error('Invalid guild.');validateExtraction(input);
     return this.transaction(()=>{
       const source=this.source(guild,input.source);
+      if(input.evidence){
+        const retained=this.db.prepare('SELECT evidence_json FROM source_evidence WHERE source=?').get(source);
+        if(retained){
+          const before=(JSON.parse(String(retained.evidence_json)) as {evidence:RetainedEvidence[]}).evidence.map(e=>({id:e.id,text:e.text}));
+          const after=input.evidence.map(e=>({id:e.id,text:sanitizeOrganizerEvidence(e.text).text}));
+          if(canonical(before)!==canonical(after))throw new Error('Retained source evidence cannot be replaced by an import; supply a new reviewed source.');
+        }else this.saveEvidence(source,{evidence:input.evidence,blocked:[]});
+      }
       let evidence:{blocked?:unknown[];complete?:boolean;incomplete?:boolean}={};try{evidence=JSON.parse(String(this.db.prepare('SELECT evidence_json FROM source_evidence WHERE source=?').get(source)?.evidence_json??'{}')) as typeof evidence;}catch{evidence={incomplete:true};}
-      const correction=Boolean(input.correction||input.events.some(c=>c.correctionPatch)||this.db.prepare('SELECT is_correction FROM sources WHERE id=?').get(source)?.is_correction);
+      let correction=Boolean(input.correction||input.events.some(c=>c.correctionPatch)||this.db.prepare('SELECT is_correction FROM sources WHERE id=?').get(source)?.is_correction);
       const unresolved=Boolean(evidence.blocked?.length||evidence.complete===false||evidence.incomplete===true);
-      const disposition=(correction&&unresolved&&input.disposition!=='private'&&input.disposition!=='ignore')?'needs_review':input.disposition??'public';
+      let disposition:SourceDisposition=(correction&&unresolved)?'needs_review':input.disposition??'public';
+      const saved=JSON.parse(String(this.db.prepare('SELECT evidence_json FROM source_evidence WHERE source=?').get(source)?.evidence_json??'{}')) as {evidence?:RetainedEvidence[];blocked?:string[]};
+      if(saved.evidence?.length){
+        const host=classifySource({evidence:saved.evidence??[],blocked:saved.blocked??[],sensitive:false});
+        correction ||=host.correction;
+        if(host.disposition!=='public')disposition=host.disposition;
+        else if(input.disposition==='private'||input.disposition==='ignore')disposition='needs_review';
+      }else if(correction&&(input.disposition==='private'||input.disposition==='ignore')){
+        disposition='needs_review';
+      }
+      if(correction&&unresolved&&disposition!=='private'&&disposition!=='ignore')disposition='needs_review';
       this.applySourceDisposition(guild,source,disposition,input.dispositionReason??(correction&&unresolved?'Correction replacement evidence is unresolved; explicit factual review is required.':'Structured mathematics proposal requires factual review.'),input.sourceTime??null,correction);
       const hash=digest({input,evidenceDigest:this.sourceEvidenceDigest(source),unresolved});
       const old=this.db.prepare('SELECT id FROM candidate_batches WHERE source=? AND hash=?').get(source,hash) as {id:string}|undefined;
@@ -238,7 +286,7 @@ export class AnnouncementStore {
       if(disposition==='private'||disposition==='ignore'||!input.events.length){this.audit(guild,'host','source-disposition',source,{disposition,reason:input.dispositionReason??'Source requires disposition.'},now);return batch;}
       let reviews=0,corrections=0;
       for(const c of input.events){
-        const key=guild+':'+eventKey(c.event),active=this.event(guild,key),authority=this.sourceAuthority(source);
+        const key=guild+':'+eventKey(c.event),active=this.event(guild,key),authority=this.sourceAuthority(source),proposal=structuredClone(c.event);
         let catalogValue=catalogForEvent(input.catalog,c.event),context=this.sourceSemanticContext(source,c.evidenceIds);
         const previous=active?this.db.prepare("SELECT c.* FROM candidate_events c WHERE c.guild=? AND c.event_key=? AND c.state='approved' AND c.base_revision=? ORDER BY c.rowid DESC LIMIT 1").get(guild,key,active.revision-1) as unknown as Candidate|undefined:undefined;
         if(c.correctionPatch&&active){
@@ -252,15 +300,30 @@ export class AnnouncementStore {
           }
         }
         validateEvent(c.event,catalogValue);
+        const patch=c.correctionPatch?{...c.correctionPatch,changedFields:c.correctionPatch.changedFields.filter(field=>(proposal as unknown as Record<string,unknown>)[field]!=null)}:undefined;
+        const links=attributeFields(c.event,source,c.evidenceIds??[],c.fieldEvidence,previous?this.candidateEvidence(previous):[],patch);
+        const evidenceIssues=attributionIssues(c.event,links,(s,id)=>this.retainedEvidence(s,id));
         const fingerprint=factFingerprint(c.event,catalogValue),json=canonical(c.event),catalog=canonical(catalogValue);
         const sameFacts=Boolean(active&&factFingerprint(JSON.parse(active.event_json) as ScheduleEvent,JSON.parse(active.catalog_json) as Catalog)===fingerprint);
         const assessment=assessCorrection({correction,unresolvedEvidence:unresolved,baselineExists:Boolean(active),sameFacts});
         const requiresResolution=Boolean(assessment.issues.length||disposition==='needs_review'||correction&&!c.correctionPatch);
-        c.issues=[...new Set([...c.issues,...assessment.issues,...(correction&&!c.correctionPatch?['Correction patch requires explicit factual confirmation.']:[]),...(disposition==='needs_review'?[input.dispositionReason??'Source disposition requires explicit factual review.']:[]),...semanticIssues(c.event,context),...entityEvidenceIssues(c.event,catalogValue,context)])];
+        c.issues=[...new Set([...c.issues,...(saved.blocked??[]),...(unresolved?['Source evidence is incomplete; explicit factual review is required.']:[]),...evidenceIssues,...assessment.issues,...(correction&&!c.correctionPatch?['Correction patch requires explicit factual confirmation.']:[]),...(disposition==='needs_review'?[input.dispositionReason??'Source disposition requires explicit factual review.']:[]),...semanticIssues(c.event,context),...entityEvidenceIssues(c.event,catalogValue,context)])];
         const duplicate=this.db.prepare("SELECT c.* FROM candidate_events c WHERE c.guild=? AND c.event_key=? AND c.fact_fingerprint=? AND c.state='pending' ORDER BY c.rowid DESC LIMIT 1").get(guild,key,fingerprint) as unknown as Candidate|undefined;
         if(duplicate){
           const issues=canonical([...new Set([...(JSON.parse(duplicate.issues_json) as string[]),...c.issues])]);
-          if(issues!==duplicate.issues_json||requiresResolution&&duplicate.requires_correction_resolution!==1){this.db.prepare('UPDATE candidate_events SET issues_json=?,requires_correction_resolution=MAX(requires_correction_resolution,?),review_version=review_version+1 WHERE id=?').run(issues,+requiresResolution,duplicate.id);reviews++;if(active)corrections++;}
+          const currentAuthority=this.candidateAuthority(duplicate);
+          // Equivalent later confirmations still advance source authority. A
+          // delayed different proposal must not displace them just because the
+          // public fact fingerprint and stable moderator number did not change.
+          const newer=authority.sourceTime!==null&&currentAuthority.sourceTime!==null&&authority.sourceTime>currentAuthority.sourceTime;
+          const retained=this.candidateEvidence(duplicate),proof=canonical([...new Map([...retained,...(evidenceIssues.length?[]:links)].map(link=>[canonical(link),link])).values()]);
+          const proofChanged=proof!==canonical(retained),reviewChanged=issues!==duplicate.issues_json||requiresResolution&&duplicate.requires_correction_resolution!==1;
+          if(reviewChanged||newer||proofChanged){
+            const ids=canonical([...new Set([...(JSON.parse(duplicate.evidence_ids_json) as string[]),...(context.evidenceIds??c.evidenceIds??[])])]);
+            this.db.prepare('UPDATE candidate_events SET batch=?,issues_json=?,requires_correction_resolution=MAX(requires_correction_resolution,?),field_evidence_json=?,evidence_ids_json=?,review_version=review_version+1 WHERE id=?').run(newer?batch:duplicate.batch,issues,+requiresResolution,proof,ids,duplicate.id);
+            if(reviewChanged){reviews++;if(active)corrections++;}
+            if(newer||proofChanged)this.audit(guild,'host','refresh-equivalent-provenance',duplicate.id,{beforeSourceTime:currentAuthority.sourceTime,afterSourceTime:newer?authority.sourceTime:currentAuthority.sourceTime,additionalEvidence:proofChanged},now);
+          }
           this.db.prepare('INSERT OR IGNORE INTO candidate_sources VALUES(?,?)').run(duplicate.id,source);continue;
         }
         const rejected=this.db.prepare('SELECT candidate FROM rejected_facts WHERE guild=? AND event_key=? AND fingerprint=?').get(guild,key,fingerprint) as {candidate:string}|undefined;
@@ -276,6 +339,7 @@ export class AnnouncementStore {
         const relatedRejection=this.db.prepare('SELECT candidate FROM rejected_facts WHERE guild=? AND event_key=? ORDER BY at DESC LIMIT 1').get(guild,key) as {candidate:string}|undefined;
         const candidateId=randomUUID();this.db.prepare('INSERT INTO candidate_events(id,guild,batch,event_key,event_json,catalog_json,issues_json,confidence,base_revision,state,public_safety_version,fact_semantics_version,evidence_ids_json,fact_fingerprint,correction_patch_json,superseded_by,reconsideration_of,requires_correction_resolution) VALUES(?,?,?,?,?,?,?,?,?,?,1,1,?,?,?,?,?,?)').run(candidateId,guild,batch,key,json,catalog,canonical(c.issues),c.confidence,active?.revision??0,state,canonical(context.evidenceIds??c.evidenceIds??[]),fingerprint,c.correctionPatch?canonical(c.correctionPatch):null,newerPending?.id??null,relatedRejection?.candidate??null,+requiresResolution);
         this.db.prepare('INSERT INTO candidate_sources VALUES(?,?)').run(candidateId,source);
+        this.db.prepare('UPDATE candidate_events SET field_evidence_json=? WHERE id=?').run(canonical(links),candidateId);
         if(c.correctionPatch?.kind==='partial'&&previous)this.db.prepare('INSERT OR IGNORE INTO candidate_sources SELECT ?,source FROM candidate_sources WHERE candidate=?').run(candidateId,previous.id);
         if(state==='pending'){
           for(const oldProposal of pending){
@@ -302,7 +366,11 @@ export class AnnouncementStore {
     if(!Array.isArray(issues)||issues.some(x=>typeof x!=='string'||x.length>500))throw new Error('Invalid issues.');
     for(const issue of issues)validatePublicText(issue,'review issue');
     const timezoneConfirmed=event.timezoneAssumed===false,context={...this.candidateSemanticContext(c),timezoneConfirmed};
-    const completeIssues=[...new Set([...issues,...semanticIssues(event,context),...entityEvidenceIssues(event,JSON.parse(c.catalog_json) as Catalog,context)])];
+    const primary=String(this.db.prepare('SELECT source FROM candidate_batches WHERE id=?').get(c.batch)!.source),before=JSON.parse(c.event_json) as Record<string,unknown>;
+    const changedFields=Object.keys(event).filter(field=>canonical(before[field])!==canonical((event as unknown as Record<string,unknown>)[field]));
+    const links=attributeFields(event,primary,JSON.parse(c.evidence_ids_json) as string[],undefined,this.candidateEvidence(c),{kind:'partial',changedFields,clearFields:[]});
+    const completeIssues=[...new Set([...issues,...attributionIssues(event,links,(s,id)=>this.retainedEvidence(s,id)),...semanticIssues(event,context),...entityEvidenceIssues(event,JSON.parse(c.catalog_json) as Catalog,context)])];
+    this.db.prepare('UPDATE candidate_events SET field_evidence_json=? WHERE id=?').run(canonical(links),id);
     const fingerprint=factFingerprint(event,JSON.parse(c.catalog_json) as Catalog);
     this.db.prepare('UPDATE candidate_events SET event_json=?,issues_json=?,public_safety_version=1,fact_semantics_version=1,timezone_confirmed=?,fact_fingerprint=?,requires_correction_resolution=0,review_version=review_version+1 WHERE id=?').run(canonical(event),canonical(completeIssues),+timezoneConfirmed,fingerprint,id);
     this.audit(guild,actor,c.requires_correction_resolution?'resolve-correction':'edit',id,{beforeHash:digest(c.event_json),after:event,issues:completeIssues,timezoneConfirmed});return this.candidate(guild,id)!;
@@ -313,13 +381,14 @@ export class AnnouncementStore {
     if(this.db.prepare("SELECT id FROM candidate_events WHERE guild=? AND event_key=? AND state='pending' AND id<>? LIMIT 1").get(guild,c.event_key,id))throw new Error('Competing correction proposals require explicit resolution; reject the conflicting proposal before approval.');
     if(c.public_safety_version!==1)throw new Error('Legacy facts require fresh public-safety review.');
     const event=JSON.parse(c.event_json) as ScheduleEvent,catalog=JSON.parse(c.catalog_json) as Catalog,context=this.candidateSemanticContext(c);
-    if(c.fact_semantics_version!==1||semanticIssues(event,context).length||entityEvidenceIssues(event,catalog,context).length)throw new Error('Fact semantics or source support requires review.');
+    if(c.fact_semantics_version!==1||this.evidenceIssues(c,event).length||semanticIssues(event,context).length||entityEvidenceIssues(event,catalog,context).length)throw new Error('Fact semantics or source support requires review.');
     if((JSON.parse(c.issues_json) as string[]).length)throw new Error('Resolve all factual issues before approval.');validateEvent(JSON.parse(c.event_json) as ScheduleEvent,JSON.parse(c.catalog_json) as Catalog,true);
     const revision=c.base_revision+1;
     this.db.prepare('INSERT INTO events(event_key,guild,revision,event_json,catalog_json,approved_by,approved_at,public_safety_version) VALUES(?,?,?,?,?,?,?,1) ON CONFLICT(event_key) DO UPDATE SET revision=excluded.revision,event_json=excluded.event_json,catalog_json=excluded.catalog_json,approved_by=excluded.approved_by,approved_at=excluded.approved_at,public_safety_version=1').run(c.event_key,guild,revision,c.event_json,c.catalog_json,actor,now);
     const authority=this.candidateAuthority(c);
     this.db.prepare('UPDATE events SET fact_semantics_version=1,authoritative_source_time=?,authoritative_source_hash=? WHERE event_key=?').run(authority.sourceTime,authority.sourceHash,c.event_key);
     this.db.prepare('INSERT INTO event_revisions(event_key,revision,event_json,catalog_json,actor,at) VALUES(?,?,?,?,?,?)').run(c.event_key,revision,c.event_json,c.catalog_json,actor,now);
+    const proof=canonical(this.candidateEvidence(c));this.db.prepare('UPDATE events SET field_evidence_json=? WHERE event_key=?').run(proof,c.event_key);this.db.prepare('UPDATE event_revisions SET field_evidence_json=? WHERE event_key=? AND revision=?').run(proof,c.event_key,revision);
     this.db.prepare("UPDATE candidate_events SET state='approved' WHERE id=?").run(id);
     this.releaseCandidateSourceHolds(c);
     this.db.prepare("UPDATE announcement_jobs SET state='superseded' WHERE event_key=? AND state IN ('scheduled','held','pending_approval','blocked','draft')").run(c.event_key);
@@ -340,6 +409,8 @@ export class AnnouncementStore {
     this.db.prepare('INSERT INTO candidate_batches VALUES(?,?,?)').run(batch,fresh.source,digest({reconsider:id,evidence:fresh.digest,at:now}));
     this.db.prepare("INSERT INTO candidate_events(id,guild,batch,event_key,event_json,catalog_json,issues_json,confidence,base_revision,state,public_safety_version,fact_semantics_version,evidence_ids_json,timezone_confirmed,fact_fingerprint,correction_patch_json,reconsideration_of,requires_correction_resolution) VALUES(?,?,?,?,?,?,?,?,?,'pending',?,?,?,?,?,?,?,?)").run(candidate,guild,batch,c.event_key,c.event_json,c.catalog_json,c.issues_json,c.confidence,active?.revision??0,c.public_safety_version,c.fact_semantics_version,c.evidence_ids_json,c.timezone_confirmed,c.fact_fingerprint,c.correction_patch_json,id,c.requires_correction_resolution);
     this.db.prepare('INSERT INTO candidate_sources SELECT ?,source FROM candidate_sources WHERE candidate=?').run(candidate,id);
+    const freshIds=this.sourceSemanticContext(fresh.source).evidence?.map(e=>e.id)??[];
+    this.db.prepare('UPDATE candidate_events SET field_evidence_json=? WHERE id=?').run(canonical([...this.candidateEvidence(c),...attributeFields(JSON.parse(c.event_json) as ScheduleEvent,fresh.source,freshIds)]),candidate);
     this.db.prepare('INSERT INTO candidate_reconsiderations VALUES(?,?,?,?,?,?)').run(candidate,id,actor,reason,fresh.digest,now);
     this.db.prepare("UPDATE announcement_jobs SET held_from=state,state='held' WHERE event_key=? AND state IN ('scheduled','pending_approval','blocked')").run(c.event_key);
     this.alert(guild,'correction-held',batch,now);this.audit(guild,actor,'reconsider-rejected',candidate,{previous:id,reason,evidenceDigest:fresh.digest},now);return this.candidate(guild,candidate)!;
@@ -348,6 +419,11 @@ export class AnnouncementStore {
   cancel(guild:string,key:string,status:'cancelled'|'postponed',actor:string,expectedRevision:number){return this.transaction(()=>{
     const e=this.event(guild,key);if(!e||e.revision!==expectedRevision)throw new Error('Event revision is stale.');const baseline=JSON.parse(e.event_json) as ScheduleEvent,event=applyCorrectionPatch(baseline,baseline,{kind:status==='cancelled'?'cancellation':'postponement',changedFields:[],clearFields:[]});
     const revision=e.revision+1;this.db.prepare('UPDATE events SET revision=?,event_json=?,approved_by=?,approved_at=? WHERE event_key=?').run(revision,canonical(event),actor,Date.now(),key);this.db.prepare('INSERT INTO event_revisions(event_key,revision,event_json,catalog_json,actor,at) VALUES(?,?,?,?,?,?)').run(key,revision,canonical(event),e.catalog_json,actor,Date.now());
+    const confirmation=`Staff explicitly confirmed this event is ${status}. Operative start, end, and deadline are cleared.`,source=this.source(guild,{account:'moderator',messageId:randomUUID(),attachment:null,sha256:digest(confirmation),locator:'body'});
+    this.saveEvidence(source,{evidence:[{id:'body',text:confirmation}],blocked:[]});this.sourceState(source,'extracted');
+    const oldLinks=JSON.parse(String((e as ApprovedEvent&{field_evidence_json?:string}).field_evidence_json??'[]')) as EvidenceLink[];
+    const links=attributeFields(event,source,['body'],undefined,oldLinks,{kind:status==='cancelled'?'cancellation':'postponement',changedFields:[],clearFields:[]});
+    this.db.prepare('UPDATE events SET field_evidence_json=? WHERE event_key=?').run(canonical(links),key);this.db.prepare('UPDATE event_revisions SET field_evidence_json=? WHERE event_key=? AND revision=?').run(canonical(links),key,revision);this.releaseSource(source);
     this.db.prepare("UPDATE announcement_jobs SET state='cancelled' WHERE event_key=? AND state IN ('scheduled','held','pending_approval','blocked','draft')").run(key);this.alert(guild,'cancellation-review',`${key}:${revision}`);this.audit(guild,actor,status,key,event);return this.event(guild,key)!;
   });}
   held(key:string){return Boolean(this.db.prepare("SELECT id FROM candidate_events WHERE event_key=? AND state='pending'").get(key)||this.db.prepare('SELECT source FROM source_holds WHERE event_key=?').get(key));}
@@ -364,7 +440,7 @@ export class AnnouncementStore {
   }
   approveJob(guild:string,id:string,actor:string,expectedHash:string){this.transaction(()=>{
     const j=this.job(guild,id),e=j?this.event(guild,j.event_key):undefined;if(!j||j.state!=='pending_approval'||!e||e.revision!==j.revision||this.held(j.event_key)||digest([j.payload_json,j.asset])!==expectedHash)throw new Error('Message preview is stale or held.');
-    validatePublicDiscordPayload(JSON.parse(j.payload_json),{role:j.role,channel:j.channel});if(j.public_safety_version!==1||e.public_safety_version!==1||e.fact_semantics_version!==1)throw new Error('Public-safety and fact-semantics review required.');
+    validatePublicDiscordPayload(JSON.parse(j.payload_json),{role:j.role,channel:j.channel});if(j.public_safety_version!==1||e.public_safety_version!==1||e.fact_semantics_version!==1||!this.eventEvidenceCurrent(e))throw new Error('Public-safety, evidence and fact-semantics review required.');
     const snapshot=effectivePolicy(this,guild);if(!snapshot||!this.jobPolicyCurrent(j,snapshot))throw new Error('Message policy is stale.');
     if(j.asset_policy==='required'&&!j.asset)throw new Error('Canva asset is required before approval.');
     this.db.prepare("UPDATE announcement_jobs SET state='scheduled',approved_by=?,approved_payload_hash=? WHERE id=?").run(actor,expectedHash,id);this.audit(guild,actor,'approve-message',id,{hash:expectedHash});
@@ -384,7 +460,7 @@ export class AnnouncementStore {
     const e=this.event(j.guild,j.event_key);if(!e||e.revision!==j.revision||this.held(j.event_key)||(JSON.parse(e.event_json) as ScheduleEvent).status&& (JSON.parse(e.event_json) as ScheduleEvent).status!=='active')throw new Error('Delivery event changed or is held.');
     if(now<j.due||now>j.expires)throw new Error('Delivery is outside its publication window.');
     const payload=JSON.parse(j.payload_json) as Payload;validatePublicDiscordPayload(payload,{role:j.role,channel:j.channel});
-    if(j.public_safety_version!==1||e.public_safety_version!==1||e.fact_semantics_version!==1)throw new Error('Public-safety and fact-semantics review required.');
+    if(j.public_safety_version!==1||e.public_safety_version!==1||e.fact_semantics_version!==1||!this.eventEvidenceCurrent(e))throw new Error('Public-safety, evidence and fact-semantics review required.');
     if(expectedPayload!==undefined&&canonical(expectedPayload)!==canonical(payload))throw new Error('Persisted delivery payload changed.');
     if(j.major&&(!j.approved_by||j.approved_payload_hash!==digest([j.payload_json,j.asset])||(j.asset_policy==='required'&&!j.asset)))throw new Error('Exact message/asset approval is stale.');
     if(this.legacyDeliveryGuard(j.guild,j.event_key,j.revision,j.channel))throw new Error('Legacy delivery identity requires review.');
@@ -395,7 +471,7 @@ export class AnnouncementStore {
     if(snapshot&&(snapshot.guild!==j.guild||!isEffectivePolicy(this,snapshot)))return undefined;
     try{if(j.public_safety_version!==1)throw new Error('Legacy safety unknown.');validatePublicDiscordPayload(JSON.parse(j.payload_json),{role:j.role,channel:j.channel});}catch{this.db.prepare("UPDATE announcement_jobs SET state='blocked',approved_by=NULL WHERE id=?").run(id);this.alert(j.guild,'public-safety-review',j.id);return undefined;}
     const e=this.event(j.guild,j.event_key);if(!e||e.revision!==j.revision||this.held(j.event_key)){this.db.prepare("UPDATE announcement_jobs SET state='held' WHERE id=?").run(id);return undefined;}
-    if(e.public_safety_version!==1||e.fact_semantics_version!==1){this.db.prepare("UPDATE announcement_jobs SET state='blocked',approved_by=NULL WHERE id=?").run(id);this.alert(j.guild,'public-safety-review',id);return undefined;}
+    if(e.public_safety_version!==1||e.fact_semantics_version!==1||!this.eventEvidenceCurrent(e)){this.db.prepare("UPDATE announcement_jobs SET state='blocked',approved_by=NULL WHERE id=?").run(id);this.alert(j.guild,'public-safety-review',id);return undefined;}
     if((JSON.parse(e.event_json) as ScheduleEvent).status && (JSON.parse(e.event_json) as ScheduleEvent).status!=='active'){this.db.prepare("UPDATE announcement_jobs SET state='cancelled' WHERE id=?").run(id);return undefined;}
     if(now>j.expires){this.db.prepare("UPDATE announcement_jobs SET state='skipped' WHERE id=?").run(id);this.alert(j.guild,'missed-reminder',id);return undefined;}
     const current=snapshot??effectivePolicy(this,j.guild);

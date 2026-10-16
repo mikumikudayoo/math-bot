@@ -5,7 +5,7 @@ import {sourceTimeAnchor,classifySource,normalizeCatalogAndEvents,catalogForEven
 
 const now=Date.parse('2030-01-01T08:00:00+08:00');
 const catalog:Catalog={competitions:[{id:'contest-picked-by-model',name:'TIMO',year:2030,subject:'mathematics'}],rounds:[{id:'round-picked-by-model',competitionId:'contest-picked-by-model',name:'Heat Round'}],programs:[{id:'program-picked-by-model',name:'VTAMPS',version:'V.30.0'}]};
-function event(patch:Partial<ScheduleEvent>={}):ScheduleEvent{return {competitionId:null,roundId:null,programId:'program-picked-by-model',preparesFor:[],yearLevel:'Senior Secondary',type:'training-session',slot:'1',start:now+86400000,end:now+86400000+7200000,deadline:null,timezone:'Asia/Manila',timezoneAssumed:false,url:null,detailLabel:null,...patch};}
+function event(patch:Partial<ScheduleEvent>={}):ScheduleEvent{const e:ScheduleEvent={competitionId:null,roundId:null,programId:'program-picked-by-model',preparesFor:[],yearLevel:'Senior Secondary',type:'training-session',slot:'1',start:now+86400000,end:now+86400000+7200000,deadline:null,timezone:'Asia/Manila',timezoneAssumed:false,url:null,detailLabel:null,...patch};if(patch.temporal===undefined)e.temporal=Object.fromEntries((['start','end','deadline'] as const).filter(field=>e[field]!==null).map(field=>[field,{precision:'exact',expression:new Date(e[field]!).toISOString(),sourceTime:now}]));return e;}
 
 test('host source time accepts Gmail internalDate and explicit-offset Date headers, never an implicit timezone',()=>{
   assert.equal(sourceTimeAnchor({id:'synthetic',internalDate:String(now)}),now);
@@ -60,7 +60,7 @@ test('folder existence/empty/future upload cannot establish available-now even i
     assert.throws(()=>validateSemanticEvent(e,{evidence:[{id:'body',text}],sourceTime:now}));
   }
   assert.throws(()=>validateSemanticEvent(e,{evidence:[],sourceTime:now}));
-  assert.doesNotThrow(()=>validateSemanticEvent(e,{evidence:[{id:'body',text:'VTAMPS V.30.0 materials are now available.'}],sourceTime:now},true));
+  assert.doesNotThrow(()=>validateSemanticEvent(e,{evidence:[{id:'body',text:'VTAMPS V.30.0 materials are now available. Timezone: Asia/Manila.'}],sourceTime:now},true));
   assert.doesNotThrow(()=>validateSemanticEvent(e,{},true));
 });
 

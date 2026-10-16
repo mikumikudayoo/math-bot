@@ -10,6 +10,8 @@ export interface TemporalFacts {start?:TemporalFact;end?:TemporalFact;deadline?:
 export interface Logistics {venue?:string;bring?:string[];participant?:string[]}
 export interface SemanticContext {
   evidence?:readonly {id:string;text:string}[];
+  /** Complete current organizer message, separate from inherited historical field proof. Host-only. */
+  sourceEvidence?:readonly {id:string;text:string}[];
   evidenceIds?:readonly string[];
   sourceTime?:number|null;
   timezoneConfirmed?:boolean;
@@ -100,6 +102,33 @@ function citedEvidence(context:SemanticContext):string {
   const ids=context.evidenceIds===undefined?null:new Set(context.evidenceIds);
   return (context.evidence??[]).filter(e=>ids===null||ids.has(e.id)).map(e=>e.text).join('\n');
 }
+function sourceConfirmsTimezone(event:ScheduleEvent,context:SemanticContext):boolean {
+  const text=citedEvidence(context),escaped=event.timezone.replace(/[.*+?^${}()|[\]\\]/gu,'\\$&');
+  const suffix=/^(?:UTC|GMT)$/iu.test(event.timezone)?'(?!\\s*[+-])':'';
+  if(new RegExp(`(?:^|[^\\w/])${escaped}(?=$|[^\\w/])${suffix}`,'iu').test(text))return true;
+  if(event.timezone==='Asia/Manila'&&/\bPHT\b|\bPhilippine(?:s)?\s+Standard\s+Time\b|\b(?:UTC|GMT)\s*\+\s*0?8(?::?00)?(?![\w:])/iu.test(text))return true;
+  // An ISO offset specifies an absolute instant even when display uses an IANA zone.
+  for(const match of text.matchAll(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})(?![\w:+-])/giu))if(timestamp(Date.parse(match[0])))return true;
+  return false;
+}
+function relevantRelativeSource(event:ScheduleEvent,context:SemanticContext):boolean {
+  const slot=event.slot.match(/(\d+)\s*$/u)?.[1];
+  for(const clause of (context.sourceEvidence??context.evidence??[]).flatMap(item=>item.text.split(/\r?\n|;|(?<=[.!?])\s+/u))){
+    if(!relativePattern.test(clause))continue;
+    const sessions=[...clause.matchAll(/\b(?:session|set)\s*[-_]?\s*(\d+)\b/giu)].map(match=>String(Number(match[1])));
+    if(slot&&sessions.length&&!sessions.includes(String(Number(slot))))continue;
+    const materials=/\b(?:materials?|folders?|files?|videos?|solutions?|manuals?|upload(?:ed|ing)?)\b/iu.test(clause);
+    if(event.type==='materials-release'&&materials)return true;
+    if(event.type==='training-session'&&!materials&&slot&&sessions.includes(String(Number(slot))))return true;
+    if(event.type==='mock-test-window'&&/\bmock[ -]?test\b/iu.test(clause))return true;
+    if(event.type==='check-in'&&/\bcheck[ -]?in\b/iu.test(clause))return true;
+    if(event.type==='competition-day'&&!materials&&/\b(?:competition|exam)\b/iu.test(clause))return true;
+    if(event.type==='registration-deadline'&&/\bregistration\b/iu.test(clause))return true;
+    if(event.type==='classmarker-deadline'&&!materials&&/\b(?:ClassMarker|pre[ -]?test|assessment)\b/iu.test(clause))return true;
+    if(event.type==='other-deadline'&&/\bdeadline\b/iu.test(clause))return true;
+  }
+  return false;
+}
 /** Check identity only against the source pieces actually cited by this proposal. */
 export function entityEvidenceIssues(event:ScheduleEvent,catalog:Catalog,context:SemanticContext):string[] {
   if(context.evidence===undefined)return [];
@@ -113,6 +142,10 @@ export function entityEvidenceIssues(event:ScheduleEvent,catalog:Catalog,context
 export function semanticIssues(event:ScheduleEvent,context:SemanticContext={}):string[] {
   const issues:string[]=[],active=(event.status??'active')==='active';
   if(event.timezoneAssumed&&context.timezoneConfirmed!==true)issues.push('Timezone assumption requires explicit factual confirmation.');
+  if(active&&context.evidence!==undefined)for(const field of ['start','end','deadline'] as const)if(event[field]!==null&&!event.temporal?.[field])issues.push(`${field} temporal precision requires retained source evidence.`);
+  const hasProposedTime=[event.start,event.end,event.deadline,event.availability?.expectedAt??null].some(time=>time!==null);
+  if(active&&context.evidence!==undefined&&hasProposedTime&&context.timezoneConfirmed!==true&&!sourceConfirmsTimezone(event,context))issues.push('Source timezone is unconfirmed; an advisory timezoneAssumed flag cannot establish source timezone.');
+  if(active&&context.evidence!==undefined&&hasProposedTime&&context.timezoneConfirmed!==true&&relevantRelativeSource(event,context))issues.push('Source relative time requires explicit factual resolution; provider exact precision cannot invent a clock time.');
   if(event.temporal)for(const field of ['start','end','deadline'] as const){const fact=event.temporal[field];if(!fact)continue;
     if(fact.precision==='date_only'||fact.precision==='relative'||fact.precision==='unknown')issues.push(`${field} temporal precision is unresolved; a confirmed clock time is required.`);
     if(fact.precision==='exact'&&event[field]===null)issues.push(`${field} exact time is unresolved.`);
@@ -131,7 +164,7 @@ export function semanticIssues(event:ScheduleEvent,context:SemanticContext={}):s
     if(a.state==='expected'&&a.expectedAt===null)issues.push('Expected availability time is unresolved.');
     if((a.state==='available'||a.state==='partial'||a.state==='unavailable')&&a.asOf===null)issues.push('Availability as-of time is unresolved.');
     if(a.state==='available'&&a.expectedAt!==null)issues.push('Current availability cannot retain a future expected-availability claim.');
-    if(a.state==='available'&&context.evidence!==undefined){const text=citedEvidence(context);if(uncertainAvailability.test(text)||!currentAvailability.test(text))issues.push('Available-now claim is not supported by the cited source evidence.');}
+    if(a.state==='available'&&context.evidence!==undefined){const text=citedEvidence(context),completeSource=(context.sourceEvidence??context.evidence).map(item=>item.text).join('\n');if(uncertainAvailability.test(completeSource)||!currentAvailability.test(text))issues.push('Available-now claim is not supported by the complete source and cited evidence.');}
     if(a.state==='available'&&timestamp(context.sourceTime)&&a.asOf!==null&&a.asOf>context.sourceTime)issues.push('Availability cannot be confirmed at a time later than its source.');
   }
   return [...new Set(issues)];

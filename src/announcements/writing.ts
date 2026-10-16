@@ -17,7 +17,7 @@ export async function draftMajor(store:AnnouncementStore,policy:PolicyFile,provi
     if(store.db.prepare('SELECT job FROM announcement_drafts WHERE job=?').get(j.id))continue;
     const row=store.event(policy.guild,j.event_key);if(!row||row.revision!==j.revision||store.held(row.event_key))continue;
     const e=JSON.parse(row.event_json) as ScheduleEvent,catalog=JSON.parse(row.catalog_json) as Catalog;
-    if(row.public_safety_version!==1||row.fact_semantics_version!==1)continue;
+    if(row.public_safety_version!==1||row.fact_semantics_version!==1||!store.eventEvidenceCurrent(row))continue;
     validateEvent(e,catalog,true);
     // AI sees approved public structured facts, never organizer body or credentials.
     const result=await completeProvider(provider,{messages:[{role:'system',content:'Draft a short Mathematikaws announcement from approved facts. Return JSON {"text":"..."}. Use only lowercase named locked placeholders {{role}}, {{competition}}, {{year}}, {{round}}, {{program}}, {{version}}, {{slot}}, {{date}}, {{timeRange}}, {{deadline}}, {{url}}, {{detailLabel}} for authoritative values. Do not type dates, numbers, role IDs or URLs. Do not invent outcomes or qualification. This message still needs human editorial approval.'},{role:'user',content:JSON.stringify({event:e,catalog,templateStyle:policy.templates})}],response_format:{type:'json_object'},max_tokens:600,temperature:0.2},signal,complete) as {choices?:{message?:{content?:string}}[]};

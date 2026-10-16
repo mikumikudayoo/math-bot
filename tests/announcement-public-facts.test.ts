@@ -61,6 +61,15 @@ test('multiline private labels and credential sections do not leak the next valu
   assert.ok(safe.text.includes('Session 1: January 8, 2030, 1 PM'));
 });
 
+test('credential values cannot masquerade as public headings or escape across blank lines',()=>{
+  for(const heading of ['Password:','Login details:'])for(const credential of ['Session12345!','Session 12345!','ScheduleSecret77','materials-secret-7654']){
+    const safe=sanitizeOrganizerEvidence(`${heading}\n\n${credential}\nTraining schedule\nSession 1: January 8, 2030, 9 AM Asia/Manila`);
+    assert.equal(safe.text.includes(credential),false);assert.ok(safe.text.includes('Session 1: January 8'));
+  }
+  const safe=sanitizeOrganizerEvidence('Password:\nSession 1: credential-shaped synthetic secret\nSession 2: January 9, 2030, 9 AM');
+  assert.equal(safe.text.includes('credential-shaped synthetic secret'),false);assert.ok(safe.text.includes('Session 2: January 9'));
+});
+
 test('repeated sanitation preserves useful moderator evidence and its compatible credential marker',()=>{
   const first=sanitizeOrganizerEvidence(familyA);
   assert.deepEqual(sanitizeOrganizerEvidence(first.text),{text:first.text,sensitive:false});
@@ -120,6 +129,9 @@ test('public HTTPS resource pages and shared folder shapes remain valid',()=>{
 });
 
 test('personalized, auth, parameterized, encoded and nonpublic URL structures fail closed',()=>{
+  for(const url of ['https://www.classmarker.com/online-test/start/ABCD1234','https://example.org/assessment/launch/ABCD1234','https://example.org/exam/start/ABCD1234','https://zoom.us./j/ABCD1234','https://localhost./ABCD1234']){
+    assert.throws(()=>validatePublicUrl(url));assert.equal(sanitizeOrganizerEvidence(url).text.includes('ABCD1234'),false);
+  }
   const urls=[
     'http://example.org/resources','https://user:secret@example.org/resources',
     'https://example.org/candidate/A9C123','https://example.org/candidates/A9C123',
@@ -176,7 +188,7 @@ function safeExtraction():Extraction{return {
   events:[{event:{competitionId:null,roundId:null,programId:'vtamps-v30-0',preparesFor:[],yearLevel:'Senior Secondary',type:'training-session',slot:'1',start:now+86400000,end:now+93600000,deadline:null,timezone:'Asia/Manila',url:'https://example.org/resources/vtamps',detailLabel:null,dateHint:null,status:'active',timezoneAssumed:false},confidence:'high',issues:[]}],
 };}
 const exactTime=(time:number|null)=>time===null?null:{precision:'exact' as const,expression:new Date(time).toISOString(),sourceTime:null};
-function providerOutput(x=safeExtraction()){return {disposition:'public',dispositionReason:null,correction:false,catalog:x.catalog,events:x.events.map(c=>({...c,event:{...c.event,availability:null,temporal:{start:exactTime(c.event.start),end:exactTime(c.event.end),deadline:exactTime(c.event.deadline)},logistics:null},evidenceIds:['body'],correctionPatch:null})),issues:[] as string[]};}
+function providerOutput(x=safeExtraction()){return {disposition:'public',dispositionReason:null,correction:false,catalog:x.catalog,events:x.events.map(c=>({...c,event:{...c.event,availability:null,temporal:{start:exactTime(c.event.start),end:exactTime(c.event.end),deadline:exactTime(c.event.deadline)},logistics:null},evidenceIds:['body'],correctionPatch:null,fieldEvidence:null})),issues:[] as string[]};}
 function ingestFixture(store:AnnouncementStore,input=safeExtraction(),at=now){
   for(const c of input.events)Object.assign(c,{evidenceIds:['body'],event:{...c.event,temporal:Object.fromEntries((['start','end','deadline'] as const).filter(field=>c.event[field]!==null).map(field=>[field,exactTime(c.event[field])!]))}});
   store.saveEvidence(store.source(guild,input.source),{evidence:[{id:'body',text:'VTAMPS V.30.0 Senior Secondary Session 1: January 2, 2030, 12:00 AM to 2:00 AM Asia/Manila. Public resources: https://example.org/resources/vtamps'}],blocked:[]});

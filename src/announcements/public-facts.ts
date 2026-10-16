@@ -8,7 +8,9 @@ const labelledPrivateValue = new RegExp('\\b' + privateLabel + '(?![\\p{L}\\p{N}
 const identityValue = /\b(?:full\s+name|(?:student|participant|candidate)(?:'s)?\s+name|name\s+of\s+(?:student|participant|candidate)|name|school(?:\s+name)?)\s*[:=|]\s*([^\n]*)/iu;
 const identityHeading = /\b(?:(?:full|student|participant|candidate)\s+name|name|school(?:\s+name)?)\s*$/iu;
 const privateSection = /^\s*(?:\[x=[^\]]+\]\s*)?(?:(?:your|personal|individual|participant)\s+)?(?:login\s+(?:details|credentials|information)|credentials|participant\s+(?:details|information)|student\s+(?:details|information))\s*:?\s*$/iu;
-const publicSection = /\b(?:session\s*\d+|(?:competition|exam|mock[ -]?test|training|registration|check[ -]?in)\s+(?:date|time|start|end|schedule|deadline|window)|schedule|timetable|venue|what\s+to\s+bring|dress\s+code|materials|guidebook|public\s+(?:resource|link))\b/iu;
+// Only a complete public heading or a delimited schedule line can end a private
+// section. A credential such as Session12345! is never a section boundary.
+const publicSection = /^\s*(?:\[x=[^\]]+\]\s*)?(?:(?:(?:training|competition|exam|review)\s+)?(?:schedule|timetable)|venue|what\s+to\s+bring|dress\s+code|materials|guidebook|public\s+(?:resource|link))\s*:?\s*$|^\s*(?:\[x=[^\]]+\]\s*)?(?:session\s+\d+\b|(?:competition|exam|mock[ -]?test|training|registration|check[ -]?in)\s+(?:date|time|start|end|schedule|deadline|window)|venue|what\s+to\s+bring|dress\s+code|materials|guidebook|public\s+(?:resource|link))\s*[:–—-]\s+\S/iu;
 const harmlessNotice = /^(?:content\s+(?:is\s+)?withheld\b|(?:will\s+be|were|was|are|has\s+been|have\s+been)\s+(?:sent|emailed|withheld)\b|(?:already\s+)?(?:sent|emailed|withheld)\b|not\s+(?:required|needed)\b)/iu;
 const unresolvedEncoding = /%[\da-f]{2}|&#(?:\d+|x[\da-f]+)|\\u(?:\{|[\da-f])|\\x[\da-f]/iu;
 
@@ -51,10 +53,12 @@ export function validatePublicUrl(value:unknown):void {
   const normalized=normalizePublicText(value);
   let url:URL;try{url=new URL(normalized);}catch{urlError();}
   if(url.protocol!=='https:'||url.username||url.password||url.port&&url.port!=='443'||url.search)urlError();
-  if(!url.hostname.includes('.')||/^\[|^[\d.]+$/.test(url.hostname)||/(?:^|\.)(?:localhost|local|internal|lan)$/i.test(url.hostname))urlError();
+  const hostname=url.hostname.replace(/\.$/u,'').toLowerCase();
+  if(!hostname.includes('.')||/^\[|^[\d.]+$/.test(hostname)||/(?:^|\.)(?:localhost|local|internal|lan)$/i.test(hostname))urlError();
   const path=normalizePublicText(url.pathname).toLowerCase();
   if(/[;=]/u.test(path)||/(?:^|[/_.-])(?:candidates?(?:id|number|no|code)?|users?(?:id|name)?|participants?|students?|accounts?|auth(?:entication|orization)?|oauth\d*|log[ -]?in|signin|sign-in|callback|session(?:id|token)?|tokens?|password|passcode|pin|credentials?|access[-_]?key|reset|verify|verification|invites?|download|private|personal|profiles?|recipients?|delivery)(?:$|[/_.-])/i.test(path)||/(?:^|\/)(?:u|me|members?)(?:\/|$)/iu.test(path))urlError();
-  if(/(?:^|\.)zoom\.(?:us|com)$/i.test(url.hostname)&&/^\/(?:j|s|w|my|join|rec|wc)(?:\/|$)/i.test(path))urlError();
+  if(/(?:^|\.)zoom\.(?:us|com)$/i.test(hostname)&&/^\/(?:j|s|w|my|join|rec|wc)(?:\/|$)/i.test(path))urlError();
+  if(/(?:^|\/)\b(?:assessments?|online-tests?|tests?|exams?)\/(?:launch|start|take|access|attempt|resume)(?:\/|$)/iu.test(path)||/(?:^|\.)classmarker\.com$/iu.test(hostname)&&/^\/online-test(?:\/|$)/iu.test(path))urlError();
   if(privateValuePattern.test(normalized)||hasSensitivePublicContent(path))urlError();
   if(url.hash&&(!/^#[a-z][a-z\d-]{0,60}$/i.test(url.hash)||/(?:auth|token|candidate|user|password|secret|pin)/i.test(url.hash)||/session/i.test(url.hash)&&!/^#session-\d+$/i.test(url.hash)))urlError();
   // Encoded separators must not introduce hidden authority, query, or fragments.
@@ -86,9 +90,10 @@ export function sanitizeOrganizerEvidence(value:string):{text:string;sensitive:b
   let sensitive=false,withholdNextLine=false,inPrivateSection=false;
   const normalized=normalizePublicText(value);
   const lines=normalized.split(/\r?\n/u).map(line=>{
+    if(!line.trim())return line;
     if(privateSection.test(line)){sensitive=true;inPrivateSection=true;return privateEvidenceMarker;}
-    if(inPrivateSection){if(publicSection.test(line))inPrivateSection=false;else if(line.trim()){sensitive=true;return privateEvidenceMarker;}}
-    if(withholdNextLine){withholdNextLine=false;if(line.trim()&&!publicSection.test(line)){sensitive=true;return privateEvidenceMarker;}}
+    if(inPrivateSection){if(publicSection.test(line))inPrivateSection=false;else {withholdNextLine=false;sensitive=true;return privateEvidenceMarker;}}
+    if(withholdNextLine&&line.trim()){withholdNextLine=false;sensitive=true;return privateEvidenceMarker;}
     const links=inspectUrls(line,true);sensitive||=links.sensitive;
     let withholdNextCell=false,privateHeaders=0;
     const result=links.text.split(/([;|])/u).map(segment=>{

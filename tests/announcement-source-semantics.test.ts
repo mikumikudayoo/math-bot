@@ -7,7 +7,7 @@ import type {ScheduleEvent} from '../src/announcements/model.js';
 const now=Date.parse('2030-01-01T00:00:00Z');
 const source={account:'synthetic',messageId:'synthetic-source',attachment:null,sha256:'a'.repeat(64),locator:'body'};
 const provider={backend:'https://example.invalid/v1',model:'synthetic-model',backendKey:'synthetic-key',nativeTools:false,vision:false};
-function output(patch:Partial<ScheduleEvent>={}){return {disposition:'public',dispositionReason:null,correction:false,catalog:{competitions:[],rounds:[],programs:[{id:'model-choice',name:'VTAMPS',version:'30.0'}]},events:[{event:{competitionId:null,roundId:null,programId:'model-choice',preparesFor:[],yearLevel:'Senior Secondary',type:'training-session',slot:'Session 1',start:now+86400000,end:now+86400000+7200000,deadline:null,timezone:'Asia/Manila',timezoneAssumed:false,url:null,detailLabel:null,dateHint:null,status:'active',availability:null,temporal:{start:null,end:null,deadline:null},logistics:null,...patch},confidence:'high',issues:[],evidenceIds:['body'],correctionPatch:null}],issues:[]};}
+function output(patch:Partial<ScheduleEvent>={}){return {disposition:'public',dispositionReason:null,correction:false,catalog:{competitions:[],rounds:[],programs:[{id:'model-choice',name:'VTAMPS',version:'30.0'}]},events:[{event:{competitionId:null,roundId:null,programId:'model-choice',preparesFor:[],yearLevel:'Senior Secondary',type:'training-session',slot:'Session 1',start:now+86400000,end:now+86400000+7200000,deadline:null,timezone:'Asia/Manila',timezoneAssumed:false,url:null,detailLabel:null,dateHint:null,status:'active',availability:null,temporal:{start:{precision:'exact',expression:'2030-01-02T00:00:00Z',sourceTime:now},end:{precision:'exact',expression:'2030-01-02T02:00:00Z',sourceTime:now},deadline:null},logistics:null,...patch},confidence:'high',issues:[],evidenceIds:['body'],correctionPatch:null,fieldEvidence:null}],issues:[]};}
 const mail=(text:string)=>({evidence:[{id:'body',text}],blocked:[] as string[],sensitive:false,sourceTime:now});
 
 test('strict extraction schema requires explicit disposition and semantic fields and rejects authority injection',()=>{
@@ -20,7 +20,7 @@ test('strict extraction schema requires explicit disposition and semantic fields
 test('host identity normalization and candidate evidence IDs survive extraction validation',()=>{
   const result=validateOutput(output(),mail('VTAMPS V.30.0 Senior Secondary Session 1 on January 2, 2030, 8 AM to 10 AM Asia/Manila.'),source);
   assert.equal(result.disposition,'public');assert.equal(result.sourceTime,now);assert.equal(result.events[0]!.event.programId,'vtamps-v30-0');assert.equal(result.events[0]!.event.slot,'1');
-  assert.deepEqual(result.events[0]!.evidenceIds,['body']);assert.deepEqual(result.events[0]!.issues,[]);assert.equal(result.events[0]!.event.availability,undefined);assert.equal(result.events[0]!.event.temporal,undefined);
+  assert.deepEqual(result.events[0]!.evidenceIds,['body']);assert.deepEqual(result.events[0]!.issues,[]);assert.equal(result.events[0]!.event.availability,undefined);assert.equal(result.events[0]!.event.temporal!.start!.precision,'exact');
 });
 
 test('a model cannot relabel unsupported VTASP or claim supported facts from unrelated cited evidence',()=>{

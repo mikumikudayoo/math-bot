@@ -1,0 +1,70 @@
+{
+  "disposition": "public",
+  "dispositionReason": "Synthetic manual transcription for review.",
+  "correction": false,
+  "sourceTime": 1893283200000,
+  "source": {
+    "account": "manual-synthetic",
+    "messageId": "synthetic-reviewed-import",
+    "attachment": null,
+    "sha256": "af6ee887c86db59884d2fc49188d57d8e6fb238ba5cce913fe60fdad2a82910c",
+    "locator": "body"
+  },
+  "catalog": {
+    "competitions": [],
+    "rounds": [],
+    "programs": [
+      {
+        "id": "vtamps-v30-0",
+        "name": "VTAMPS",
+        "version": "30.0"
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "id": "body",
+      "text": "VTAMPS V.30.0 Senior Secondary training Session 1: January 1, 2030, 9 AM to 11 AM Asia/Manila. Public resources: https://example.org/resources/vtamps",
+      "locations": [
+        "body"
+      ]
+    }
+  ],
+  "events": [
+    {
+      "event": {
+        "competitionId": null,
+        "roundId": null,
+        "programId": "vtamps-v30-0",
+        "preparesFor": [],
+        "yearLevel": "Senior Secondary",
+        "type": "training-session",
+        "slot": "1",
+        "start": 1893459600000,
+        "end": 1893466800000,
+        "deadline": null,
+        "timezone": "Asia/Manila",
+        "timezoneAssumed": false,
+        "url": "https://example.org/resources/vtamps",
+        "detailLabel": null,
+        "temporal": {
+          "start": {
+            "precision": "exact",
+            "expression": "January 1, 2030, 9 AM Asia/Manila",
+            "sourceTime": 1893283200000
+          },
+          "end": {
+            "precision": "exact",
+            "expression": "January 1, 2030, 11 AM Asia/Manila",
+            "sourceTime": 1893283200000
+          }
+        }
+      },
+      "confidence": "high",
+      "issues": [],
+      "evidenceIds": [
+        "body"
+      ]
+    }
+  ]
+}

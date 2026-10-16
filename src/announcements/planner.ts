@@ -14,7 +14,7 @@ export function plan(store:AnnouncementStore,policy:PolicyFile,now=Date.now(),sn
     if(authoritative.guild!==policy.guild||authoritative.fingerprint!==digest(policy)||!isEffectivePolicy(store,authoritative))throw new Error('Announcement policy snapshot is stale; reload runtime configuration.');
     const desired=new Set<string>();
     for(const row of store.events(policy.guild)){
-      if(row.public_safety_version!==1||row.fact_semantics_version!==1){store.alert(policy.guild,'public-safety-review',row.event_key,now);continue;}
+      if(row.public_safety_version!==1||row.fact_semantics_version!==1||!store.eventEvidenceCurrent(row)){store.alert(policy.guild,'public-safety-review',row.event_key,now);continue;}
       const e=JSON.parse(row.event_json) as ScheduleEvent;
       if((e.status??'active')!=='active')continue;
       for(const rule of policy.policies){
@@ -43,7 +43,8 @@ export function plan(store:AnnouncementStore,policy:PolicyFile,now=Date.now(),sn
     for(const job of obsolete)if(!desired.has(job.logical_delivery_id))store.db.prepare("UPDATE announcement_jobs SET state='superseded' WHERE id=?").run(job.id);
     const expired=store.db.prepare("SELECT id FROM announcement_jobs WHERE guild=? AND expires<? AND state='scheduled'").all(policy.guild,now) as {id:string}[];
     for(const job of expired){store.db.prepare("UPDATE announcement_jobs SET state='skipped' WHERE id=?").run(job.id);store.alert(policy.guild,'missed-reminder',job.id,now);}
-    for(const c of store.candidates(policy.guild).filter(x=>x.state==='pending')){const e=JSON.parse(c.event_json) as ScheduleEvent;const time=e.deadline??e.start;if((e.status??'active')==='active'&&time!==null&&time>now&&time-now<86400000)store.alert(policy.guild,'approaching-unapproved',c.id,now);}
+    const pending=store.db.prepare("SELECT id,event_json FROM candidate_events WHERE guild=? AND state='pending' ORDER BY rowid").iterate(policy.guild);
+    for(const c of pending){const e=JSON.parse(String(c.event_json)) as ScheduleEvent;const time=e.deadline??e.start;if((e.status??'active')==='active'&&time!==null&&time>now&&time-now<86400000)store.alert(policy.guild,'approaching-unapproved',String(c.id),now);}
     return store.jobs(policy.guild);
   });
 }
