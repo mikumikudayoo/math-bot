@@ -133,6 +133,15 @@ export class AnnouncementStore {
       // A migration does not certify legacy fields as source-supported.
       this.db.exec('INSERT OR IGNORE INTO schema_version VALUES(7); COMMIT');
     }catch(error){this.db.exec('ROLLBACK');throw error;}
+    this.db.exec('BEGIN IMMEDIATE');
+    try{
+      this.db.exec(`CREATE TABLE IF NOT EXISTS announcement_job_public_ids(public_id INTEGER PRIMARY KEY AUTOINCREMENT,job TEXT NOT NULL UNIQUE);
+        INSERT INTO announcement_job_public_ids(job) SELECT id FROM announcement_jobs WHERE id NOT IN (SELECT job FROM announcement_job_public_ids) ORDER BY rowid;
+        CREATE TRIGGER IF NOT EXISTS announcement_job_public_id_insert AFTER INSERT ON announcement_jobs BEGIN
+          INSERT INTO announcement_job_public_ids(job) VALUES(NEW.id);
+        END;
+        INSERT OR IGNORE INTO schema_version VALUES(8); COMMIT;`);
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
   }
   transaction<T>(fn:()=>T):T{if(this.state('maintenance:reset')==='true')throw new Error('Announcement storage reset in progress.');this.db.exec('BEGIN IMMEDIATE');try{const out=fn();this.db.exec('COMMIT');return out;}catch(e){this.db.exec('ROLLBACK');throw e;}}
   audit(guild:string,actor:string,action:string,target:string,snapshot:unknown,now=Date.now()){if(!actor.trim())throw new Error('Actor required.');this.db.prepare('INSERT INTO audit_log(guild,actor,action,target,snapshot,at) VALUES(?,?,?,?,?,?)').run(guild,actor,action,target,canonical(snapshot),now);}
@@ -172,7 +181,10 @@ export class AnnouncementStore {
       if(typeof e.id!=='string'||!e.id.trim()||e.id.length>200||typeof e.text!=='string')throw new Error('Invalid retained evidence statement.');
       return {id:e.id,text:sanitizeOrganizerEvidence(e.text).text,locations:(e.locations??[e.id]).filter(location=>typeof location==='string'&&/^(?:subject|body(?:\.\d+)*)(?::(?:pdf|page-\d+))?(?::chunk-\d+)?$/u.test(location))};
     }),blocked:(data.blocked??[]).map(x=>sanitizeOrganizerEvidence(x).text)};
-    const json=canonical(safe);if(Buffer.byteLength(json)>100000)throw new Error('Source evidence too large.');this.db.prepare('INSERT INTO source_evidence VALUES(?,?) ON CONFLICT(source) DO UPDATE SET evidence_json=excluded.evidence_json').run(source,json);
+    const json=canonical(safe);if(Buffer.byteLength(json)>100000)throw new Error('Source evidence too large.');
+    const previous=this.db.prepare('SELECT evidence_json FROM source_evidence WHERE source=?').get(source);
+    if(previous&&previous.evidence_json!==json&&this.db.prepare('SELECT event_key FROM event_revisions WHERE field_evidence_json LIKE ? LIMIT 1').get('%'+JSON.stringify(source)+'%'))throw new Error('Approved revision evidence is immutable; retain the replacement as a new source.');
+    this.db.prepare('INSERT INTO source_evidence VALUES(?,?) ON CONFLICT(source) DO UPDATE SET evidence_json=excluded.evidence_json').run(source,json);
   }
   candidates(guild:string){return this.candidatePage(guild,0,100).items;}
   candidatePage(guild:string,page=0,size=5){

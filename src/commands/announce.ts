@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { parseTime } from '../reminders/types.js';
 import { inboxPanel,reviewPanel,sourcePanel,sourceId,requireCandidate,requireJob,jobCandidate,jobLabel,title,safeText,reviewedPayload,actionError,ReviewError } from '../announcements/review-ui.js';
 const lockedHash=(job:AnnouncementJob)=>digest([job.payload_json,job.asset]);
-const idOption=(s:SlashCommandSubcommandBuilder)=>s.addStringOption(o=>o.setName('id').setDescription('Candidate number from the inbox (for example 17)').setRequired(true).setAutocomplete(true));
+const idOption=(s:SlashCommandSubcommandBuilder)=>s.addStringOption(o=>o.setName('id').setDescription('Candidate number (17) or exact delivery reference (D#23) from the inbox').setRequired(true).setAutocomplete(true));
 export function makeAnnounceCommand(getConfig:()=>AutomationConfig=automationConfig,getStore:(path:string)=>AnnouncementStore=announcementStore,fetchAttachment:typeof safeFetch=safeFetch):Command {
   return {data:new SlashCommandBuilder().setName('announce').setDescription('Review mathematics events and announcement jobs.').setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand(s=>s.setName('inbox').setDescription('Private factual review and delivery inbox').addStringOption(o=>o.setName('kind').setDescription('Inbox section').addChoices({name:'candidates',value:'candidates'},{name:'deliveries',value:'deliveries'},{name:'sources needing review',value:'sources'})).addIntegerOption(o=>o.setName('page').setDescription('Page number').setMinValue(1)))
@@ -27,6 +27,7 @@ export function makeAnnounceCommand(getConfig:()=>AutomationConfig=automationCon
     .addSubcommand(s=>idOption(s.setName('source').setDescription('Review blocked organizer source and redacted evidence')))
     .addSubcommand(s=>idOption(s.setName('dismiss-source').setDescription('Dismiss a reviewed source and release its unresolved holds')))
     .addSubcommand(s=>idOption(s.setName('edit').setDescription('Correct candidate times/status; preview again afterwards')).addIntegerOption(o=>o.setName('version').setDescription('Reviewed candidate version').setRequired(true)).addStringOption(o=>o.setName('start').setDescription('YYYY-MM-DD HH:mm Manila')).addStringOption(o=>o.setName('end').setDescription('YYYY-MM-DD HH:mm Manila')).addStringOption(o=>o.setName('deadline').setDescription('YYYY-MM-DD HH:mm Manila')).addStringOption(o=>o.setName('state').setDescription('Event state').addChoices(...['active','cancelled','postponed'].map(value=>({name:value,value})))).addBooleanOption(o=>o.setName('resolve-issues').setDescription('Explicitly confirm all listed factual issues were resolved')))
+    .addSubcommand(s=>idOption(s.setName('reconsider').setDescription('Reconsider rejected facts using materially new retained evidence')).addIntegerOption(o=>o.setName('version').setDescription('Rejected candidate review version').setRequired(true)).addStringOption(o=>o.setName('reason').setDescription('Why the new retained evidence changes the factual review').setRequired(true).setMaxLength(500)))
     .addSubcommand(s=>idOption(s.setName('attach').setDescription('Persist your exported Canva PNG/JPG for a major post')).addAttachmentOption(o=>o.setName('image').setDescription('PNG/JPG exported by staff').setRequired(true)))
     .addSubcommand(s=>idOption(s.setName('cancel').setDescription('Approve cancellation or postponement of an event')).addIntegerOption(o=>o.setName('revision').setDescription('Current event revision').setRequired(true)).addBooleanOption(o=>o.setName('postponed').setDescription('No replacement time yet')))
     .addSubcommand(s=>idOption(s.setName('reconcile').setDescription('Resolve uncertain delivery after checking destination')).addStringOption(o=>o.setName('message').setDescription('Existing Discord message ID, or omit to cancel without retry')))
@@ -39,8 +40,16 @@ export function makeAnnounceCommand(getConfig:()=>AutomationConfig=automationCon
         if(store.state('maintenance:reset')==='true'){await i.respond([]);return;}
         const action=i.options.getSubcommand(),query=String(i.options.getFocused()).toLowerCase().replace(/^#/,'');
         let choices:{name:string;value:string}[];
-        if(['preview','attach','reconcile'].includes(action))choices=store.jobs(guild).flatMap(j=>{const c=jobCandidate(store,guild,j);return c?[{name:`${jobLabel(store,guild,j)} · ${j.state}`.slice(0,100),value:String(c.public_id)}]:[];}).filter((choice,index,all)=>all.findIndex(c=>c.value===choice.value)===index);
-        else choices=store.candidates(guild).filter(c=>!['approve','reject','edit'].includes(action)||c.state==='pending').map(c=>({name:`#${c.public_id} · ${title(c)} · ${(JSON.parse(c.event_json) as ScheduleEvent).type}`.slice(0,100),value:String(c.public_id)}));
+        if(['preview','attach','reconcile'].includes(action)){
+          const state=action==='reconcile'?"AND j.state IN ('uncertain','delivering')":action==='attach'?"AND j.major=1 AND j.state IN ('pending_approval','blocked')":'';
+          const number=query.replace(/^d#?/,'');
+          const jobs=store.db.prepare(`SELECT j.*,p.public_id FROM announcement_jobs j JOIN announcement_job_public_ids p ON p.job=j.id WHERE j.guild=? ${state} AND (?='' OR CAST(p.public_id AS TEXT) LIKE ?) ORDER BY p.public_id DESC LIMIT 25`).all(guild,query,number+'%') as unknown as (AnnouncementJob&{public_id:number})[];
+          choices=jobs.map(j=>({name:`${jobLabel(store,guild,j)} · ${j.state}`.slice(0,100),value:`D#${j.public_id}`}));
+        }else{
+          const state=['approve','reject','edit'].includes(action)?"AND c.state='pending'":action==='reconsider'?"AND c.state='rejected'":'';
+          const rows=store.db.prepare(`SELECT c.*,p.public_id FROM candidate_events c JOIN candidate_public_ids p ON p.candidate=c.id WHERE c.guild=? ${state} AND (?='' OR CAST(p.public_id AS TEXT) LIKE ? OR LOWER(c.catalog_json) LIKE ? OR LOWER(c.event_json) LIKE ?) ORDER BY p.public_id DESC LIMIT 25`).all(guild,query,query+'%','%'+query+'%','%'+query+'%') as unknown as ReturnType<AnnouncementStore['candidates']>;
+          choices=rows.map(c=>({name:`#${c.public_id} · ${title(c)} · ${(JSON.parse(c.event_json) as ScheduleEvent).type}`.slice(0,100),value:String(c.public_id)}));
+        }
         await i.respond(choices.filter(c=>c.name.toLowerCase().includes(query)||c.value.startsWith(query)).slice(0,25));
       }catch{await i.respond([]);}
     },
@@ -67,6 +76,7 @@ export function makeAnnounceCommand(getConfig:()=>AutomationConfig=automationCon
         }
         if(action==='approve'){store.approve(guild,requireCandidate(store,guild,id).id,i.options.getInteger('version',true),i.user.id);planCurrent();await reply('facts approved; jobs planned. public auto-send follows the configured gate.');return;}
         if(action==='reject'){store.reject(guild,requireCandidate(store,guild,id).id,i.options.getInteger('version',true),i.user.id);await reply('proposal rejected.');return;}
+        if(action==='reconsider'){const c=requireCandidate(store,guild,id),next=store.reconsider(guild,c.id,i.options.getInteger('version',true),i.user.id,i.options.getString('reason',true));const panel=reviewPanel(store,guild,String(next.public_id));await reply(panel.text,panel.components);return;}
         if(action==='edit'){
           const c=requireCandidate(store,guild,id);const e=JSON.parse(c.event_json) as ScheduleEvent;
           for(const field of ['start','end','deadline'] as const){const text=i.options.getString(field);if(text)e[field]=parseTime(text);}

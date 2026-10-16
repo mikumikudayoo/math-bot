@@ -5,6 +5,48 @@ import {sanitizeOrganizerEvidence} from './public-facts.js';
 
 export const incidentCooldownMs=30*60*1000;
 export interface StaffAlert {id:string;kind:string;target:string}
+export function alertActionable(store:AnnouncementStore,guild:string,alert:StaffAlert,now=Date.now()):boolean {
+  if(['factual-review','correction-held'].includes(alert.kind))return !!store.db.prepare(`SELECT c.id FROM candidate_events c JOIN candidate_sources cs ON cs.candidate=c.id JOIN candidate_batches b ON b.source=cs.source WHERE c.guild=? AND b.id=? AND c.state='pending' LIMIT 1`).get(guild,alert.target);
+  if(alert.kind==='approaching-unapproved'){
+    const c=store.candidate(guild,alert.target);if(!c||c.state!=='pending')return false;
+    const e=JSON.parse(c.event_json) as ScheduleEvent,time=e.deadline??e.start;
+    return (e.status??'active')==='active'&&time!==null&&time>now&&time-now<86400000;
+  }
+  if(alert.kind==='blocked-source')return !!store.db.prepare("SELECT id FROM sources WHERE id=? AND guild=? AND state IN ('pending','retry','blocked') AND source_disposition NOT IN ('private','ignore')").get(alert.target,guild);
+  if(alert.kind==='provider-outage'||alert.kind==='provider-recovered'){
+    const incident=store.db.prepare("SELECT active,episode FROM operational_incidents WHERE guild=? AND provider='groq'").get(guild);
+    return !!incident&&Boolean(incident.active)===(alert.kind==='provider-outage')&&alert.target.startsWith(`groq:${incident.episode}`);
+  }
+  const job=store.job(guild,alert.target);
+  if(alert.kind==='public-safety-review'){
+    const event=job?store.event(guild,job.event_key):store.event(guild,alert.target);
+    if(job&&['sent','superseded','cancelled','skipped'].includes(job.state))return false;
+    return !!event&&(event.public_safety_version!==1||event.fact_semantics_version!==1||!store.eventEvidenceCurrent(event));
+  }
+  if(alert.kind==='delivery-identity-review'){
+    if(job)return job.state==='blocked'&&store.event(guild,job.event_key)?.revision===job.revision;
+    const event=store.event(guild,alert.target);return !!event&&!!store.db.prepare('SELECT job FROM legacy_delivery_guards WHERE guild=? AND event_key=? AND revision=? LIMIT 1').get(guild,event.event_key,event.revision);
+  }
+  if(['message-review','waiting-for-canva','blocked-announcement','uncertain-delivery','stuck-delivery','missed-reminder','delivery-preflight-blocked'].includes(alert.kind)){
+    if(!job)return false;
+    if(alert.kind==='uncertain-delivery')return job.state==='uncertain';
+    if(alert.kind==='stuck-delivery')return job.state==='delivering';
+    if(alert.kind==='missed-reminder')return job.state==='skipped';
+    if(alert.kind==='delivery-preflight-blocked')return job.state==='cancelled';
+    if(store.event(guild,job.event_key)?.revision!==job.revision||store.held(job.event_key))return false;
+    if(alert.kind==='blocked-announcement')return job.state==='blocked';
+    return job.state==='pending_approval'&&(alert.kind!=='waiting-for-canva'||job.asset_policy==='required'&&!job.asset);
+  }
+  if(['correction-after-send','cancellation-review'].includes(alert.kind)){
+    const at=alert.target.lastIndexOf(':'),event=store.event(guild,alert.target.slice(0,at));
+    return !!event&&event.revision===Number(alert.target.slice(at+1));
+  }
+  if(alert.kind==='gmail-unavailable')return store.state(`gmail:${alert.target}:health`)!=='healthy'&&store.state('gmail:retry-at')!=='0';
+  if(alert.kind==='gmail-history-gap')return !!store.db.prepare("SELECT key FROM gmail_state WHERE key LIKE 'gmail:%:history-gap' AND value<>'' LIMIT 1").get();
+  if(alert.kind==='gmail-pagination-review')return !!store.state(`gmail:${alert.target}:pagination-hold`);
+  if(alert.kind==='extraction-provider-unavailable')return false;
+  return true;
+}
 export function recordSourceFailure(store:AnnouncementStore,source:string,provider:string,reason:string,now=Date.now()){
   if(!['groq','gmail','review'].includes(provider))throw new Error('Unknown source failure provider.');
   reason=sanitizeOrganizerEvidence(reason).text;

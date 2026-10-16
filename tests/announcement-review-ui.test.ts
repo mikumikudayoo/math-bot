@@ -98,7 +98,7 @@ test('buttons navigate private reviews and approve only the reviewed version',as
 test('autocomplete uses readable labels and numeric values, including delivery references',async()=>{
   const s=new AnnouncementStore(':memory:');try{ingestFixture(s,input(),now);const cmd=makeAnnounceCommand(()=>config,()=>s),m=interaction('review',{query:'VTAMPS'});await cmd.autocomplete!(m.i as unknown as AutocompleteInteraction);
     assert.equal(m.choices[0].length,5);assert.match(m.choices[0][0].name,/#\d+.*VTAMPS.*training-session/);assert.match(m.choices[0][0].value,/^\d+$/);
-    s.approve(guild,s.resolveCandidate(guild,'1')!.id,1,'staff',now);plan(s,config.policy,now);const j=interaction('preview');await cmd.autocomplete!(j.i as unknown as AutocompleteInteraction);assert.equal(j.choices[0][0].value,'1');assert.equal(requireJob(s,guild,'1').id,s.jobs(guild)[0]!.id);
+    s.approve(guild,s.resolveCandidate(guild,'1')!.id,1,'staff',now);plan(s,config.policy,now);const j=interaction('preview');await cmd.autocomplete!(j.i as unknown as AutocompleteInteraction);assert.equal(j.choices[0][0].value,'D#1');assert.equal(requireJob(s,guild,j.choices[0][0].value).id,s.jobs(guild)[0]!.id);
   }finally{s.close();}
 });
 test('authorization precedes all config/storage reads for commands, buttons, autocomplete',async()=>{
@@ -129,7 +129,7 @@ test('source inbox reaches blocked sources without manual IDs; dismissal retains
 test('forwarded candidate provenance remains privately reviewable without exposing source IDs',async()=>{
   const s=new AnnouncementStore(':memory:');try{ingestFixture(s,input('original'),now);ingestFixture(s,input('forwarded'),now);
     const original=sourceId(s,guild,'1'),forwarded=String(s.db.prepare('SELECT id FROM sources WHERE message_id=?').get('forwarded')!.id);
-    s.saveEvidence(original,{evidence:[{text:'original organizer schedule'}]});s.saveEvidence(forwarded,{evidence:[{text:'forwarded organizer clarification'}]});
+    s.saveEvidence(original,{evidence:[{id:'body',text:'original organizer schedule'}]});s.saveEvidence(forwarded,{evidence:[{id:'body',text:'forwarded organizer clarification'}]});
     const first=sourcePanel(s,guild,'1'),second=sourcePanel(s,guild,'1',1);assert.match(first.text,/source 1\/2/);assert.ok(ids(first).includes('announce:source:1:1'));assert.match(second.text,/forwarded organizer clarification/);assert.ok(!second.text.includes(forwarded));
     const m=interaction('button');Object.assign(m.i,{customId:'announce:source:1:1'});await makeAnnounceButtonHandler(()=>config,()=>s)(m.i as unknown as ButtonInteraction);assert.match(text(m.replies[0]),/forwarded organizer clarification/);assert.equal(m.defers[0].flags,MessageFlags.Ephemeral);
   }finally{s.close();}
