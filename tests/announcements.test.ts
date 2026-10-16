@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync,rmSync,readFileSync } from 'node:fs';
+import { mkdtempSync,readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AnnouncementStore } from '../src/announcements/store.js';
@@ -16,6 +16,7 @@ import { validateLockedDraft } from '../src/announcements/writing.js';
 import { workerTick } from '../src/announcements/worker.js';
 import { makeAnnounceCommand } from '../src/commands/announce.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
+import { removeAnnouncementTestDirectory } from './announcement-test-cleanup.js';
 const guild='111111111111111111',now=Date.parse('2030-01-01T00:00:00+08:00');
 const policy:PolicyFile={guild,channel:'222222222222222222',role:'333333333333333333',staffChannel:null,policies:[{id:'test-1h',type:'training-session',anchor:'start',beforeMinutes:60,template:'session',major:false,asset:'none'}],templates:documentTemplates};
 const config:AutomationConfig={enabled:true,autoSend:false,database:':memory:',assets:'/tmp/announcement-test-assets',policy,gmail:{account:'test',query:'from:organizer@example.org',senders:['organizer@example.org'],clientId:'test',clientSecret:'test',refreshToken:'test'},provider:{backend:'https://api.groq.com/openai/v1',model:'openai/gpt-oss-120b',backendKey:'',nativeTools:false,vision:false},pollMs:120000};
@@ -27,45 +28,58 @@ test('Gmail account identity is verified before mailbox synchronization',async()
 });
 function input(message='schedule'):Extraction{
   const x=JSON.parse(readFileSync(new URL('../docs/examples/announcements/vtamps-v25-0.json',import.meta.url),'utf8')) as Extraction;
-  x.source.account='test';x.source.messageId=message;x.events.forEach((c,i)=>{c.event.start=now+(i+1)*86400000;c.event.end=c.event.start+150*60000;c.event.timezoneAssumed=true;});return x;
+  x.source.account='test';x.source.messageId=message;x.events.forEach((c,i)=>{c.event.start=now+(i+1)*86400000;c.event.end=c.event.start+150*60000;c.event.timezoneAssumed=false;});return x;
 }
-function activate(s:AnnouncementStore,x=input()){s.ingest(guild,x,now);for(const c of s.candidates(guild).filter(c=>c.state==='pending'))s.approve(guild,c.id,c.review_version,'staff',now);plan(s,policy,now);}
+const exactTime=(time:number|null)=>time===null?null:{precision:'exact' as const,expression:new Date(time).toISOString(),sourceTime:null};
+const fixtureTemporal=(e:ScheduleEvent)=>Object.fromEntries((['start','end','deadline'] as const).filter(field=>e[field]!==null).map(field=>[field,exactTime(e[field])!]));
+function fixtureEvidence(x:Extraction){return [
+  ...x.catalog.competitions.map(c=>`${c.name} ${c.year}`),...x.catalog.rounds.map(r=>r.name),...x.catalog.programs.map(p=>`${p.name} V.${p.version}`),
+  ...x.events.map(({event:e})=>`${e.yearLevel} ${e.type} ${e.slot}; ${[e.start,e.end,e.deadline].filter((n):n is number=>n!==null).map(n=>new Date(n).toISOString()).join(' ')}; ${e.dateHint??''}; ${e.timezoneAssumed?'timezone unspecified':e.timezone}`),
+].join('\n');}
+function ingestFixture(s:AnnouncementStore,x:Extraction,at=now){
+  for(const c of x.events)Object.assign(c,{evidenceIds:['body'],event:{...c.event,temporal:fixtureTemporal(c.event)}});
+  // These fixtures explicitly declare their public clock times; metadata alone
+  // must never stand in for the retained source evidence checked by the host.
+  s.saveEvidence(s.source(guild,x.source),{evidence:[{id:'body',text:fixtureEvidence(x)}],blocked:[]});
+  return s.ingest(guild,x,at);
+}
+function activate(s:AnnouncementStore,x=input()){ingestFixture(s,x,now);for(const c of s.candidates(guild).filter(c=>c.state==='pending'))s.approve(guild,c.id,c.review_version,'staff',now);plan(s,policy,now);}
 
 test('unresolved organizer sources fail closed until disposition; extraction narrows holds to affected identities',()=>{
   const s=new AnnouncementStore(':memory:');try{
     activate(s);const correction=input('unreadable-correction');correction.events=[correction.events[0]!];correction.events[0]!.event.start!+=86400000;correction.events[0]!.event.end!+=86400000;
     const source=s.source(guild,correction.source);s.holdSource(guild,source);assert.equal(s.jobs(guild).filter(j=>j.state==='held').length,5);
     const j=s.jobs(guild)[0]!;assert.equal(s.claim(j.id,j.due),undefined);
-    s.ingest(guild,correction,now);assert.equal(s.jobs(guild).filter(j=>j.state==='held').length,1);assert.equal(s.jobs(guild).filter(j=>j.state==='scheduled').length,4);
+    ingestFixture(s,correction,now);assert.equal(s.jobs(guild).filter(j=>j.state==='held').length,1);assert.equal(s.jobs(guild).filter(j=>j.state==='scheduled').length,4);
     const blocked=s.source(guild,input('another-blocked-source').source);s.holdSource(guild,blocked);s.sourceState(blocked,'blocked');assert.throws(()=>s.dismissSource('444444444444444444',blocked,'staff'));
     s.dismissSource(guild,blocked,'staff');assert.equal(s.jobs(guild).filter(j=>j.state==='held').length,1);
     const candidate=s.candidates(guild).find(c=>c.state==='pending')!;s.reject(guild,candidate.id,1,'staff');assert.equal(s.jobs(guild).filter(j=>j.state==='scheduled').length,5);
   }finally{s.close();}
 });
 test('five training sessions have separate program identity and cannot plan before approval',()=>{
-  const s=new AnnouncementStore(':memory:');try{s.ingest(guild,input(),now);assert.deepEqual(plan(s,policy,now),[]);assert.equal(s.candidates(guild).length,5);assert.equal(s.events(guild).length,0);activate(s);assert.equal(s.jobs(guild).length,5);assert.equal(s.events(guild).length,5);assert.ok(s.events(guild).every(e=>JSON.parse(e.event_json).competitionId===null));}finally{s.close();}
+  const s=new AnnouncementStore(':memory:');try{ingestFixture(s,input(),now);assert.deepEqual(plan(s,policy,now),[]);assert.equal(s.candidates(guild).length,5);assert.equal(s.events(guild).length,0);activate(s);assert.equal(s.jobs(guild).length,5);assert.equal(s.events(guild).length,5);assert.ok(s.events(guild).every(e=>JSON.parse(e.event_json).competitionId===null));}finally{s.close();}
 });
 test('duplicate forwards do not create events/jobs; changed dates share stable identity and supersede unsent old revision',()=>{
-  const s=new AnnouncementStore(':memory:');try{activate(s);s.ingest(guild,input('forwarded'),now);assert.equal(s.candidates(guild).filter(c=>c.state==='pending').length,0);plan(s,policy,now);assert.equal(s.jobs(guild).length,5);
-    const correction=input('revision');correction.events=[correction.events[0]!];correction.events[0]!.event.start!+=86400000;correction.events[0]!.event.end!+=86400000;s.ingest(guild,correction,now);assert.equal(s.jobs(guild).filter(j=>j.state==='held').length,1);const c=s.candidates(guild).find(c=>c.state==='pending')!;s.approve(guild,c.id,c.review_version,'staff',now);plan(s,policy,now);assert.equal(s.events(guild).length,5);assert.equal(s.jobs(guild).filter(j=>j.state==='superseded').length,1);assert.equal(s.jobs(guild).filter(j=>j.state==='scheduled').length,5);assert.equal(s.event(guild,c.event_key)!.revision,2);
+  const s=new AnnouncementStore(':memory:');try{activate(s);ingestFixture(s,input('forwarded'),now);assert.equal(s.candidates(guild).filter(c=>c.state==='pending').length,0);plan(s,policy,now);assert.equal(s.jobs(guild).length,5);
+    const correction=input('revision');correction.events=[correction.events[0]!];correction.events[0]!.event.start!+=86400000;correction.events[0]!.event.end!+=86400000;ingestFixture(s,correction,now);assert.equal(s.jobs(guild).filter(j=>j.state==='held').length,1);const c=s.candidates(guild).find(c=>c.state==='pending')!;s.approve(guild,c.id,c.review_version,'staff',now);plan(s,policy,now);assert.equal(s.events(guild).length,5);assert.equal(s.jobs(guild).filter(j=>j.state==='superseded').length,1);assert.equal(s.jobs(guild).filter(j=>j.state==='scheduled').length,5);assert.equal(s.event(guild,c.event_key)!.revision,2);
   }finally{s.close();}
 });
 test('edits require current review version and approval is scoped to server; stale competing revisions cannot overwrite',()=>{
-  const s=new AnnouncementStore(':memory:');try{activate(s);const x=input('new');x.events=[x.events[0]!];x.events[0]!.event.start!+=3600000;x.events[0]!.event.end!+=3600000;s.ingest(guild,x);const c=s.candidates(guild).find(c=>c.state==='pending')!;const edited=s.edit(guild,c.id,1,x.events[0]!.event,[],'staff');assert.throws(()=>s.approve(guild,c.id,1,'staff'),/stale/);assert.throws(()=>s.approve('444444444444444444',c.id,edited.review_version,'staff'));
-    const other=structuredClone(x);other.source.messageId='competing';other.events[0]!.event.start!+=3600000;other.events[0]!.event.end!+=3600000;s.ingest(guild,other);const stale=s.candidates(guild).find(r=>r.id!==c.id&&r.state==='pending')!;s.approve(guild,c.id,edited.review_version,'staff');assert.throws(()=>s.approve(guild,stale.id,1,'staff'),/Stale event/);
+  const s=new AnnouncementStore(':memory:');try{activate(s);const x=input('new');x.events=[x.events[0]!];x.events[0]!.event.start!+=3600000;x.events[0]!.event.end!+=3600000;ingestFixture(s,x);const c=s.candidates(guild).find(c=>c.state==='pending')!;const edited=s.edit(guild,c.id,1,x.events[0]!.event,[],'staff');assert.throws(()=>s.approve(guild,c.id,1,'staff'),/stale/);assert.throws(()=>s.approve('444444444444444444',c.id,edited.review_version,'staff'));
+    const other=structuredClone(x);other.source.messageId='competing';other.events[0]!.event.start!+=3600000;other.events[0]!.event.end!+=3600000;ingestFixture(s,other);const stale=s.candidates(guild).find(r=>r.id!==c.id&&r.state==='pending')!;s.approve(guild,c.id,edited.review_version,'staff');assert.throws(()=>s.approve(guild,stale.id,1,'staff'),/Stale event/);
   }finally{s.close();}
 });
 test('date-only deadlines and uncertainty remain pending; staff correction required',()=>{
   const s=new AnnouncementStore(':memory:');try{
-    const x=input();x.catalog.competitions=[{id:'hkimo-2030',name:'HKIMO',year:2030,subject:'mathematics'}];x.events=[x.events[0]!];x.events[0]!.event={...x.events[0]!.event,competitionId:'hkimo-2030',programId:null,type:'registration-deadline',slot:'registration',start:null,end:null,deadline:null,dateHint:'January 4, 2030'};s.ingest(guild,x);const c=s.candidates(guild)[0]!;assert.throws(()=>s.approve(guild,c.id,1,'staff'),/unresolved/);assert.equal(s.jobs(guild).length,0);
-    const updated=s.edit(guild,c.id,1,{...x.events[0]!.event,deadline:now+86400000},[],'staff');s.approve(guild,c.id,updated.review_version,'staff');assert.equal(s.events(guild).length,1);
+    const x=input();x.catalog.competitions=[{id:'hkimo-2030',name:'HKIMO',year:2030,subject:'mathematics'}];x.events=[x.events[0]!];x.events[0]!.event={...x.events[0]!.event,competitionId:'hkimo-2030',programId:null,type:'registration-deadline',slot:'registration',start:null,end:null,deadline:null,dateHint:'January 4, 2030'};ingestFixture(s,x);const c=s.candidates(guild)[0]!;assert.throws(()=>s.approve(guild,c.id,1,'staff'),/unresolved/);assert.equal(s.jobs(guild).length,0);
+    const updated=s.edit(guild,c.id,1,{...x.events[0]!.event,deadline:now+86400000,dateHint:null,temporal:{deadline:exactTime(now+86400000)!}},[],'staff');s.approve(guild,c.id,updated.review_version,'staff');assert.equal(s.events(guild).length,1);
   }finally{s.close();}
 });
 for(const type of ['classmarker-deadline','competition-day','registration-deadline','qualification'] as const)test(`${type} remains a competition milestone independent of VTAMPS`,()=>{
   const s=new AnnouncementStore(':memory:');try{
     const x=input(type);x.catalog.competitions=[{id:'timo-2030',name:'TIMO',year:2030,subject:'mathematics'}];x.catalog.rounds=[{id:'timo-2030-heat',competitionId:'timo-2030',name:'Heat Round'}];x.events=[x.events[0]!];
     x.events[0]!.event={...x.events[0]!.event,type,competitionId:'timo-2030',roundId:'timo-2030-heat',programId:null,slot:type,preparesFor:[],start:type==='competition-day'?now+86400000:null,end:null,deadline:type.endsWith('deadline')?now+86400000:null};
-    s.ingest(guild,x,now);const c=s.candidates(guild)[0]!;s.approve(guild,c.id,1,'staff',now);const e=JSON.parse(s.events(guild)[0]!.event_json) as ScheduleEvent;assert.equal(e.competitionId,'timo-2030');assert.equal(e.programId,null);assert.equal(e.roundId,'timo-2030-heat');
+    ingestFixture(s,x,now);const c=s.candidates(guild)[0]!;s.approve(guild,c.id,1,'staff',now);const e=JSON.parse(s.events(guild)[0]!.event_json) as ScheduleEvent;assert.equal(e.competitionId,'timo-2030');assert.equal(e.programId,null);assert.equal(e.roundId,'timo-2030-heat');
   }finally{s.close();}
 });
 for(const status of ['cancelled','postponed'] as const)test(`${status} is an approved revision with no invented replacement and no future jobs`,()=>{
@@ -81,25 +95,25 @@ test('durable reservation survives restart and two schedulers cannot race a slow
   const dir=mkdtempSync(join(tmpdir(),'announcement-race-')),path=join(dir,'test.sqlite');let a=new AnnouncementStore(path);const b=new AnnouncementStore(path);let release!:()=>void;
   try{activate(a);const due=Math.min(...a.jobs(guild).map(j=>j.due));let calls=0;const wait=new Promise<void>(r=>release=r);const send=async()=>{calls++;await wait;return {id:'sent'};};const first=deliverAnnouncements(a,{...config,autoSend:true},send,due);await deliverAnnouncements(b,{...config,autoSend:true},send,due);release();await first;assert.equal(calls,1);
     const next=a.jobs(guild).filter(j=>j.state==='scheduled').sort((x,y)=>x.due-y.due)[0]!;assert.ok(a.claim(next.id,next.due));a.close();a=new AnnouncementStore(path);assert.equal(a.job(guild,next.id)!.state,'delivering');assert.equal(a.claim(next.id,next.due),undefined);
-  }finally{release?.();a.close();b.close();rmSync(dir,{recursive:true,force:true});}
+  }finally{release?.();a.close();b.close();removeAnnouncementTestDirectory(dir);}
 });
 test('correction queued holds only affected jobs; correction during delivery preserves uncertainty and surfaces staff alert',async()=>{
   const s=new AnnouncementStore(':memory:');try{activate(s);const j=s.jobs(guild).sort((a,b)=>a.due-b.due)[0]!;const x=input('correction');x.events=[x.events.find(c=>guild+':'+digest([c.event.competitionId,c.event.roundId,c.event.programId,c.event.yearLevel,c.event.type,c.event.slot])===j.event_key)!];
-    const claimed=s.claim(j.id,j.due)!;assert.ok(claimed);x.events[0]!.event.start!+=86400000;x.events[0]!.event.end!+=86400000;s.ingest(guild,x);const c=s.candidates(guild).find(c=>c.state==='pending')!;s.approve(guild,c.id,1,'staff');s.finish(claimed,null);assert.equal(s.job(guild,j.id)!.state,'uncertain');assert.ok(s.db.prepare("SELECT id FROM staff_alerts WHERE kind='correction-after-send'").get());
+    const claimed=s.claim(j.id,j.due)!;assert.ok(claimed);x.events[0]!.event.start!+=86400000;x.events[0]!.event.end!+=86400000;ingestFixture(s,x);const c=s.candidates(guild).find(c=>c.state==='pending')!;s.approve(guild,c.id,1,'staff');s.finish(claimed,null);assert.equal(s.job(guild,j.id)!.state,'uncertain');assert.ok(s.db.prepare("SELECT id FROM staff_alerts WHERE kind='correction-after-send'").get());
   }finally{s.close();}
 });
 test('offline reminders are skipped instead of late catch-up posts',async()=>{
   const s=new AnnouncementStore(':memory:');try{activate(s);let calls=0;await deliverAnnouncements(s,{...config,autoSend:true},async()=>{calls++;return{id:'wrong'};},now+8*86400000);assert.equal(calls,0);assert.ok(s.jobs(guild).every(j=>j.state==='skipped'));}finally{s.close();}
 });
 test('major results/qualification require separate message and exact Canva approval',()=>{
-  const s=new AnnouncementStore(':memory:');try{const x=input();x.catalog.competitions=[{id:'timo-2030',name:'TIMO',year:2030,subject:'mathematics'}];x.events=[x.events[0]!];x.events[0]!.event={...x.events[0]!.event,type:'results',competitionId:'timo-2030',programId:null,slot:'results',start:now+86400000,end:null};s.ingest(guild,x);const c=s.candidates(guild)[0]!;s.approve(guild,c.id,1,'staff',now);
+  const s=new AnnouncementStore(':memory:');try{const x=input();x.catalog.competitions=[{id:'timo-2030',name:'TIMO',year:2030,subject:'mathematics'}];x.events=[x.events[0]!];x.events[0]!.event={...x.events[0]!.event,type:'results',competitionId:'timo-2030',programId:null,slot:'results',start:now+86400000,end:null};ingestFixture(s,x);const c=s.candidates(guild)[0]!;s.approve(guild,c.id,1,'staff',now);
     const major:PolicyFile={...policy,policies:[{id:'results',type:'results',anchor:'start',beforeMinutes:0,template:'result',major:true,asset:'required'}],templates:{result:'{{role}} results for {{competition}} {{year}} are available.'}};plan(s,major,now);const j=s.jobs(guild)[0]!;assert.equal(j.state,'pending_approval');assert.throws(()=>s.approveJob(guild,j.id,'staff',digest([j.payload_json,j.asset])),/Canva/);
     s.attach(guild,j.id,{hash:'a'.repeat(64),path:'/tmp/test.png',mime:'image/png',bytes:8},'staff');assert.throws(()=>s.approveJob(guild,j.id,'staff',digest([j.payload_json,j.asset])),/stale/);const latest=s.job(guild,j.id)!;s.approveJob(guild,j.id,'staff',digest([latest.payload_json,latest.asset]));assert.equal(s.job(guild,j.id)!.state,'scheduled');
     assert.throws(()=>validatePolicy({...major,policies:[{...major.policies[0]!,major:false}]}));
   }finally{s.close();}
 });
 test('rejected correction restores original blocked state rather than authorizing an empty message',()=>{
-  const s=new AnnouncementStore(':memory:');try{activate(s);const p={...policy,templates:{session:'{{missing}}'}};plan(s,p,now,registerEffectivePolicy(s,p,effectivePolicy(s,guild)!.revision).snapshot);const x=input('bad');x.events=[x.events[0]!];x.events[0]!.event.start!+=60000;s.ingest(guild,x);const c=s.candidates(guild).find(c=>c.state==='pending')!;assert.equal(s.jobs(guild).find(j=>j.event_key===c.event_key&&j.state==='held')!.state,'held');s.reject(guild,c.id,1,'staff');assert.equal(s.jobs(guild).find(j=>j.event_key===c.event_key&&j.state==='blocked')!.state,'blocked');}finally{s.close();}
+  const s=new AnnouncementStore(':memory:');try{activate(s);const p={...policy,templates:{session:'{{missing}}'}};plan(s,p,now,registerEffectivePolicy(s,p,effectivePolicy(s,guild)!.revision).snapshot);const x=input('bad');x.events=[x.events[0]!];x.events[0]!.event.start!+=60000;ingestFixture(s,x);const c=s.candidates(guild).find(c=>c.state==='pending')!;assert.equal(s.jobs(guild).find(j=>j.event_key===c.event_key&&j.state==='held')!.state,'held');s.reject(guild,c.id,1,'staff');assert.equal(s.jobs(guild).find(j=>j.event_key===c.event_key&&j.state==='blocked')!.state,'blocked');}finally{s.close();}
 });
 test('credential redaction removes values/secret links while preserving login-notice workflow',async()=>{
   const raw='BBB 2030 Heat Round credentials: username: alice password: unique-secret https://example.org/?token=individual';assert.ok(!redact(raw).text.includes('unique-secret'));assert.ok(!redact(raw).text.includes('alice'));assert.ok(redact(raw).text.includes('BBB'));
@@ -109,7 +123,7 @@ test('HTML tables retain row separators; image-only schedules become blocked man
   const parsed=await parseMail({id:'x',payload:{parts:[{mimeType:'text/html',body:{data:Buffer.from('<table><tr><th>Session</th><th>Date</th></tr><tr><td>Senior Secondary</td><td>Sep 20</td></tr></table>').toString('base64url')}},{mimeType:'image/png',filename:'schedule.png',body:{data:'AA=='}}]}},async()=>Buffer.alloc(0));assert.ok(parsed.evidence[0]!.text.includes('Session | Date |'));assert.ok(parsed.evidence[0]!.text.includes('Senior Secondary | Sep 20 |'));assert.ok(parsed.blocked[0]!.includes('manual factual review'));
 });
 test('strict schema rejects prompt-injection authority fields, wrong targets, unknown competitions and unsupported science',()=>{
-  const x=input(),mail={evidence:[{id:'body',text:'Senior Secondary schedule'}],blocked:[],sensitive:false};const value={catalog:x.catalog,events:x.events.map(c=>({...c,event:{...c.event,dateHint:null,status:'active'},evidenceIds:['body']})),issues:[]};assert.equal(validateOutput(value,mail,x.source).events.length,5);
+  const x=input(),mail={evidence:[{id:'body',text:fixtureEvidence(x)}],blocked:[],sensitive:false};const value={disposition:'public',dispositionReason:null,correction:false,catalog:x.catalog,events:x.events.map(c=>({...c,event:{...c.event,dateHint:null,status:'active',availability:null,temporal:{start:exactTime(c.event.start),end:exactTime(c.event.end),deadline:exactTime(c.event.deadline)},logistics:null},evidenceIds:['body']})),issues:[]};assert.equal(validateOutput(value,mail,x.source).events.length,5);
   assert.throws(()=>validateOutput({...value,approved:true},mail,x.source));
   const wrong=structuredClone(value);wrong.events[0]!.event.yearLevel='Secondary 3' as 'Senior Secondary';assert.throws(()=>validateOutput(wrong,mail,x.source));
   const unknown=structuredClone(value);unknown.events[0]!.event.competitionId='unknown';assert.throws(()=>validateOutput(unknown,mail,x.source));
@@ -145,11 +159,11 @@ test('alternative MIME bodies share one redacted evidence item',async()=>{
 });
 test('duplicate login notices merge by round while conflicts and unreadable attachments require review',()=>{
  const x=input('duplicate-login');x.catalog.competitions=[{id:'bbb-2030',name:'BBB',year:2030,subject:'mathematics'}];x.catalog.rounds=[{id:'bbb-2030-heat',competitionId:'bbb-2030',name:'Heat Round'}];
- const event={...x.events[0]!.event,type:'login-details' as const,competitionId:'bbb-2030',roundId:'bbb-2030-heat',programId:null,slot:'login-1',start:null,end:null,deadline:null,dateHint:null,status:'active' as const};
- const value={catalog:x.catalog,events:[{event,confidence:'high',issues:[],evidenceIds:['body']},{event:{...event,slot:'login-2'},confidence:'medium',issues:[],evidenceIds:['body']}],issues:[]};
- const mail={evidence:[{id:'body',text:'BBB login notice'}],sensitive:true,blocked:['image requires manual review']};
+ const event={...x.events[0]!.event,type:'login-details' as const,competitionId:'bbb-2030',roundId:'bbb-2030-heat',programId:null,slot:'login-1',start:null,end:null,deadline:null,dateHint:null,status:'active' as const,availability:null,temporal:{start:null,end:null,deadline:null},logistics:null};
+ const value={disposition:'public',dispositionReason:null,correction:false,catalog:x.catalog,events:[{event,confidence:'high',issues:[],evidenceIds:['body']},{event:{...event,slot:'login-2'},confidence:'medium',issues:[],evidenceIds:['body']}],issues:[]};
+ const mail={evidence:[{id:'body',text:'BBB 2030 Heat Round login notice for Senior Secondary. Asia/Manila.'}],sensitive:true,blocked:['image requires manual review']};
  const merged=validateOutput(value,mail,x.source);assert.equal(merged.events.length,1);assert.equal(merged.events[0]!.event.slot,'login-details');assert.equal(merged.events[0]!.confidence,'medium');assert.ok(merged.events[0]!.issues.includes('image requires manual review'));
- value.events[1]!.event.timezoneAssumed=false;assert.ok(validateOutput(value,mail,x.source).events[0]!.issues.some(i=>i.includes('Conflicting facts')));
+ value.events[1]!.event.timezoneAssumed=true;assert.ok(validateOutput(value,mail,x.source).events[0]!.issues.some(i=>i.includes('Conflicting facts')));
 });
 
 test('worker distinguishes Groq outages from Gmail source failures and preserves safe failure audit',async()=>{
@@ -169,15 +183,15 @@ test('worker distinguishes Groq outages from Gmail source failures and preserves
 
 test('factual review alert names the training program and session while full identities stay in the database',async()=>{
  const {staffAlertContent}=await import('../src/announcements/alerts.js');const s=new AnnouncementStore(':memory:');try{
- s.ingest(guild,input());const alert=s.db.prepare("SELECT id,kind,target FROM staff_alerts WHERE kind='factual-review' LIMIT 1").get() as {id:string;kind:string;target:string};
+ ingestFixture(s,input());const alert=s.db.prepare("SELECT id,kind,target FROM staff_alerts WHERE kind='factual-review' LIMIT 1").get() as {id:string;kind:string;target:string};
  const content=staffAlertContent(s,guild,alert);assert.ok(content.includes('VTAMPS'));assert.ok(content.includes('25.0'));assert.ok(content.includes('training-session'));assert.ok(!content.includes(alert.target));assert.ok(content.includes('/announce inbox'));assert.ok(s.candidates(guild).some(c=>c.batch===alert.target));
  }finally{s.close();}
 });
 
 test('duplicate forwarded pending facts retain provenance and new uncertainty invalidates stale review',()=>{
  const s=new AnnouncementStore(':memory:');try{
- const x=input('original-pending');x.events=[x.events[0]!];s.ingest(guild,x);const c=s.candidates(guild)[0]!;
- const forward=structuredClone(x);forward.source.messageId='forward-pending';s.ingest(guild,forward);assert.equal(s.candidates(guild).length,1);assert.equal(s.db.prepare('SELECT count(*) n FROM candidate_sources WHERE candidate=?').get(c.id)!.n,2);
- const unclear=structuredClone(x);unclear.source.messageId='unclear-forward';unclear.events[0]!.issues=['attachment needs review'];s.ingest(guild,unclear);assert.equal(s.candidates(guild).length,1);assert.equal(s.candidate(guild,c.id)!.review_version,2);assert.throws(()=>s.approve(guild,c.id,1,'staff'),/stale/);assert.throws(()=>s.approve(guild,c.id,2,'staff'),/issues/);
+ const x=input('original-pending');x.events=[x.events[0]!];ingestFixture(s,x);const c=s.candidates(guild)[0]!;
+ const forward=structuredClone(x);forward.source.messageId='forward-pending';ingestFixture(s,forward);assert.equal(s.candidates(guild).length,1);assert.equal(s.db.prepare('SELECT count(*) n FROM candidate_sources WHERE candidate=?').get(c.id)!.n,2);
+ const unclear=structuredClone(x);unclear.source.messageId='unclear-forward';unclear.events[0]!.issues=['attachment needs review'];ingestFixture(s,unclear);assert.equal(s.candidates(guild).length,1);assert.equal(s.candidate(guild,c.id)!.review_version,2);assert.throws(()=>s.approve(guild,c.id,1,'staff'),/stale/);assert.throws(()=>s.approve(guild,c.id,2,'staff'),/issues/);
  }finally{s.close();}
 });

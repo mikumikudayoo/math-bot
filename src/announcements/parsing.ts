@@ -1,8 +1,9 @@
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { GmailMessage,GmailPart } from './gmail.js';
 import {sanitizeOrganizerEvidence} from './public-facts.js';
+import {sourceTimeAnchor} from './semantics.js';
 export interface Evidence {id:string;text:string}
-export interface ParsedMail {evidence:Evidence[];blocked:string[];sensitive:boolean}
+export interface ParsedMail {evidence:Evidence[];blocked:string[];sensitive:boolean;sourceTime?:number|null}
 const decode=(text:string)=>Buffer.from(text,'base64url').toString('utf8');
 export function redact(text:string){
   return sanitizeOrganizerEvidence(text);
@@ -11,7 +12,7 @@ function htmlText(html:string){
   return html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi,'').replace(/<\/(?:td|th)>/gi,' | ').replace(/<\/(?:tr|p|div|h[1-6])>/gi,'\n').replace(/<br\s*\/?\s*>/gi,'\n').replace(/<[^>]*>/g,'').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&#(\d+);/g,(_,n:string)=>String.fromCodePoint(Math.min(Number(n),0x10ffff)));
 }
 export async function parseMail(message:GmailMessage,attachment:(id:string,mime:string)=>Promise<Buffer>):Promise<ParsedMail>{
-  const result:ParsedMail={evidence:[],blocked:[],sensitive:false};let nodes=0,total=0;
+  const result:ParsedMail={evidence:[],blocked:[],sensitive:false,sourceTime:sourceTimeAnchor(message)};let nodes=0,total=0;
   const add=(id:string,text:string)=>{total+=Buffer.byteLength(text);if(total>50000)throw new Error('Mail evidence exceeds 50 KB.');const safe=redact(text);result.sensitive ||=safe.sensitive;const normalized=safe.text.trim().replace(/\s+/g,' ');if(normalized&&!result.evidence.some(e=>e.text.trim().replace(/\s+/g,' ')===normalized))result.evidence.push({id,text:safe.text.slice(0,16000)});};
   const subject=message.payload?.headers?.find(h=>h.name.toLowerCase()==='subject')?.value??'';add('subject',subject);
   async function walk(part:GmailPart,path:string){

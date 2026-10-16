@@ -5,9 +5,10 @@ import { randomUUID } from 'node:crypto';
 import { canonical,canonicalEvent,digest,eventKey,validateExtraction,validateEvent,type Catalog,type Extraction,type ScheduleEvent,type Source } from './model.js';
 import {validatePublicText,validatePublicDiscordPayload,sanitizeOrganizerEvidence} from './public-facts.js';
 import { effectivePolicy,isEffectivePolicy,projectDelivery,type EffectivePolicySnapshot } from './delivery-identity.js';
+import {normalizeCatalogAndEvents,catalogForEvent,semanticIssues,entityEvidenceIssues,sourceDispositions,type SourceDisposition,type SemanticContext} from './semantics.js';
 
-export interface Candidate { id:string;public_id:number;guild:string;batch:string;event_key:string;event_json:string;catalog_json:string;issues_json:string;confidence:string;base_revision:number;review_version:number;state:string;public_safety_version:number }
-export interface ApprovedEvent { event_key:string;guild:string;revision:number;event_json:string;catalog_json:string;approved_by:string;approved_at:number;public_safety_version:number }
+export interface Candidate { id:string;public_id:number;guild:string;batch:string;event_key:string;event_json:string;catalog_json:string;issues_json:string;confidence:string;base_revision:number;review_version:number;state:string;public_safety_version:number;fact_semantics_version:number;evidence_ids_json:string;timezone_confirmed:number }
+export interface ApprovedEvent { event_key:string;guild:string;revision:number;event_json:string;catalog_json:string;approved_by:string;approved_at:number;public_safety_version:number;fact_semantics_version:number }
 export interface Payload {content:string;allowedMentions:{parse:[];roles:string[];users:string[];repliedUser:boolean}}
 export interface AnnouncementJob {id:string;guild:string;event_key:string;revision:number;policy:string;channel:string;role:string|null;due:number;expires:number;major:number;asset_policy:string;asset:string|null;payload_json:string;state:string;message:string|null;approved_by:string|null;public_safety_version?:number;logical_delivery_id?:string|null;rule_id?:string|null;policy_revision?:number|null;plan_hash?:string|null;approved_payload_hash?:string|null}
 export class AnnouncementStore {
@@ -78,6 +79,19 @@ export class AnnouncementStore {
       }
       this.db.exec('COMMIT');
     }catch(error){this.db.exec('ROLLBACK');throw error;}
+    this.db.exec('BEGIN IMMEDIATE');
+    try{
+      const additions:Record<string,[string,string][]>= {
+        sources:[['source_disposition',"TEXT NOT NULL DEFAULT 'needs_review'"],['disposition_reason',"TEXT NOT NULL DEFAULT 'Legacy source requires review.'"],['source_time','INTEGER'],['is_correction','INTEGER NOT NULL DEFAULT 0']],
+        candidate_events:[['fact_semantics_version','INTEGER NOT NULL DEFAULT 0'],['evidence_ids_json',"TEXT NOT NULL DEFAULT '[]'"],['timezone_confirmed','INTEGER NOT NULL DEFAULT 0']],
+        events:[['fact_semantics_version','INTEGER NOT NULL DEFAULT 0']],
+      };
+      for(const [table,fields] of Object.entries(additions)){
+        const columns=this.db.prepare(`PRAGMA table_info(${table})`).all();
+        for(const [name,type] of fields)if(!columns.some(c=>c.name===name))this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+      }
+      this.db.exec('INSERT OR IGNORE INTO schema_version VALUES(5); COMMIT');
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
   }
   transaction<T>(fn:()=>T):T{if(this.state('maintenance:reset')==='true')throw new Error('Announcement storage reset in progress.');this.db.exec('BEGIN IMMEDIATE');try{const out=fn();this.db.exec('COMMIT');return out;}catch(e){this.db.exec('ROLLBACK');throw e;}}
   audit(guild:string,actor:string,action:string,target:string,snapshot:unknown,now=Date.now()){if(!actor.trim())throw new Error('Actor required.');this.db.prepare('INSERT INTO audit_log(guild,actor,action,target,snapshot,at) VALUES(?,?,?,?,?,?)').run(guild,actor,action,target,canonical(snapshot),now);}
@@ -86,6 +100,19 @@ export class AnnouncementStore {
   alert(guild:string,kind:string,target:string,now=Date.now()){this.db.prepare('INSERT OR IGNORE INTO staff_alerts(id,guild,kind,target,at) VALUES(?,?,?,?,?)').run(randomUUID(),guild,kind,target,now);}
   source(guild:string,source:Source){const id=digest([source.account,source.messageId]);this.db.prepare("INSERT OR IGNORE INTO sources(id,guild,account,message_id,hash,metadata,state) VALUES(?,?,?,?,?,?,'pending')").run(id,guild,source.account,source.messageId,source.sha256,canonical(source));return id;}
   sourceState(id:string,state:string,retryAt=0){this.db.prepare('UPDATE sources SET state=?,attempts=attempts+1,retry_at=? WHERE id=?').run(state,retryAt,id);}
+  private applySourceDisposition(guild:string,id:string,disposition:SourceDisposition,reason:string,sourceTime:number|null=null,correction=false){
+    if(!sourceDispositions.includes(disposition)||!this.db.prepare('SELECT id FROM sources WHERE id=? AND guild=?').get(id,guild))throw new Error('Invalid source disposition.');
+    validatePublicText(reason,'source disposition');
+    this.db.prepare('UPDATE sources SET source_disposition=?,disposition_reason=?,source_time=?,is_correction=? WHERE id=? AND guild=?').run(disposition,reason,sourceTime,+correction,id,guild);
+    if(disposition==='private'||disposition==='ignore'){this.sourceState(id,disposition==='private'?'private':'ignored');this.releaseSource(id);}
+    else if(disposition==='needs_review'){
+      this.sourceState(id,'blocked');
+      this.db.prepare('INSERT OR IGNORE INTO source_holds SELECT ?,event_key FROM events WHERE guild=?').run(id,guild);
+      this.db.prepare("UPDATE announcement_jobs SET held_from=state,state='held' WHERE guild=? AND state IN ('scheduled','pending_approval','blocked')").run(guild);
+      this.alert(guild,'blocked-source',id);
+    }
+  }
+  resolveSource(guild:string,id:string,disposition:SourceDisposition,reason:string,sourceTime:number|null=null,correction=false){this.transaction(()=>{this.applySourceDisposition(guild,id,disposition,reason,sourceTime,correction);this.audit(guild,'host','source-disposition',id,{disposition,reason});});}
   holdSource(guild:string,id:string){this.transaction(()=>{
     if(!this.db.prepare('SELECT id FROM sources WHERE id=? AND guild=?').get(id,guild))throw new Error('Source not found.');
     this.db.prepare('INSERT OR IGNORE INTO source_holds SELECT ?,event_key FROM events WHERE guild=?').run(id,guild);
@@ -117,16 +144,30 @@ export class AnnouncementStore {
   }
   event(guild:string,key:string){return this.db.prepare('SELECT * FROM events WHERE guild=? AND event_key=?').get(guild,key) as unknown as ApprovedEvent|undefined;}
   events(guild:string){return this.db.prepare('SELECT * FROM events WHERE guild=?').all(guild) as unknown as ApprovedEvent[];}
+  private sourceSemanticContext(source:string,evidenceIds?:string[],timezoneConfirmed=false):SemanticContext {
+    const row=this.db.prepare('SELECT s.source_time,e.evidence_json FROM sources s LEFT JOIN source_evidence e ON e.source=s.id WHERE s.id=?').get(source);
+    let evidence:{id:string;text:string}[]=[];try{evidence=(JSON.parse(String(row?.evidence_json??'{}')) as {evidence?:{id:string;text:string}[]}).evidence??[];}catch{}
+    return {evidence,...(evidenceIds?.length?{evidenceIds}:{}),sourceTime:typeof row?.source_time==='number'?row.source_time:null,timezoneConfirmed};
+  }
+  private candidateSemanticContext(c:Candidate):SemanticContext{
+    const source=String(this.db.prepare('SELECT source FROM candidate_batches WHERE id=?').get(c.batch)!.source);
+    return this.sourceSemanticContext(source,JSON.parse(c.evidence_ids_json) as string[],c.timezone_confirmed===1);
+  }
   ingest(guild:string,input:Extraction,now=Date.now()){
+    input=normalizeCatalogAndEvents(input);
     input={...input,events:input.events.map(c=>({...c,event:canonicalEvent(c.event)}))};
     if(!/^\d{17,20}$/.test(guild))throw new Error('Invalid guild.');validateExtraction(input);
     return this.transaction(()=>{
       const source=this.source(guild,input.source),hash=digest(input);
+      this.applySourceDisposition(guild,source,input.disposition??'public',input.dispositionReason??'Structured mathematics proposal requires factual review.',input.sourceTime??null,input.correction??false);
       const old=this.db.prepare('SELECT id FROM candidate_batches WHERE source=? AND hash=?').get(source,hash) as {id:string}|undefined;if(old)return old.id;
       const batch=randomUUID();this.db.prepare('INSERT INTO candidate_batches VALUES(?,?,?)').run(batch,source,hash);
+      if(input.disposition&&input.disposition!=='public'){this.audit(guild,'host','source-disposition',source,{disposition:input.disposition,reason:input.dispositionReason??'Source requires disposition.'},now);return batch;}
       let reviews=0,corrections=0;
       for(const c of input.events){
-        const key=guild+':'+eventKey(c.event),active=this.event(guild,key),json=canonical(c.event),catalog=canonical(input.catalog);
+        const key=guild+':'+eventKey(c.event),active=this.event(guild,key),json=canonical(c.event),catalog=canonical(catalogForEvent(input.catalog,c.event));
+        const context=this.sourceSemanticContext(source,c.evidenceIds);
+        c.issues=[...new Set([...c.issues,...semanticIssues(c.event,context),...entityEvidenceIssues(c.event,input.catalog,context)])];
         const duplicate=this.db.prepare("SELECT id,issues_json,review_version FROM candidate_events WHERE guild=? AND event_key=? AND event_json=? AND catalog_json=? AND state='pending' LIMIT 1").get(guild,key,json,catalog) as {id:string;issues_json:string;review_version:number}|undefined;
         if(duplicate){
           const issues=canonical([...new Set([...(JSON.parse(duplicate.issues_json) as string[]),...c.issues])]);
@@ -136,6 +177,7 @@ export class AnnouncementStore {
         const unchanged=active?.event_json===json&&active.catalog_json===catalog;
         const candidateId=randomUUID();this.db.prepare('INSERT INTO candidate_events(id,guild,batch,event_key,event_json,catalog_json,issues_json,confidence,base_revision,state) VALUES(?,?,?,?,?,?,?,?,?,?)').run(candidateId,guild,batch,key,json,catalog,canonical(c.issues),c.confidence,active?.revision??0,unchanged?'unchanged':'pending');
         this.db.prepare('UPDATE candidate_events SET public_safety_version=1 WHERE id=?').run(candidateId);
+        this.db.prepare('UPDATE candidate_events SET fact_semantics_version=1,evidence_ids_json=? WHERE id=?').run(canonical(c.evidenceIds??[]),candidateId);
         this.db.prepare('INSERT INTO candidate_sources VALUES(?,?)').run(candidateId,source);
         if(!unchanged){this.db.prepare("UPDATE announcement_jobs SET held_from=state,state='held' WHERE event_key=? AND state IN ('scheduled','pending_approval','blocked')").run(key);reviews++;if(active)corrections++;}
       }
@@ -149,14 +191,19 @@ export class AnnouncementStore {
     const c=this.pending(guild,id,version);validateEvent(event,JSON.parse(c.catalog_json) as Catalog);if(guild+':'+eventKey(event)!==c.event_key)throw new Error('Identity edits require rejection and a new proposal.');
     if(!Array.isArray(issues)||issues.some(x=>typeof x!=='string'||x.length>500))throw new Error('Invalid issues.');
     for(const issue of issues)validatePublicText(issue,'review issue');
-    this.db.prepare('UPDATE candidate_events SET event_json=?,issues_json=?,public_safety_version=1,review_version=review_version+1 WHERE id=?').run(canonical(event),canonical(issues),id);this.audit(guild,actor,'edit',id,{beforeHash:digest(c.event_json),after:event,issues});return this.candidate(guild,id)!;
+    const timezoneConfirmed=event.timezoneAssumed===false,context={...this.candidateSemanticContext(c),timezoneConfirmed};
+    const completeIssues=[...new Set([...issues,...semanticIssues(event,context),...entityEvidenceIssues(event,JSON.parse(c.catalog_json) as Catalog,context)])];
+    this.db.prepare('UPDATE candidate_events SET event_json=?,issues_json=?,public_safety_version=1,fact_semantics_version=1,timezone_confirmed=?,review_version=review_version+1 WHERE id=?').run(canonical(event),canonical(completeIssues),+timezoneConfirmed,id);this.audit(guild,actor,'edit',id,{beforeHash:digest(c.event_json),after:event,issues:completeIssues,timezoneConfirmed});return this.candidate(guild,id)!;
   });}
   approve(guild:string,id:string,version:number,actor:string,now=Date.now()){return this.transaction(()=>{
     const c=this.pending(guild,id,version),active=this.event(guild,c.event_key);if((active?.revision??0)!==c.base_revision)throw new Error('Stale event revision; reject or rebase the proposal after inspecting the latest source.');
     if(c.public_safety_version!==1)throw new Error('Legacy facts require fresh public-safety review.');
+    const event=JSON.parse(c.event_json) as ScheduleEvent,catalog=JSON.parse(c.catalog_json) as Catalog,context=this.candidateSemanticContext(c);
+    if(c.fact_semantics_version!==1||semanticIssues(event,context).length||entityEvidenceIssues(event,catalog,context).length)throw new Error('Fact semantics or source support requires review.');
     if((JSON.parse(c.issues_json) as string[]).length)throw new Error('Resolve all factual issues before approval.');validateEvent(JSON.parse(c.event_json) as ScheduleEvent,JSON.parse(c.catalog_json) as Catalog,true);
     const revision=c.base_revision+1;
     this.db.prepare('INSERT INTO events(event_key,guild,revision,event_json,catalog_json,approved_by,approved_at,public_safety_version) VALUES(?,?,?,?,?,?,?,1) ON CONFLICT(event_key) DO UPDATE SET revision=excluded.revision,event_json=excluded.event_json,catalog_json=excluded.catalog_json,approved_by=excluded.approved_by,approved_at=excluded.approved_at,public_safety_version=1').run(c.event_key,guild,revision,c.event_json,c.catalog_json,actor,now);
+    this.db.prepare('UPDATE events SET fact_semantics_version=1 WHERE event_key=?').run(c.event_key);
     this.db.prepare('INSERT INTO event_revisions VALUES(?,?,?,?,?,?)').run(c.event_key,revision,c.event_json,c.catalog_json,actor,now);
     this.db.prepare("UPDATE candidate_events SET state='approved' WHERE id=?").run(id);
     this.db.prepare("UPDATE announcement_jobs SET state='superseded' WHERE event_key=? AND state IN ('scheduled','held','pending_approval','blocked','draft')").run(c.event_key);
@@ -184,7 +231,7 @@ export class AnnouncementStore {
   }
   approveJob(guild:string,id:string,actor:string,expectedHash:string){this.transaction(()=>{
     const j=this.job(guild,id),e=j?this.event(guild,j.event_key):undefined;if(!j||j.state!=='pending_approval'||!e||e.revision!==j.revision||this.held(j.event_key)||digest([j.payload_json,j.asset])!==expectedHash)throw new Error('Message preview is stale or held.');
-    validatePublicDiscordPayload(JSON.parse(j.payload_json),{role:j.role,channel:j.channel});if(j.public_safety_version!==1||e.public_safety_version!==1)throw new Error('Public-safety review required.');
+    validatePublicDiscordPayload(JSON.parse(j.payload_json),{role:j.role,channel:j.channel});if(j.public_safety_version!==1||e.public_safety_version!==1||e.fact_semantics_version!==1)throw new Error('Public-safety and fact-semantics review required.');
     const snapshot=effectivePolicy(this,guild);if(!snapshot||!this.jobPolicyCurrent(j,snapshot))throw new Error('Message policy is stale.');
     if(j.asset_policy==='required'&&!j.asset)throw new Error('Canva asset is required before approval.');
     this.db.prepare("UPDATE announcement_jobs SET state='scheduled',approved_by=?,approved_payload_hash=? WHERE id=?").run(actor,expectedHash,id);this.audit(guild,actor,'approve-message',id,{hash:expectedHash});
@@ -204,7 +251,7 @@ export class AnnouncementStore {
     const e=this.event(j.guild,j.event_key);if(!e||e.revision!==j.revision||this.held(j.event_key)||(JSON.parse(e.event_json) as ScheduleEvent).status&& (JSON.parse(e.event_json) as ScheduleEvent).status!=='active')throw new Error('Delivery event changed or is held.');
     if(now<j.due||now>j.expires)throw new Error('Delivery is outside its publication window.');
     const payload=JSON.parse(j.payload_json) as Payload;validatePublicDiscordPayload(payload,{role:j.role,channel:j.channel});
-    if(j.public_safety_version!==1||e.public_safety_version!==1)throw new Error('Public-safety review required.');
+    if(j.public_safety_version!==1||e.public_safety_version!==1||e.fact_semantics_version!==1)throw new Error('Public-safety and fact-semantics review required.');
     if(expectedPayload!==undefined&&canonical(expectedPayload)!==canonical(payload))throw new Error('Persisted delivery payload changed.');
     if(j.major&&(!j.approved_by||j.approved_payload_hash!==digest([j.payload_json,j.asset])||(j.asset_policy==='required'&&!j.asset)))throw new Error('Exact message/asset approval is stale.');
     if(this.legacyDeliveryGuard(j.guild,j.event_key,j.revision,j.channel))throw new Error('Legacy delivery identity requires review.');
@@ -215,7 +262,7 @@ export class AnnouncementStore {
     if(snapshot&&(snapshot.guild!==j.guild||!isEffectivePolicy(this,snapshot)))return undefined;
     try{if(j.public_safety_version!==1)throw new Error('Legacy safety unknown.');validatePublicDiscordPayload(JSON.parse(j.payload_json),{role:j.role,channel:j.channel});}catch{this.db.prepare("UPDATE announcement_jobs SET state='blocked',approved_by=NULL WHERE id=?").run(id);this.alert(j.guild,'public-safety-review',j.id);return undefined;}
     const e=this.event(j.guild,j.event_key);if(!e||e.revision!==j.revision||this.held(j.event_key)){this.db.prepare("UPDATE announcement_jobs SET state='held' WHERE id=?").run(id);return undefined;}
-    if(e.public_safety_version!==1){this.db.prepare("UPDATE announcement_jobs SET state='blocked',approved_by=NULL WHERE id=?").run(id);this.alert(j.guild,'public-safety-review',id);return undefined;}
+    if(e.public_safety_version!==1||e.fact_semantics_version!==1){this.db.prepare("UPDATE announcement_jobs SET state='blocked',approved_by=NULL WHERE id=?").run(id);this.alert(j.guild,'public-safety-review',id);return undefined;}
     if((JSON.parse(e.event_json) as ScheduleEvent).status && (JSON.parse(e.event_json) as ScheduleEvent).status!=='active'){this.db.prepare("UPDATE announcement_jobs SET state='cancelled' WHERE id=?").run(id);return undefined;}
     if(now>j.expires){this.db.prepare("UPDATE announcement_jobs SET state='skipped' WHERE id=?").run(id);this.alert(j.guild,'missed-reminder',id);return undefined;}
     const current=snapshot??effectivePolicy(this,j.guild);

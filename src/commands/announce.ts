@@ -71,7 +71,13 @@ export function makeAnnounceCommand(getConfig:()=>AutomationConfig=automationCon
           const c=requireCandidate(store,guild,id);const e=JSON.parse(c.event_json) as ScheduleEvent;
           for(const field of ['start','end','deadline'] as const){const text=i.options.getString(field);if(text)e[field]=parseTime(text);}
           const status=i.options.getString('state') as ScheduleEvent['status'];if(status){e.status=status;if(status!=='active'){e.start=null;e.end=null;e.deadline=null;}}
-          const issues=i.options.getBoolean('resolve-issues')?[]:JSON.parse(c.issues_json) as string[];const edited=store.edit(guild,c.id,i.options.getInteger('version',true),e,issues,i.user.id);const panel=reviewPanel(store,guild,String(edited.public_id));await reply(panel.text,panel.components);return;
+          const confirmed=i.options.getBoolean('resolve-issues')===true;
+          if(confirmed){
+            e.timezoneAssumed=false;
+            e.temporal=Object.fromEntries((['start','end','deadline'] as const).filter(field=>e[field]!==null).map(field=>[field,{precision:'exact' as const,expression:'Confirmed by staff from the reviewed source.',sourceTime:null}]));
+            if((['start','end','deadline'] as const).some(field=>i.options.getString(field)))e.dateHint=null;
+          }
+          const issues=confirmed?[]:JSON.parse(c.issues_json) as string[];const edited=store.edit(guild,c.id,i.options.getInteger('version',true),e,issues,i.user.id);const panel=reviewPanel(store,guild,String(edited.public_id));await reply(panel.text,panel.components);return;
         }
         if(action==='cancel'){const c=store.resolveCandidate(guild,id),event=store.cancel(guild,c?.event_key??id,i.options.getBoolean('postponed')?'postponed':'cancelled',i.user.id,i.options.getInteger('revision',true));await reply(`event ${JSON.parse(event.event_json).status}; revision ${event.revision}. affected deliveries are blocked; no message was sent.`);return;}
         if(action==='reconcile'){const message=i.options.getString('message');if(message&&!/^\d{17,20}$/.test(message))throw new Error('Invalid message ID.');store.reconcile(guild,requireJob(store,guild,id).id,message,i.user.id);await reply('delivery reconciled; no resend was queued.');return;}

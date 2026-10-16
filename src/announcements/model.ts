@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import {validatePublicCatalog,validatePublicEvent,validatePublicText,validatePublicDiscordPayload} from './public-facts.js';
+import {supportedCompetition,canonicalProgramVersion,validateSemanticEvent,validateRenderedSemantics,type SemanticContext,type Availability,type TemporalFacts,type Logistics,type SourceDisposition} from './semantics.js';
+export type {Availability,TemporalFact,TemporalFacts,Logistics,SourceDisposition,SemanticContext} from './semantics.js';
 
-export const eventTypes = ['training-session','classmarker-deadline','competition-day','registration-deadline','login-details','server-event','schedule-announcement','materials-release','competition-announcement','results','qualification','other-deadline'] as const;
+export const eventTypes = ['training-session','classmarker-deadline','competition-day','registration-deadline','login-details','server-event','schedule-announcement','materials-release','competition-announcement','results','qualification','other-deadline','check-in','mock-test-window'] as const;
 export type EventType = typeof eventTypes[number];
 export interface Competition { id: string; name: string; year: number; subject: 'mathematics' }
 export interface CompetitionRound { id: string; competitionId: string; name: string }
@@ -25,6 +27,9 @@ export interface ScheduleEvent {
   url: string | null;
   detailLabel: string | null; // e.g. "login details"; never credentials themselves.
   dateHint?: string | null; // Date-only source evidence, never converted to an invented time.
+  availability?: Availability;
+  temporal?: TemporalFacts;
+  logistics?: Logistics;
 }
 export interface Source {
   account: string;
@@ -34,9 +39,13 @@ export interface Source {
   locator: string; // Page/table/row/cells, without email body or passwords.
 }
 export interface Extraction {
+  disposition?: SourceDisposition;
+  dispositionReason?: string | null;
+  correction?: boolean;
+  sourceTime?: number | null;
   catalog: Catalog;
   source: Source;
-  events: { event: ScheduleEvent; confidence: 'high'|'medium'|'low'; issues: string[] }[];
+  events: { event: ScheduleEvent; confidence: 'high'|'medium'|'low'; issues: string[]; evidenceIds?: string[] }[];
 }
 export const canonical = (value:unknown):string => JSON.stringify(value,(_key,v:unknown)=>v && typeof v==='object' && !Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b))):v);
 export const digest = (value: unknown) => createHash('sha256').update(canonical(value)).digest('hex');
@@ -65,13 +74,14 @@ export function validateCatalog(c: Catalog) {
   for(const item of c.competitions) {
     checkKeys(item,['id','name','year','subject']);
     if(item.subject!=='mathematics' || !text(item.name) || /\b(?:VTAMPS|VTASPS?|IESO|HKISO|science)\b/i.test(item.name) || !Number.isInteger(item.year) || item.year<2000 || item.year>2200) throw new Error('Catalog accepts mathematics competitions only; VTAMPS is a separate program.');
+    supportedCompetition(item.name);
   }
   for(const r of c.rounds) {checkKeys(r,['id','competitionId','name']);if(!text(r.name) || !c.competitions.some(x=>x.id===r.competitionId)) throw new Error('Round must belong to a known competition.');}
-  for(const p of c.programs) {checkKeys(p,['id','name','version']);if(p.name!=='VTAMPS' || !text(p.version)) throw new Error('Only the mathematics training program VTAMPS is supported.');}
+  for(const p of c.programs) {checkKeys(p,['id','name','version']);if(p.name!=='VTAMPS' || !text(p.version)) throw new Error('Only the mathematics training program VTAMPS is supported.');canonicalProgramVersion(p.version);}
 }
-export function validateEvent(e: ScheduleEvent, catalog: Catalog, requireTimes=false) {
+export function validateEvent(e: ScheduleEvent, catalog: Catalog, requireTimes=false,context:SemanticContext={}) {
   validatePublicEvent(e);
-  checkKeys(e,['competitionId','roundId','programId','preparesFor','yearLevel','type','slot','start','end','deadline','timezone','url','detailLabel','dateHint','status','timezoneAssumed']);
+  checkKeys(e,['competitionId','roundId','programId','preparesFor','yearLevel','type','slot','start','end','deadline','timezone','url','detailLabel','dateHint','status','timezoneAssumed','availability','temporal','logistics']);
   if(e.status!==undefined && !['active','cancelled','postponed'].includes(e.status))throw new Error('Invalid event status.');
   if(e.timezoneAssumed!==undefined && typeof e.timezoneAssumed!=='boolean')throw new Error('Invalid timezone assumption.');
   requireTimes=requireTimes && (e.status??'active')==='active';
@@ -95,27 +105,34 @@ export function validateEvent(e: ScheduleEvent, catalog: Catalog, requireTimes=f
   if (e.detailLabel !== null && !text(e.detailLabel)) throw new Error('Invalid detail label.');
   if(e.dateHint!==undefined && e.dateHint!==null && !text(e.dateHint)) throw new Error('Invalid source date hint.');
   if (e.url !== null) { const url=new URL(e.url); if(url.protocol!=='https:' || url.username || url.password) throw new Error('Only HTTPS links without embedded credentials are accepted.'); }
+  validateSemanticEvent(e,context,requireTimes);
 }
 export function validateExtraction(input: Extraction) {
-  checkKeys(input,['catalog','source','events']);
+  checkKeys(input,['catalog','source','events','disposition','dispositionReason','correction','sourceTime']);
+  if(input.disposition!==undefined&&!['public','private','ignore','needs_review'].includes(input.disposition))throw new Error('Invalid source disposition.');
+  if(input.dispositionReason!==undefined&&input.dispositionReason!==null){if(!text(input.dispositionReason,500))throw new Error('Invalid source disposition reason.');validatePublicText(input.dispositionReason,'source disposition');}
+  if(input.correction!==undefined&&typeof input.correction!=='boolean')throw new Error('Invalid correction marker.');
+  if(input.sourceTime!==undefined&&input.sourceTime!==null&&(!Number.isSafeInteger(input.sourceTime)||Math.abs(input.sourceTime)>8.64e15))throw new Error('Invalid organizer source time.');
   validateCatalog(input?.catalog);
   const s=input?.source;
   checkKeys(s,['account','messageId','attachment','sha256','locator']);
   if (!s || ![s.account,s.messageId,s.locator].every(v=>text(v,500)) || !/^[a-f0-9]{64}$/.test(s.sha256) || (s.attachment!==null && !text(s.attachment,500))) throw new Error('Source provenance is required.');
-  if (!Array.isArray(input.events) || !input.events.length || input.events.length>100) throw new Error('Provide 1–100 candidates.');
+  if (!Array.isArray(input.events) || input.events.length>100 || !input.events.length&&(input.disposition===undefined||input.disposition==='public')) throw new Error('Provide 1–100 public candidates or an explicit non-public disposition.');
+  if(input.events.length&&(input.disposition==='private'||input.disposition==='ignore'))throw new Error('Private or ignored sources cannot propose public facts.');
   const keys=new Set<string>();
   for (const c of input.events) {
-    checkKeys(c,['event','confidence','issues']);
+    checkKeys(c,['event','confidence','issues','evidenceIds']);
     validateEvent(c.event,input.catalog);
     if (!['high','medium','low'].includes(c.confidence) || !Array.isArray(c.issues) || !c.issues.every(i=>text(i,500))) throw new Error('Invalid extraction review metadata.');
     for(const issue of c.issues)validatePublicText(issue,'review issue');
+    if(c.evidenceIds!==undefined&&(!Array.isArray(c.evidenceIds)||!c.evidenceIds.length||c.evidenceIds.length>100||new Set(c.evidenceIds).size!==c.evidenceIds.length||c.evidenceIds.some(id=>!text(id,200))))throw new Error('Invalid candidate evidence references.');
     const key=eventKey(c.event); if(keys.has(key)) throw new Error('Duplicate event identity inside extraction.'); keys.add(key);
   }
 }
 
 export function describeEvent(e: ScheduleEvent, catalog: Catalog) {
   const format=(n:number|null)=>n===null?null:new Intl.DateTimeFormat('en-PH',{timeZone:e.timezone,dateStyle:'full',timeStyle:'short'}).format(n);
-  return {competition:catalog.competitions.find(c=>c.id===e.competitionId)??null,round:catalog.rounds.find(r=>r.id===e.roundId)??null,trainingProgram:catalog.programs.find(p=>p.id===e.programId)??null,target:e.yearLevel,milestone:e.slot,type:e.type,start:format(e.start),end:format(e.end),deadline:format(e.deadline),dateHint:e.dateHint??null,timezone:e.timezone};
+  return {competition:catalog.competitions.find(c=>c.id===e.competitionId)??null,round:catalog.rounds.find(r=>r.id===e.roundId)??null,trainingProgram:catalog.programs.find(p=>p.id===e.programId)??null,target:e.yearLevel,milestone:e.slot,type:e.type,start:format(e.start),end:format(e.end),deadline:format(e.deadline),dateHint:e.dateHint??null,timezone:e.timezone,timezoneAssumed:e.timezoneAssumed??false,lifecycle:e.status??'active',availability:e.availability??null,temporal:e.temporal??null,logistics:e.logistics??null,url:e.url,detailLabel:e.detailLabel,preparesFor:e.preparesFor.map(id=>catalog.competitions.find(c=>c.id===id)??{id})};
 }
 
 export interface ReminderRule { id: string; type: EventType; anchor: 'start'|'deadline'; beforeMinutes: number; template: string }
@@ -141,10 +158,10 @@ export function renderEvent(e: ScheduleEvent, catalog: Catalog, c: PreviewConfig
   const date=(n:number)=>new Intl.DateTimeFormat('en-PH',{timeZone:e.timezone,weekday:'long',year:'numeric',month:'long',day:'numeric'}).format(n);
   const time=(n:number)=>new Intl.DateTimeFormat('en-PH',{timeZone:e.timezone,hour:'numeric',minute:'2-digit',hour12:true}).format(n);
   const competition=catalog.competitions.find(x=>x.id===e.competitionId),program=catalog.programs.find(x=>x.id===e.programId);
-  const vars:Record<string,string|null>={role:c.role?`<@&${c.role}>`:null,competition:competition?.name??null,year:competition?String(competition.year):null,round:catalog.rounds.find(x=>x.id===e.roundId)?.name??null,program:program?.name??null,version:program?.version??null,slot:e.slot,date:e.start===null?null:date(e.start),timeRange:e.start===null||e.end===null?null:`${time(e.start)}–${time(e.end)} (${e.timezone})`,deadline:e.deadline===null?null:`${date(e.deadline)}, ${time(e.deadline)} (${e.timezone}); <t:${Math.floor(e.deadline/1000)}:F>`,url:e.url,detailLabel:e.detailLabel};
+  const vars:Record<string,string|null>={role:c.role?`<@&${c.role}>`:null,competition:competition?.name??null,year:competition?String(competition.year):null,round:catalog.rounds.find(x=>x.id===e.roundId)?.name??null,program:program?.name??null,version:program?.version??null,slot:e.slot,date:e.start===null?null:date(e.start),timeRange:e.start===null||e.end===null?null:`${time(e.start)}–${time(e.end)} (${e.timezone})`,deadline:e.deadline===null?null:`${date(e.deadline)}, ${time(e.deadline)} (${e.timezone}); <t:${Math.floor(e.deadline/1000)}:F>`,url:e.url,detailLabel:e.detailLabel,venue:e.logistics?.venue??null,bring:e.logistics?.bring?.join('; ')??null,participant:e.logistics?.participant?.join('; ')??null,availability:e.availability?.state??null};
   const source=c.templates[template]; if(!source) throw new Error('Missing approved template.');
   const content=source.replace(/\{\{(\w+)\}\}/g,(_,key:string)=>{const v=vars[key];if(v===null||v===undefined)throw new Error(`Unresolved placeholder: ${key}`);return v;});
   if(content.includes('{{') || content.length>2000) throw new Error('Malformed template or Discord message too long.');
   const payload={content,allowedMentions:{parse:[] as [],roles:c.role?[c.role]:[],users:[] as string[],repliedUser:false}};
-  validatePublicDiscordPayload(payload,{role:c.role,channel:c.channel});return payload;
+  validatePublicDiscordPayload(payload,{role:c.role,channel:c.channel});validateRenderedSemantics(e,content);return payload;
 }

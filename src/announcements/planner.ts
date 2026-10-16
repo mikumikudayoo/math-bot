@@ -14,7 +14,7 @@ export function plan(store:AnnouncementStore,policy:PolicyFile,now=Date.now(),sn
     if(authoritative.guild!==policy.guild||authoritative.fingerprint!==digest(policy)||!isEffectivePolicy(store,authoritative))throw new Error('Announcement policy snapshot is stale; reload runtime configuration.');
     const desired=new Set<string>();
     for(const row of store.events(policy.guild)){
-      if(row.public_safety_version!==1){store.alert(policy.guild,'public-safety-review',row.event_key,now);continue;}
+      if(row.public_safety_version!==1||row.fact_semantics_version!==1){store.alert(policy.guild,'public-safety-review',row.event_key,now);continue;}
       const e=JSON.parse(row.event_json) as ScheduleEvent;
       if((e.status??'active')!=='active')continue;
       for(const rule of policy.policies){

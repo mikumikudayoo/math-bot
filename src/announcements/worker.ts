@@ -10,6 +10,7 @@ import { clearSourceFailure,recordSourceFailure,reconcileExtractionIncident } fr
 import { ProviderBackoff,ProviderPayloadTooLarge,providerHealth } from '../service/providers.js';
 import { digest,type Source } from './model.js';
 import {loadAnnouncementRuntime,capturedAnnouncementRuntime} from './runtime-policy.js';
+import {classifySource} from './semantics.js';
 
 export async function workerTick(store:AnnouncementStore,config:AutomationConfig,gmail=new GmailClient(config.gmail),extract=extractFacts,reload?:()=>AutomationConfig){
   if(!config.enabled||store.state('maintenance:reset')==='true')return;
@@ -25,14 +26,21 @@ export async function workerTick(store:AnnouncementStore,config:AutomationConfig
     // Until parsing resolves identity, a trusted organizer source may revise any event.
     // Successful ingestion narrows this to candidate holds; failure needs staff disposition.
     store.holdSource(config.policy.guild,row.id);
-    if(extract===extractFacts&&!config.provider.backendKey){store.setState('provider:health','misconfigured');store.alert(config.policy.guild,'extraction-provider-misconfigured','groq');continue;}
     try{
       const source=JSON.parse(row.metadata) as Source;
       const message=await gmail.get<GmailMessage>(`messages/${encodeURIComponent(source.messageId)}`,{format:'full'},signal);
       const parsed=await parseMail(message,async(id,mime)=>{const body=await gmail.get<{data:string}>(`messages/${encodeURIComponent(source.messageId)}/attachments/${encodeURIComponent(id)}`,{},signal);const data=Buffer.from(body.data,'base64url');store.db.prepare("INSERT OR IGNORE INTO source_attachments VALUES(?,?,?,?,?,'parsed')").run(digest([row.id,id]),row.id,digest(data.toString('base64')),mime,data.length);return data;});
       store.saveEvidence(row.id,parsed); // Redacted and bounded; no raw mailbox bodies/passwords.
+      const classification=classifySource(parsed);
+      store.resolveSource(config.policy.guild,row.id,classification.disposition,classification.reason,parsed.sourceTime??null,classification.correction);
+      if(classification.disposition!=='public'){
+        if(classification.disposition==='needs_review')recordSourceFailure(store,row.id,'review',classification.reason);
+        else clearSourceFailure(store,row.id);
+        continue;
+      }
+      if(extract===extractFacts&&!config.provider.backendKey){store.setState('provider:health','misconfigured');store.alert(config.policy.guild,'extraction-provider-misconfigured','groq');continue;}
       const extraction=await extract(config.provider,parsed,source,signal);
-      if(!extraction.events.length)throw new Error('No resolvable event identities; source needs staff disposition.');
+      if(!extraction.events.length&&!extraction.disposition)throw new Error('No resolvable event identities; source needs staff disposition.');
       store.ingest(config.policy.guild,extraction);clearSourceFailure(store,row.id);extractionHealthy=true;
     }catch(error){
       const transient=error instanceof ProviderBackoff||error instanceof GmailError;

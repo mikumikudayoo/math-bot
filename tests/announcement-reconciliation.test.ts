@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync,mkdtempSync,rmSync } from 'node:fs';
+import { readFileSync,mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AnnouncementStore } from '../src/announcements/store.js';
@@ -8,19 +8,22 @@ import { canonical,digest,documentTemplates,type Extraction } from '../src/annou
 import { effectivePolicy,registerEffectivePolicy,type EffectivePolicySnapshot } from '../src/announcements/delivery-identity.js';
 import { plan } from '../src/announcements/planner.js';
 import type { PolicyFile } from '../src/announcements/config.js';
+import { removeAnnouncementTestDirectory } from './announcement-test-cleanup.js';
 
 const guild='111111111111111111',channel='222222222222222222',now=Date.parse('2030-01-01T00:00:00+08:00');
 function policy():PolicyFile{return {guild,channel,role:null,staffChannel:null,policies:[{id:'session-hour',type:'training-session',anchor:'start',beforeMinutes:60,template:'session',major:false,asset:'none'}],templates:{...documentTemplates,session:'Session {{slot}} on {{date}} from {{timeRange}}.'}};}
 function facts():Extraction {
   const input=JSON.parse(readFileSync(new URL('../docs/examples/announcements/vtamps-v25-0.json',import.meta.url),'utf8')) as Extraction;
   input.source.account='synthetic';input.source.messageId='synthetic-session';input.events=[input.events[0]!];
-  Object.assign(input.events[0]!.event,{start:now+7200000,end:now+10800000,timezoneAssumed:true});return input;
+  Object.assign(input.events[0]!.event,{start:now+7200000,end:now+10800000,timezoneAssumed:false,temporal:{start:{precision:'exact',expression:'2030-01-01T02:00:00+08:00',sourceTime:null},end:{precision:'exact',expression:'2030-01-01T03:00:00+08:00',sourceTime:null}}});
+  Object.assign(input.events[0]!,{evidenceIds:['body']});return input;
 }
 function install(store:AnnouncementStore,p:PolicyFile):EffectivePolicySnapshot {
   const result=registerEffectivePolicy(store,p,effectivePolicy(store,guild)?.revision??0);assert.equal(result.accepted,true);return result.snapshot;
 }
 function activate(store:AnnouncementStore,p=policy()) {
-  store.ingest(guild,facts(),now);const candidate=store.candidates(guild)[0]!;store.approve(guild,candidate.id,candidate.review_version,'synthetic-staff',now);
+  const input=facts();store.saveEvidence(store.source(guild,input.source),{evidence:[{id:'body',text:'VTAMPS V.25.0 Senior Secondary Session 1: January 1, 2030, 2:00 AM to 3:00 AM Asia/Manila.'}],blocked:[]});
+  store.ingest(guild,input,now);const candidate=store.candidates(guild)[0]!;store.approve(guild,candidate.id,candidate.review_version,'synthetic-staff',now);
   const snapshot=install(store,p);plan(store,p,now,snapshot);return {snapshot,job:store.jobs(guild)[0]!};
 }
 function active(store:AnnouncementStore){return store.jobs(guild).filter(j=>['scheduled','held','pending_approval','blocked','draft'].includes(j.state));}
@@ -66,7 +69,7 @@ test('independent schedulers and duplicate generations reserve one logical deliv
     const claimed=a.claim(first.job.id,first.job.due,first.snapshot)!;assert.ok(claimed);assert.equal(b.claim(duplicate.id,duplicate.due,first.snapshot),undefined);
     assert.equal(a.db.prepare('SELECT count(*) n FROM delivery_attempts').get()!.n,1);assert.equal(a.db.prepare('SELECT count(*) n FROM logical_delivery_reservations').get()!.n,1);
     a.close();a=new AnnouncementStore(path);plan(a,p,now,first.snapshot);assert.equal(a.job(guild,claimed.id)!.state,'delivering');assert.equal(a.claim(claimed.id,claimed.due,first.snapshot),undefined);assert.equal(active(a).length,0);
-  }finally{a.close();b.close();rmSync(dir,{recursive:true,force:true});}
+  }finally{a.close();b.close();removeAnnouncementTestDirectory(dir);}
 });
 
 test('stale claim tokens leave a valid current plan intact',()=>{
@@ -128,5 +131,5 @@ test('legacy migration is idempotent and preserves cursors, public IDs, revision
     assert.equal(store.db.prepare("SELECT state FROM announcement_jobs WHERE policy='legacy-scheduled'").get()!.state,'blocked');assert.equal(store.db.prepare('SELECT count(*) n FROM legacy_delivery_guards').get()!.n,5);
     plan(store,p,now,effectivePolicy(store,guild)!);assert.equal(active(store).filter(j=>j.state==='scheduled').length,0);assert.equal(store.jobs(guild).length,5);
     store.close();store=new AnnouncementStore(path);assert.equal(store.db.prepare('SELECT count(*) n FROM legacy_delivery_guards').get()!.n,5);assert.equal(canonical(store.db.prepare('SELECT * FROM delivery_attempts ORDER BY job').all()),attempts);assert.equal(store.state('gmail:synthetic:cursor'),'future-only-boundary');assert.equal(store.state('gmail:synthetic:bootstrap-history-id'),'future-only-boundary');
-  }finally{store.close();rmSync(dir,{recursive:true,force:true});}
+  }finally{store.close();removeAnnouncementTestDirectory(dir);}
 });

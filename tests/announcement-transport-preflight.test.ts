@@ -39,6 +39,10 @@ function fixture(point: AwaitPoint, mutate: (fixture: TransportFixture) => void)
   input.events[0]!.event.start = now + 3_600_000 - 5_000;
   input.events[0]!.event.end = input.events[0]!.event.start + 3_600_000;
   input.events[0]!.event.timezoneAssumed = false;
+  const event = input.events[0]!.event;
+  Object.assign(event, { temporal: { start: { precision: 'exact', expression: new Date(event.start!).toISOString(), sourceTime: null }, end: { precision: 'exact', expression: new Date(event.end!).toISOString(), sourceTime: null } } });
+  Object.assign(input.events[0]!, { evidenceIds: ['body'] });
+  store.saveEvidence(store.source(guild, input.source), { evidence: [{ id: 'body', text: `VTAMPS V.25.0 Senior Secondary Session 1: ${new Date(event.start!).toISOString()} to ${new Date(event.end!).toISOString()} Asia/Manila.` }], blocked: [] });
   store.ingest(guild, input, now);
   const candidate = store.candidates(guild)[0]!;
   store.approve(guild, candidate.id, candidate.review_version, 'synthetic-staff', now);

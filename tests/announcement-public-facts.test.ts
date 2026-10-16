@@ -175,17 +175,25 @@ function safeExtraction():Extraction{return {
   source:{account:'synthetic-test-account',messageId:'synthetic-source',attachment:null,sha256:'a'.repeat(64),locator:'body'},
   events:[{event:{competitionId:null,roundId:null,programId:'vtamps-v30-0',preparesFor:[],yearLevel:'Senior Secondary',type:'training-session',slot:'1',start:now+86400000,end:now+93600000,deadline:null,timezone:'Asia/Manila',url:'https://example.org/resources/vtamps',detailLabel:null,dateHint:null,status:'active',timezoneAssumed:false},confidence:'high',issues:[]}],
 };}
-function providerOutput(x=safeExtraction()){return {catalog:x.catalog,events:x.events.map(c=>({...c,evidenceIds:['body']})),issues:[] as string[]};}
+const exactTime=(time:number|null)=>time===null?null:{precision:'exact' as const,expression:new Date(time).toISOString(),sourceTime:null};
+function providerOutput(x=safeExtraction()){return {disposition:'public',dispositionReason:null,correction:false,catalog:x.catalog,events:x.events.map(c=>({...c,event:{...c.event,availability:null,temporal:{start:exactTime(c.event.start),end:exactTime(c.event.end),deadline:exactTime(c.event.deadline)},logistics:null},evidenceIds:['body']})),issues:[] as string[]};}
+function ingestFixture(store:AnnouncementStore,input=safeExtraction(),at=now){
+  for(const c of input.events)Object.assign(c,{evidenceIds:['body'],event:{...c.event,temporal:Object.fromEntries((['start','end','deadline'] as const).filter(field=>c.event[field]!==null).map(field=>[field,exactTime(c.event[field])!]))}});
+  store.saveEvidence(store.source(guild,input.source),{evidence:[{id:'body',text:'VTAMPS V.30.0 Senior Secondary Session 1: January 2, 2030, 12:00 AM to 2:00 AM Asia/Manila. Public resources: https://example.org/resources/vtamps'}],blocked:[]});
+  return store.ingest(guild,input,at);
+}
 const policy:PolicyFile={guild,channel,role,staffChannel:null,policies:[{id:'session-1h',type:'training-session',anchor:'start',beforeMinutes:60,template:'session',major:false,asset:'none'}],templates:documentTemplates};
 const config:AutomationConfig={enabled:true,autoSend:false,database:':memory:',assets:'/tmp/announcement-synthetic-assets',policy,gmail:{account:'synthetic-test-account',query:'from:organizer@example.org',senders:['organizer@example.org'],clientId:'',clientSecret:'',refreshToken:''},provider:{backend:'https://synthetic-provider.example.org/v1',model:'synthetic-announcement-model',backendKey:'',vision:false,nativeTools:false},pollMs:120000};
 
-test('provider receives only sanitized A/D/G evidence even when a caller bypasses parsing',async()=>{
+test('provider receives sanitized A/D evidence and personal family G bypasses the provider',async()=>{
   const familyG='Your ClassMarker is ready to take\nStudent name: Synthetic Student\nCandidate ID: TEST-CANDIDATE-12345\nPIN: TEST-PIN-9876';
   for(const raw of [familyA,familyD,familyG]){
-    let captured='';
-    const complete=(async(_request:unknown,init?:RequestInit)=>{captured=String(init?.body??'');return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(providerOutput())}}]}),{status:200,headers:{'content-type':'application/json'}});}) as typeof fetch;
+    let captured='',calls=0;
+    const complete=(async(_request:unknown,init?:RequestInit)=>{calls++;captured=String(init?.body??'');return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(providerOutput())}}]}),{status:200,headers:{'content-type':'application/json'}});}) as typeof fetch;
     const result=await extractFacts(config.provider,{evidence:[{id:'body',text:raw}],blocked:[],sensitive:false},safeExtraction().source,AbortSignal.timeout(1000),complete);
     for(const value of syntheticPrivateValues){assert.equal(captured.includes(value),false);assert.equal(JSON.stringify(result).includes(value),false);}
+    if(raw===familyG){assert.equal(calls,0);assert.equal(result.disposition,'private');assert.deepEqual(result.events,[]);continue;}
+    assert.equal(calls,1);
     if(raw===familyA)assert.ok(captured.includes('Session 1: January 8'));
     if(raw===familyD)assert.ok(captured.includes('Exam start: 9:00 AM'));
     assert.ok(captured.includes('credential content withheld'));
@@ -207,12 +215,12 @@ test('manual imports and moderator edits cannot bypass public fact validation',(
   const store=new AnnouncementStore(':memory:');try{
     for(const field of ['slot','detailLabel','dateHint'] as const){
       const unsafe=safeExtraction();unsafe.events[0]!.event[field]='PIN: TEST-PIN-9876';
-      assert.throws(()=>validateExtraction(unsafe));assert.throws(()=>store.ingest(guild,unsafe,now));
+      assert.throws(()=>validateExtraction(unsafe));assert.throws(()=>ingestFixture(store,unsafe,now));
     }
-    const unsafeCatalog=safeExtraction();unsafeCatalog.catalog.programs[0]!.version='Student name: Synthetic Student';assert.throws(()=>store.ingest(guild,unsafeCatalog,now));
-    const unsafeUrl=safeExtraction();unsafeUrl.events[0]!.event.url='https://example.org/candidate/A9C123';assert.throws(()=>store.ingest(guild,unsafeUrl,now));
+    const unsafeCatalog=safeExtraction();unsafeCatalog.catalog.programs[0]!.version='Student name: Synthetic Student';assert.throws(()=>ingestFixture(store,unsafeCatalog,now));
+    const unsafeUrl=safeExtraction();unsafeUrl.events[0]!.event.url='https://example.org/candidate/A9C123';assert.throws(()=>ingestFixture(store,unsafeUrl,now));
     assert.equal(store.candidates(guild).length,0);
-    const safe=safeExtraction();store.ingest(guild,safe,now);const candidate=store.candidates(guild)[0]!;
+    const safe=safeExtraction();ingestFixture(store,safe,now);const candidate=store.candidates(guild)[0]!;
     assert.throws(()=>store.edit(guild,candidate.id,candidate.review_version,{...safe.events[0]!.event,detailLabel:'PIN: TEST-PIN-9876'},[],'synthetic-staff'));
     assert.throws(()=>store.edit(guild,candidate.id,candidate.review_version,safe.events[0]!.event,['Student name: Synthetic Student'],'synthetic-staff'));
     assert.equal(store.candidate(guild,candidate.id)!.event_json,candidate.event_json);
@@ -222,7 +230,7 @@ test('manual imports and moderator edits cannot bypass public fact validation',(
 
 test('moderator source evidence remains useful and credential-safe even through direct persistence',()=>{
   const store=new AnnouncementStore(':memory:');try{
-    const safe=safeExtraction();store.ingest(guild,safe,now);const source=store.source(guild,safe.source);
+    const safe=safeExtraction();ingestFixture(store,safe,now);const source=store.source(guild,safe.source);
     store.saveEvidence(source,{evidence:[{id:'body',text:familyA+'\n'+familyD}],blocked:[],sensitive:true});
     const panel=sourcePanel(store,guild,String(store.candidates(guild)[0]!.public_id)).text;
     for(const value of syntheticPrivateValues)assert.equal(panel.includes(value),false);
@@ -232,7 +240,7 @@ test('moderator source evidence remains useful and credential-safe even through 
 
 test('approval revalidates persisted candidate content rather than trusting its safety marker',()=>{
   const store=new AnnouncementStore(':memory:');try{
-    store.ingest(guild,safeExtraction(),now);const candidate=store.candidates(guild)[0]!;
+    ingestFixture(store,safeExtraction(),now);const candidate=store.candidates(guild)[0]!;
     store.db.prepare('UPDATE candidate_events SET event_json=? WHERE id=?').run(JSON.stringify({...safeExtraction().events[0]!.event,detailLabel:'PIN: TEST-PIN-9876'}),candidate.id);
     assert.throws(()=>store.approve(guild,candidate.id,candidate.review_version,'synthetic-staff',now));assert.equal(store.events(guild).length,0);
   }finally{store.close();}
@@ -240,7 +248,7 @@ test('approval revalidates persisted candidate content rather than trusting its 
 
 test('unsafe legacy persisted payload is withheld in preview and blocked before a transport callback',async()=>{
   const store=new AnnouncementStore(':memory:');try{
-    store.ingest(guild,safeExtraction(),now);const candidate=store.candidates(guild)[0]!;store.approve(guild,candidate.id,candidate.review_version,'synthetic-staff',now);plan(store,policy,now);
+    ingestFixture(store,safeExtraction(),now);const candidate=store.candidates(guild)[0]!;store.approve(guild,candidate.id,candidate.review_version,'synthetic-staff',now);plan(store,policy,now);
     const job=store.jobs(guild)[0]!;
     // Synthetic corruption models a legacy row or a stale unsafe persistence path.
     store.db.prepare('UPDATE announcement_jobs SET payload_json=? WHERE id=?').run(JSON.stringify(publicPayload('PIN: TEST-PIN-9876')),job.id);
