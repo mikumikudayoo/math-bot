@@ -20,6 +20,20 @@ function approve(store:AnnouncementStore,c:Candidate){return store.approve(guild
 function activate(store:AnnouncementStore){ingest(store,facts('baseline'));const candidate=pending(store)[0]!;approve(store,candidate);const snapshot=registerEffectivePolicy(store,policy,0).snapshot;plan(store,policy,now,snapshot);return {candidate,snapshot,job:store.jobs(guild)[0]!};}
 function correction(id:string,time:number|null,shift:number):Extraction{const input=facts(id,time,shift);input.correction=true;input.events[0]!.correctionPatch={kind:'partial',changedFields:['start','end','temporal'],clearFields:[]};return input;}
 
+test('a bogus same-fingerprint correction cannot release the admitted source barrier as unchanged',()=>{
+  for(const field of ['availability','temporal','logistics','start']){
+    const store=new AnnouncementStore(':memory:');try{
+      const base=activate(store),input=correction(`bogus-${field}`,sourceAt+1000,0);
+      input.events[0]!.correctionPatch={kind:'partial',changedFields:[field],clearFields:[]};
+      (input.events[0]!.event as unknown as Record<string,unknown>)[field]=null;
+      const source=store.source(guild,input.source);store.saveEvidence(source,{evidence:[{id:'body',text:sourceText}],blocked:[]});
+      assert.throws(()=>store.ingest(guild,input,now));
+      assert.equal(store.held(base.candidate.event_key),true);assert.equal(store.event(guild,base.candidate.event_key)!.revision,1);
+      assert.equal(store.job(guild,base.job.id)!.state,'held');
+    }finally{store.close();}
+  }
+});
+
 test('unreadable identical erratum remains pending and held until explicit factual resolution',()=>{
   const store=new AnnouncementStore(':memory:');try{
     const base=activate(store),input=correction('unreadable',sourceAt+1000,0);input.events[0]!.correctionPatch!.changedFields=[];

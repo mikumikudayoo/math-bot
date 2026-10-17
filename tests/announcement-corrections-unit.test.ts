@@ -30,9 +30,18 @@ test('explicit partial time correction retains the baseline URL, logistics, dead
 
 test('nulls in a partial patch preserve baseline facts; erasure requires an explicit supported clear list',()=>{
   const base=event(),proposal={...base,url:null,detailLabel:null};
-  assert.deepEqual(applyCorrectionPatch(base,proposal,{kind:'partial',changedFields:['url','detailLabel'],clearFields:[]}),base);
+  assert.deepEqual(applyCorrectionPatch(base,proposal,{kind:'partial',changedFields:[],clearFields:[]}),base);
   const result=applyCorrectionPatch(base,proposal,{kind:'partial',changedFields:[],clearFields:['url','logistics']});
   assert.equal(result.url,null);assert.equal(result.detailLabel,base.detailLabel);assert.equal(result.logistics,undefined);assert.deepEqual(base,event());
+});
+
+test('listed changed fields require non-null explicit values even when preserving them would match the baseline fingerprint',()=>{
+  const base=event();
+  for(const field of ['availability','temporal','logistics','start'])for(const value of [null,undefined,'omitted'])for(const kind of ['partial','replacement'] as const){
+    const proposal=structuredClone(base) as unknown as Record<string,unknown>;
+    if(value==='omitted')delete proposal[field];else proposal[field]=value;
+    assert.throws(()=>applyCorrectionPatch(base,proposal as unknown as ScheduleEvent,{kind,changedFields:[field],clearFields:[]}),/explicit non-null/);
+  }
 });
 
 test('partial structured-block correction retains unmentioned logistics and availability members',()=>{

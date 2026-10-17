@@ -8,6 +8,11 @@ export interface FieldEvidence {field:PublicFactField;evidenceIds:string[]}
 export interface EvidenceLink {field:PublicFactField;source:string;id:string}
 export interface RetainedEvidence {id:string;text:string;locations?:string[]}
 
+/** Manual edits replace complete fields; only unchanged fields inherit organizer proof. */
+export function attributeStaffEdit(event:ScheduleEvent,baseline:EvidenceLink[],source:string,changedFields:readonly string[]):EvidenceLink[]{
+  return publicFactFields.filter(field=>Object.hasOwn(event,field)).flatMap(field=>changedFields.includes(field)?[{field,source,id:'body'}]:baseline.filter(link=>link.field===field));
+}
+
 export function validateFieldEvidence(entries:FieldEvidence[]):void {
   if(!Array.isArray(entries)||entries.length>publicFactFields.length)throw new Error('Invalid field evidence attribution.');
   const seen=new Set<string>();

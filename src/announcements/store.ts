@@ -7,7 +7,7 @@ import {validatePublicText,validatePublicDiscordPayload,sanitizeOrganizerEvidenc
 import { effectivePolicy,isEffectivePolicy,projectDelivery,type EffectivePolicySnapshot } from './delivery-identity.js';
 import {normalizeCatalogAndEvents,catalogForEvent,semanticIssues,entityEvidenceIssues,sourceDispositions,classifySource,type SourceDisposition,type SemanticContext} from './semantics.js';
 import {applyCorrectionPatch,assessCorrection,compareCorrectionSources,factFingerprint,type CorrectionSourceOrder} from './corrections.js';
-import {attributeFields,attributionIssues,type EvidenceLink,type RetainedEvidence} from './evidence.js';
+import {attributeFields,attributeStaffEdit,attributionIssues,publicFactFields,type EvidenceLink,type RetainedEvidence} from './evidence.js';
 
 export interface Candidate { id:string;public_id:number;guild:string;batch:string;event_key:string;event_json:string;catalog_json:string;issues_json:string;confidence:string;base_revision:number;review_version:number;state:string;public_safety_version:number;fact_semantics_version:number;evidence_ids_json:string;timezone_confirmed:number;fact_fingerprint:string|null;correction_patch_json:string|null;superseded_by:string|null;reconsideration_of:string|null;requires_correction_resolution:number }
 export interface ApprovedEvent { event_key:string;guild:string;revision:number;event_json:string;catalog_json:string;approved_by:string;approved_at:number;public_safety_version:number;fact_semantics_version:number;authoritative_source_time:number|null;authoritative_source_hash:string|null }
@@ -389,20 +389,29 @@ export class AnnouncementStore {
     });
   }
   private pending(guild:string,id:string,version:number){const c=this.candidate(guild,id);if(!c||c.state!=='pending'||c.review_version!==version)throw new Error('Review is stale or candidate unavailable.');return c;}
-  edit(guild:string,id:string,version:number,event:ScheduleEvent,issues:string[],actor:string){return this.transaction(()=>{
+  edit(guild:string,id:string,version:number,event:ScheduleEvent,issues:string[],actor:string,reason='Staff explicitly confirmed the edited public facts.'){return this.transaction(()=>{
     event=canonicalEvent(event);
     const c=this.pending(guild,id,version);validateEvent(event,JSON.parse(c.catalog_json) as Catalog);if(guild+':'+eventKey(event)!==c.event_key)throw new Error('Identity edits require rejection and a new proposal.');
     if(!Array.isArray(issues)||issues.some(x=>typeof x!=='string'||x.length>500))throw new Error('Invalid issues.');
     for(const issue of issues)validatePublicText(issue,'review issue');
     const timezoneConfirmed=event.timezoneAssumed===false,context={...this.candidateSemanticContext(c),timezoneConfirmed};
-    const primary=String(this.db.prepare('SELECT source FROM candidate_batches WHERE id=?').get(c.batch)!.source),before=JSON.parse(c.event_json) as Record<string,unknown>;
-    const changedFields=Object.keys(event).filter(field=>canonical(before[field])!==canonical((event as unknown as Record<string,unknown>)[field]));
-    const links=attributeFields(event,primary,JSON.parse(c.evidence_ids_json) as string[],undefined,this.candidateEvidence(c),{kind:'partial',changedFields,clearFields:[]});
+    if(typeof reason!=='string'||!reason.trim()||reason.length>500)throw new Error('A staff confirmation reason is required.');
+    const before=JSON.parse(c.event_json) as Record<string,unknown>,at=Date.now();
+    const changedFields=publicFactFields.filter(field=>canonical(before[field])!==canonical((event as unknown as Record<string,unknown>)[field]));
+    let links=this.candidateEvidence(c),confirmationSource:string|null=null;
+    if(changedFields.length){
+      const facts=Object.fromEntries(changedFields.map(field=>[field,Object.hasOwn(event,field)?event[field]:null]));
+      const confirmation=`Staff explicitly confirmed these public facts: ${canonical(facts)}`;
+      validatePublicText(confirmation,'staff-confirmed public facts');
+      confirmationSource=this.source(guild,{account:'moderator',messageId:randomUUID(),attachment:null,sha256:digest(confirmation),locator:'body'});
+      this.saveEvidence(confirmationSource,{evidence:[{id:'body',text:confirmation}],blocked:[]});this.sourceState(confirmationSource,'extracted');this.releaseSource(confirmationSource);
+      links=attributeStaffEdit(event,links,confirmationSource,changedFields);
+    }
     const completeIssues=[...new Set([...issues,...attributionIssues(event,links,(s,id)=>this.retainedEvidence(s,id)),...semanticIssues(event,context),...entityEvidenceIssues(event,JSON.parse(c.catalog_json) as Catalog,context)])];
     this.db.prepare('UPDATE candidate_events SET field_evidence_json=? WHERE id=?').run(canonical(links),id);
     const fingerprint=factFingerprint(event,JSON.parse(c.catalog_json) as Catalog);
     this.db.prepare('UPDATE candidate_events SET event_json=?,issues_json=?,public_safety_version=1,fact_semantics_version=1,timezone_confirmed=?,fact_fingerprint=?,requires_correction_resolution=0,review_version=review_version+1 WHERE id=?').run(canonical(event),canonical(completeIssues),+timezoneConfirmed,fingerprint,id);
-    this.audit(guild,actor,c.requires_correction_resolution?'resolve-correction':'edit',id,{beforeHash:digest(c.event_json),after:event,issues:completeIssues,timezoneConfirmed});return this.candidate(guild,id)!;
+    this.audit(guild,actor,c.requires_correction_resolution?'resolve-correction':'edit',id,{beforeHash:digest(c.event_json),after:event,issues:completeIssues,timezoneConfirmed,reason,confirmationSource,changedFields},at);return this.candidate(guild,id)!;
   });}
   approve(guild:string,id:string,version:number,actor:string,now=Date.now()){return this.transaction(()=>{
     const c=this.pending(guild,id,version),active=this.event(guild,c.event_key);if((active?.revision??0)!==c.base_revision)throw new Error('Stale event revision; reject or rebase the proposal after inspecting the latest source.');

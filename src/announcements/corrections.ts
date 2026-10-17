@@ -18,15 +18,15 @@ export function validateCorrectionPatch(patch:CorrectionPatch):void {
 }
 
 // Only explicit changes can replace known good values in a partial correction.
-// Provider nulls mean unspecified; erasure requires an explicit clear field.
+// Unlisted provider nulls mean unspecified; erasure requires an explicit clear field.
 export function applyCorrectionPatch(baseline:ScheduleEvent,proposal:ScheduleEvent,patch:CorrectionPatch):ScheduleEvent {
   validateCorrectionPatch(patch);
   if(eventKey(baseline)!==eventKey(proposal))throw new Error('A correction cannot change stable event identity.');
   const result=structuredClone(patch.kind==='replacement'?canonicalEvent(proposal):canonicalEvent(baseline));
   const target=result as unknown as Record<string,unknown>,incoming=proposal as unknown as Record<string,unknown>;
+  for(const field of patch.changedFields)if(!Object.hasOwn(incoming,field)||incoming[field]===null||incoming[field]===undefined)throw new Error('Correction changed field requires an explicit non-null value.');
   if(patch.kind!=='replacement')for(const field of patch.changedFields){
-    const value=incoming[field];if(value===null||value===undefined)continue;
-    if(!Object.hasOwn(incoming,field))throw new Error('Correction changed field is missing.');
+    const value=incoming[field];
     // A partial logistics/temporal/availability block must not erase unrelated
     // members merely because the extraction omitted them.
     if(optionalFields.has(field)&&typeof value==='object'&&!Array.isArray(value))target[field]={...(target[field] as object|undefined),...structuredClone(value)};
