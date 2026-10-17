@@ -69,9 +69,28 @@ test('scanned PDFs and images remain incomplete without vision or image attachme
 });
 
 test('original MIME, attachment, PDF page, and evidence budgets still fail closed',async()=>{
-  await assert.rejects(()=>parse(part('x'.repeat(50001))),/50 KB/u);
+  const budget=await parse({mimeType:'multipart/mixed',parts:[part('BBB registration deadline: January 1, 2030'),part('x'.repeat(50001))]});
+  assert.equal(budget.incomplete,true);assert.match(budget.blocked.join(' '),/50 KB/u);assert.match(budget.evidence[0]!.text,/BBB registration/u);assert.ok(budget.evidence.reduce((n,e)=>n+Buffer.byteLength(e.text),0)<=50000);
   await assert.rejects(()=>parse({mimeType:'multipart/mixed',parts:Array.from({length:50},()=>part('public schedule'))}),/MIME parts/u);
   const oversized=await parse({mimeType:'application/pdf',filename:'schedule.pdf',body:{size:5000001,attachmentId:'not-read'}});assert.equal(oversized.incomplete,true);assert.match(oversized.blocked[0]!,/5 MB/u);
-  const bytes=syntheticPdf(Array.from({length:13},()=>['Public schedule']));await assert.rejects(()=>parse({mimeType:'application/pdf',body:{data:bytes.toString('base64url')}}),/12 pages/u);
+  const bytes=syntheticPdf(Array.from({length:13},()=>['Public schedule']));const oversizedPdf=await parse({mimeType:'multipart/mixed',parts:[part('TIMO final round invitation; registration deadline January 1, 2030'),{mimeType:'application/pdf',body:{data:bytes.toString('base64url')}}]});assert.equal(oversizedPdf.incomplete,true);assert.match(oversizedPdf.blocked.join(' '),/12 pages/u);assert.match(oversizedPdf.evidence[0]!.text,/TIMO final/u);
   const missing=await parse({mimeType:'text/plain',body:{size:40}});assert.equal(missing.incomplete,true);assert.match(missing.blocked[0]!,/missing evidence/u);
+});
+
+import {organizer} from '../src/announcements/gmail.js';
+import {classifySource,supportedCompetition} from '../src/announcements/semantics.js';
+test('real organizer aliases admit classification only; PIMSO math and mixed PhIMO science stay scoped',()=>{
+  const senders=['icestaffph@gmail.com','info.ice.th@gmail.com','motliphilippines.csr@gmail.com'];
+  for(const sender of senders)assert.equal(organizer({id:'fixture',payload:{headers:[{name:'From',value:`Organizer <${sender}>`}]}},senders),true);
+  assert.equal(organizer({id:'fixture',payload:{headers:[{name:'From',value:'spoof@example.org'}]}},senders),false);
+  const mail=(text:string)=>({evidence:[{id:'body',text}],blocked:[],sensitive:false});
+  assert.equal(supportedCompetition('Philippine International Mathematics and Science Olympiad'),'PIMSO');
+  assert.equal(classifySource(mail('Philippine International Mathematics and Science Olympiad mathematics National Round')).disposition,'public');
+  assert.equal(classifySource(mail('PhIMO finals mathematics schedule. IESO science finals schedule.')).disposition,'needs_review');
+  assert.equal(classifySource(mail('IESO science finals schedule.')).disposition,'ignore');
+  assert.throws(()=>supportedCompetition('IESO science'));
+});
+test('VTAMPS useful body survives inline timetable with a mandatory manual review warning',async()=>{
+  const result=await parse({mimeType:'multipart/mixed',parts:[part('VTAMPS v26 Session 1 materials are empty; uploads expected later.'),{mimeType:'image/jpeg',body:{attachmentId:'not-fetched'}}]});
+  assert.match(result.evidence[0]!.text,/materials are empty/u);assert.equal(result.incomplete,true);assert.match(result.blocked.join(' '),/manual factual review/u);
 });

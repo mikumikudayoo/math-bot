@@ -4,7 +4,7 @@ import type { QotdStore, Question } from './store.js';
 import type { QuestionCrop, ManualMetadata, SolutionSource } from './types.js';
 import { bindSolutionSource } from './solutions.js';
 import { validateCrop } from './crops.js';
-import { grade, validateGrading, type GradingConfig } from './grading.js';
+import { grade, validateGrading, allowedAnswerConfig, type GradingConfig } from './grading.js';
 import { DEFAULT_SCORING, scoreSubmission, validateScoring, type ScoringConfig, type ScoreContext } from './scoring.js';
 import { dayTimes, periods, manilaDay } from './periods.js';
 
@@ -41,6 +41,9 @@ export function migrateCompetition(db: DatabaseSync) {
       qotd INTEGER NOT NULL REFERENCES qotd_sessions(id), part INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'pending',
       message TEXT, payload TEXT NOT NULL, PRIMARY KEY(qotd,part));
     CREATE INDEX IF NOT EXISTS qotd_sessions_due ON qotd_sessions(revealAt,state);
+    CREATE TABLE IF NOT EXISTS qotd_answer_aliases(
+      id INTEGER PRIMARY KEY, qotd INTEGER NOT NULL REFERENCES qotd_sessions(id),
+      answer TEXT NOT NULL, grading TEXT NOT NULL, actor TEXT NOT NULL, created INTEGER NOT NULL);
     PRAGMA user_version=3;
   `));
 }
@@ -55,6 +58,33 @@ export function publicSource(q: Question, metadata?: ManualMetadata): PublicSour
 export class Competition {
   constructor(readonly store: QotdStore) {}
   get db() { return this.store.db; }
+  currentAnswerKey(guild:string) {
+    const row=this.db.prepare("SELECT h.id,h.question FROM qotd_history h JOIN qotd_sessions s ON s.id=h.id WHERE h.guild=? AND h.state='posted' ORDER BY h.id DESC LIMIT 1").get(guild);
+    if(!row)throw new Error('No current MPoTD is posted in this server.');
+    const session=this.session(Number(row.id))!;
+    return {session,question:String(row.question),aliases:this.answerAliases(session.id)};
+  }
+  answerAliases(id:number) {
+    return this.db.prepare('SELECT id,answer,grading,actor,created FROM qotd_answer_aliases WHERE qotd=? ORDER BY id').all(id).map(r=>({id:Number(r.id),answer:String(r.answer),grading:JSON.parse(String(r.grading)) as GradingConfig,actor:String(r.actor),created:Number(r.created)}));
+  }
+  manageCurrentAnswer(guild:string,actor:string,action:'add'|'remove',answer:string,now=Date.now()) {
+    return atomic(this.db,()=>{
+      const key=this.currentAnswerKey(guild),s=key.session;
+      if(s.scoredAt!==null||s.revealedAt!==null)throw new Error('Current MPoTD is already scored; historical answers are protected.');
+      const config=allowedAnswerConfig(answer,s.snapshot.grading);
+      const matches=key.aliases.filter(a=>grade(answer,a.grading)||grade(a.answer,config));
+      if(action==='add'&&(grade(answer,s.snapshot.grading)||matches.length))return {status:'duplicate' as const,id:s.id};
+      if(action==='remove') {
+        if(!matches.length)throw new Error('No matching added alias. Canonical accepted answers are protected.');
+        for(const a of matches)this.db.prepare('DELETE FROM qotd_answer_aliases WHERE id=? AND qotd=?').run(a.id,s.id);
+      }else {
+        if(key.aliases.length>=20)throw new Error('Current MPoTD already has 20 aliases. Remove an alias first.');
+        this.db.prepare('INSERT INTO qotd_answer_aliases(qotd,answer,grading,actor,created) VALUES(?,?,?,?,?)').run(s.id,answer,JSON.stringify(config),actor,now);
+      }
+      this.store.audit(actor,JSON.stringify({action:`answer_alias.${action}`,guild,post:s.id,question:key.question,answer,before:key.aliases,after:this.answerAliases(s.id)}));
+      return {status:action==='add'?'added' as const:'removed' as const,id:s.id};
+    });
+  }
   configure(question: string, config: QuestionSettings, actor: string) {
     const q = this.store.get(question); if (!q) throw new Error('Unknown question.');
     validateGrading(config.grading); if (config.scoring) validateScoring(config.scoring);
@@ -150,7 +180,8 @@ export class Competition {
       const s = this.session(id); if (!s || s.historyState !== 'posted' || now < s.revealAt) throw new Error('Reveal is not due.');
       if (s.scoredAt !== null) return this.results(id);
       const rows = this.results(id).sort((a,b) => a.submittedAt - b.submittedAt || (a.user < b.user ? -1 : a.user > b.user ? 1 : 0));
-      const graded = rows.map(r => ({ ...r, correct: grade(r.answer,s.snapshot.grading) }));
+      const aliases=this.answerAliases(id);
+      const graded = rows.map(r => ({ ...r, correct: grade(r.answer,s.snapshot.grading)||aliases.some(a=>grade(r.answer,a.grading)) }));
       const correctCount = graded.filter(r => r.correct).length;
       const firstCorrectAt = graded.find(r => r.correct)?.submittedAt ?? null;
       let placement = 0;

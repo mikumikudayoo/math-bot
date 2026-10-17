@@ -27,7 +27,8 @@ function htmlText(html:string){
 export async function parseMail(message:GmailMessage,attachment:(id:string,mime:string)=>Promise<Buffer>):Promise<ParsedMail>{
   const result:ParsedMail={evidence:[],blocked:[],sensitive:false,sourceTime:sourceTimeAnchor(message)};let nodes=0,total=0;
   const completeEvidence=new Map<string,Evidence[]>();
-  const budget=(text:string)=>{total+=Buffer.byteLength(text);if(total>50000)throw new Error('Mail evidence exceeds 50 KB.');};
+  let exhausted=false;
+  const budget=(text:string)=>{if(exhausted)return false;if(total+Buffer.byteLength(text)>50000){exhausted=true;block('Mail evidence exceeds 50 KB; remaining evidence omitted; manual factual review required.');return false;}total+=Buffer.byteLength(text);return true;};
   const appendSafe=(id:string,text:string,locations=[id])=>{
     const normalized=text.trim().replace(/\s+/g,' ');if(!normalized)return;
     const prior=completeEvidence.get(normalized);
@@ -40,10 +41,11 @@ export async function parseMail(message:GmailMessage,attachment:(id:string,mime:
     const records=chunks.map((chunk,index)=>{const suffix=chunks.length===1?'':`:chunk-${index+1}`;return {id:id+suffix,text:chunk,locations:locations.map(location=>location+suffix)};});
     result.evidence.push(...records);completeEvidence.set(normalized,records);
   };
-  const add=(id:string,text:string)=>{budget(text);const safe=redact(text);result.sensitive ||=safe.sensitive;appendSafe(id,safe.text);};
+  const add=(id:string,text:string)=>{if(!budget(text))return;const safe=redact(text);result.sensitive ||=safe.sensitive;appendSafe(id,safe.text);};
   const block=(issue:string)=>{result.blocked.push(issue);result.incomplete=true;};
   const subject=message.payload?.headers?.find(h=>h.name.toLowerCase()==='subject')?.value??'';add('subject',subject);
   async function walk(part:GmailPart,path:string){
+    if(exhausted)return;
     if(++nodes>50)throw new Error('Too many MIME parts.');
     for(const [i,child] of (part.parts??[]).entries())await walk(child,`${path}.${i}`);
     const mime=part.mimeType??'',size=part.body?.size??0;if(size>5_000_000){block(`${path}: attachment exceeds 5 MB`);return;}
@@ -53,11 +55,11 @@ export async function parseMail(message:GmailMessage,attachment:(id:string,mime:
     if(data.length>5_000_000)throw new Error('Attachment exceeds 5 MB.');
     if(mime==='application/pdf'){
       const task=getDocument({data:new Uint8Array(data),useSystemFonts:true});
-      try{const pdf=await task.promise;if(pdf.numPages>12)throw new Error('PDF exceeds 12 pages.');
+      try{const pdf=await task.promise;if(pdf.numPages>12){block(`${path}: PDF exceeds 12 pages; attachment omitted; manual factual review required`);return;}
         const pages:string[]=[],locations:string[]=[];
         for(let n=1;n<=pdf.numPages;n++){const page=await pdf.getPage(n);const content=await page.getTextContent();const items=content.items.filter((i):i is typeof i & {str:string;transform:number[]}=>'str' in i);if(!items.some(i=>i.str.trim())){block(`${path}: page ${n} is scanned/image-only`);continue;}
           // Coordinates are provenance for human review, not a deterministic table interpretation.
-          const text=items.map(i=>`[x=${Math.round(i.transform[4]??0)} y=${Math.round(i.transform[5]??0)} page=${n}] ${i.str}`).join('\n');budget(text+'\n');pages.push(text);locations.push(`${path}:page-${n}`);
+          const text=items.map(i=>`[x=${Math.round(i.transform[4]??0)} y=${Math.round(i.transform[5]??0)} page=${n}] ${i.str}`).join('\n');if(!budget(text+'\n'))break;pages.push(text);locations.push(`${path}:page-${n}`);
         }
         // Redact the complete document before any chunking. A private label at a page boundary
         // still controls the value on the next page. Page locations conservatively cover the document.

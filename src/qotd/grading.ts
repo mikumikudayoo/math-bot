@@ -8,6 +8,7 @@ const normalized = (s: string) => s.normalize('NFKC').trim().replace(/\s+/g, ' '
 const numberPattern = '[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?';
 function numeric(s: string, fractions = false): number | null {
   s = s.trim();
+  if (fractions) s = fractionText(s);
   if (fractions && s.includes('/')) {
     const parts = s.split('/');
     if (parts.length !== 2) return null;
@@ -16,6 +17,22 @@ function numeric(s: string, fractions = false): number | null {
   }
   if (!new RegExp(`^${numberPattern}$`).test(s)) return null;
   const n = Number(s); return Number.isFinite(n) ? n : null;
+}
+/** Only a complete pair of numbers on separate lines is a stacked fraction. */
+export function fractionText(s:string):string {
+  const text=s.trim().replace(/⁄/gu,'/');
+  const stacked=text.match(new RegExp(`^(${numberPattern})[\\t ]*\\r?\\n[\\t ]*(${numberPattern})$`));
+  return stacked ? `${stacked[1]}/${stacked[2]}` : text;
+}
+export function allowedAnswerConfig(answer:string, base:GradingConfig):GradingConfig {
+  if(!answer.trim()||answer.length>200||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]|@|<|>/u.test(answer))throw new Error('Invalid answer: use 1–200 characters without mentions or control characters.');
+  const value=fractionText(answer);
+  if(value.includes('/') || /\r?\n/u.test(answer)) {
+    if(numeric(value,true)===null)throw new Error('Invalid answer: enter a complete numeric fraction with a nonzero denominator.');
+    return {mode:'numeric',value,fractions:true};
+  }
+  if(base.mode==='numeric'&&numeric(value,base.fractions)!==null)return {...base,value};
+  return {mode:base.mode==='normalized_text'||base.mode==='multiple_choice'?'normalized_text':'exact_text',answers:[answer]};
 }
 export function validateGrading(config: GradingConfig): void {
   if (!config || typeof config !== 'object') throw new Error('Grading must be an object.');

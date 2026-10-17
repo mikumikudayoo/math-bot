@@ -349,3 +349,60 @@ test("existing flat-ten session remains flat after the default changes",()=>{
     assert.equal(c.score(s.id,times.revealAt+1000)[0]!.points,10);
   } finally {store.close();}
 });
+
+for(const input of ['1/2','1 / 2','1\n2','1\r\n2','1⁄2','+1 / +2','0.5'])test(`fraction alias grades ${JSON.stringify(input)}`,()=>{
+  assert.equal(grade(input,{mode:'numeric',value:'1/2',fractions:true}),true);
+  assert.equal(grade(input,{mode:'exact_text',answers:['1/2']}),input==='1/2');
+});
+test('fraction alias lifecycle is durable, audited, snapshot-preserving and used by scoring',()=>{
+  const path=join(dir,'aliases.sqlite');let {store,c}=setup(path);const s=start(c),before=JSON.stringify(s.snapshot);
+  assert.equal(c.manageCurrentAnswer(guild,'moderator','add','1\n2').status,'added');
+  for(const answer of ['1/2','1 / 2','1⁄2','0.5','2/4'])assert.equal(c.manageCurrentAnswer(guild,'moderator','add',answer).status,'duplicate');
+  assert.equal(c.answerAliases(s.id).length,1);
+  assert.equal(JSON.stringify(c.session(s.id)!.snapshot),before);
+  assert.throws(()=>c.manageCurrentAnswer('other','moderator','add','1/2'),/No current/);
+  for(const answer of ['1/0','1\n0','@everyone','<@123>','x'.repeat(201),''])assert.throws(()=>c.manageCurrentAnswer(guild,'moderator','add',answer),/Invalid answer/);
+  assert.equal(c.manageCurrentAnswer(guild,'moderator','remove','2/4').status,'removed');
+  assert.throws(()=>c.manageCurrentAnswer(guild,'moderator','remove','94'),/protected/);
+  c.manageCurrentAnswer(guild,'moderator','add','1/2');
+  submit(c,s.id,'1\n2',times.opensAt+1000);
+  store.db.close();store=new QotdStore(path);c=new Competition(store);
+  assert.equal(c.answerAliases(s.id).length,1);assert.ok(Number(store.db.prepare("SELECT count(*) n FROM qotd_audit WHERE action LIKE '%answer_alias%'").get()!.n)>=3);
+  assert.equal(c.score(s.id,times.revealAt)[0]!.correct,1);
+  assert.throws(()=>c.manageCurrentAnswer(guild,'moderator','add','yes'),/already scored/);
+  assert.equal(JSON.stringify(c.session(s.id)!.snapshot),before);store.db.close();
+});
+test('fraction parsing does not concatenate spaces, accept zero denominators, or broaden text',()=>{
+  const config:GradingConfig={mode:'numeric',value:'12',fractions:true};
+  for(const text of ['1 2','1\n2','1/0','NaN','Infinity','1\n2\n3'])assert.equal(grade(text,config),false);
+  assert.equal(grade('-1\n2',{mode:'numeric',value:'-0.5',fractions:true}),true);
+  assert.equal(grade('12.00',config),true);
+  assert.equal(grade('Blue',{mode:'exact_text',answers:['blue']}),false);
+  assert.equal(grade(' Blue ',{mode:'normalized_text',answers:['blue']}),true);
+});
+
+import {qotdAdminCommand} from '../src/commands/qotd-admin.js';
+import {MODERATOR_ROLE_ID} from '../src/admin/auth.js';
+import type {ChatInputCommandInteraction} from 'discord.js';
+test('moderator answer workflow is private, shows canonical key and distinguishes duplicates',async()=>{
+  const {store,c}=setup();const s=start(c);const command=qotdAdminCommand({store:()=>{throw new Error('unused');},competition:()=>c});
+  try {
+    const run=async(action:string,answer='1/2')=>{
+      const replies:unknown[]=[],defers:unknown[]=[];
+      const i={user:{id:users[0],username:'mod'},guildId:guild,inGuild:()=>true,member:{roles:[MODERATOR_ROLE_ID]},memberPermissions:{has:()=>false},options:{getSubcommand:()=>action,getString:()=>answer},deferReply:async(x:unknown)=>{defers.push(x);},editReply:async(x:unknown)=>{replies.push(x);}} as unknown as ChatInputCommandInteraction;
+      await command.execute(i);assert.deepEqual(defers,[{flags:MessageFlags.Ephemeral}]);assert.deepEqual((replies[0] as {allowedMentions:unknown}).allowedMentions,{parse:[]});return JSON.stringify(replies);
+    };
+    assert.match(await run('answer-key'),new RegExp(`current MPOTD #${s.id}`));
+    assert.match(await run('answer-add'),/alias added/);assert.match(await run('answer-add','1\n2'),/duplicate/);
+    assert.match(await run('answer-key'),/canonical answer/);assert.match(await run('answer-remove'),/alias removed/);
+  }finally{store.db.close();}
+});
+
+test('numeric aliases deduplicate integers, signs and decimals while exact text stays literal',()=>{
+  const {store,c}=setup();start(c);try{
+    assert.equal(c.manageCurrentAnswer(guild,'mod','add','3').status,'added');
+    for(const value of ['+3','3.0','3e0'])assert.equal(c.manageCurrentAnswer(guild,'mod','add',value).status,'duplicate');
+    assert.equal(c.manageCurrentAnswer(guild,'mod','add','blue').status,'added');
+    assert.equal(c.manageCurrentAnswer(guild,'mod','add','Blue').status,'added');
+  }finally{store.db.close();}
+});

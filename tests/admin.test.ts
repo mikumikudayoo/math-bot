@@ -148,3 +148,11 @@ test('QOTD admin denies ordinary users, audits corrections and keeps results pri
     const reset=interaction(user,true,{action:'reset',confirm:false});await command.execute(reset.value);assert.equal(c.stats(guild,user)[0]!.points,12);assert.equal(store.recent(guild)[0]!.phase,'failure');
   } finally {store.close();c.db.close();}
 });
+
+test('all answer-key commands deny ordinary users before opening stores',async()=>{
+  const command=qotdAdminCommand({store:()=>{throw new Error('must not open');},competition:()=>{throw new Error('must not open');}});
+  for(const action of ['answer-key','answer-add','answer-remove']){
+    const call=interaction(user,false,{action,answer:'1/2'});await command.execute(call.value);
+    assert.deepEqual(call.defers,[{flags:MessageFlags.Ephemeral}]);assert.match(JSON.stringify(call.replies),/moderator access/);
+  }
+});

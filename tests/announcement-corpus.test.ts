@@ -154,9 +154,11 @@ test('duplicate MIME bodies and HTML-only safe links retain one cited timetable 
   }finally{store.close();}
 });
 
-test('oversized evidence blocks family A before provider extraction or candidate approval',async()=>{
+test('oversized evidence preserves bounded family A evidence with explicit review hold',async()=>{
   const message=mail('a-guidelines',{...corpus['a-guidelines']!,body:['VTAMPS V.30.0 '+ 'Synthetic public timetable. '.repeat(2100)]});
-  await assert.rejects(()=>parseMail(message,async()=>Buffer.alloc(0)),/50 KB/u);
+  const parsed=await parseMail(message,async()=>Buffer.alloc(0));
+  assert.equal(parsed.incomplete,true);assert.match(parsed.blocked.join(' '),/50 KB/u);
+  assert.ok(parsed.evidence.reduce((n,e)=>n+Buffer.byteLength(e.text),0)<=50000);
 });
 
 function syntheticImagePdf(){
@@ -182,5 +184,17 @@ for(const failure of ['provider','gmail'] as const)test(`${failure} outage on a 
     const message=mail('a-correction'),source=provenance(message),sourceId=store.source(guild,source);store.setState('gmail:retry-at',String(Date.now()+60000));
     const client={get:async()=>{if(failure==='gmail')throw new GmailError(503);return message;}} as unknown as GmailClient;
     await workerTick(store,config,client,async()=>{throw new ProviderBackoff(Date.now()+60000,'http-429');});assert.equal(store.db.prepare('SELECT state FROM sources WHERE id=?').get(sourceId)!.state,'retry');assert.equal(store.job(guild,original.id)!.state,'held');assert.equal(store.event(guild,original.event_key)!.revision,1);assert.equal(store.db.prepare('SELECT COUNT(*) n FROM delivery_attempts').get()!.n,0);
+  }finally{store.close();}
+});
+
+test('partial oversized mail cannot approve or schedule retained facts until explicit review',async()=>{
+  const store=new AnnouncementStore(':memory:');try{
+    const body=corpus['a-guidelines']!.body.join('\n');
+    const payload:GmailPart={mimeType:'multipart/mixed',parts:[{mimeType:'text/plain',body:{data:Buffer.from(body).toString('base64url')}},{mimeType:'text/plain',filename:'oversized.txt',body:{data:Buffer.from('x'.repeat(50001)).toString('base64url')}}]};
+    const result=await ingestMail(store,'a-guidelines',[event()],program,{payload});
+    assert.equal(result.parsed.incomplete,true);const candidate=pending(store)[0]!;
+    assert.ok(candidate);assert.match(candidate.issues_json,/incomplete|50 KB/u);
+    assert.throws(()=>store.approve(guild,candidate.id,candidate.review_version,'synthetic-staff',now));
+    await planInShadow(store);assert.equal(store.jobs(guild).length,0);
   }finally{store.close();}
 });
