@@ -20,6 +20,8 @@ export interface SourceClassification {disposition:SourceDisposition;reason:stri
 
 const unsupported=/\b(?:HKISO|IESO|VTASPS?|science)\b/iu;
 const supported=/\b(?:VTAMPS|TIMO|HKIMO|BBB|PhIMO|PIMSO)\b/iu;
+const officialPimso=/\bPhilippine\s+International\s+Math(?:ematics)?\s+and\s+Science\s+Olympiad\b/giu;
+function canonicalPimsoIdentity(text:string){return text.replace(officialPimso,'PIMSO');}
 const correctionPattern=/\b(?:errat(?:a|um)|correct(?:ed|ion)|reschedul(?:e|ed|ing)|revised|updated\s+(?:review\s+)?schedule|postpon(?:ed|ement)|cancel(?:led|lation))\b/iu;
 const relativePattern=/\b(?:tomorrow|today|tonight|yesterday|next\s+(?:day|week|morning|afternoon|evening)|this\s+(?:morning|afternoon|evening)|later\s+(?:today|tomorrow))\b/iu;
 const uncertainAvailability=/\b(?:empty|unavailable|partial(?:ly)?|not\s+(?:(?:yet|currently|now)\s+)?(?:available|uploaded|ready)|(?:aren['’]t|isn['’]t)\s+(?:yet\s+)?(?:available|uploaded|ready)|no\s+(?:files|materials)|will\s+(?:be\s+)?(?:upload(?:ed)?|(?:made\s+)?available|release[dr]?)|to\s+be\s+uploaded|expected|coming\s+soon|only\s+some|(?:available|uploaded|released)\s+(?:tomorrow|next|later|on|from|by|after))\b/iu;
@@ -40,7 +42,8 @@ export function classifySource(mail:ParsedMail):SourceClassification {
   const subject=mail.evidence.find(e=>e.id==='subject')?.text??'';
   const text=mail.evidence.map(e=>e.text).join('\n');
   const correction=correctionPattern.test(subject+'\n'+text);
-  const hasSupported=supported.test(text),hasUnsupported=unsupported.test(text);
+  const identityText=canonicalPimsoIdentity(text);
+  const hasSupported=supported.test(identityText),hasUnsupported=unsupported.test(identityText);
   if(hasUnsupported&&!hasSupported)return {disposition:'ignore',reason:'Unsupported competition or training program; mathematics scope was not widened.',correction};
   if(hasUnsupported&&hasSupported)return {disposition:'needs_review',reason:'Mixed supported and unsupported source scope requires explicit factual separation.',correction};
   if(correction&&mail.blocked.length)return {disposition:'needs_review',reason:'Correction replacement evidence is unreadable or incomplete; retain the source hold.',correction:true};
@@ -61,7 +64,7 @@ const competitionAliases:Record<string,RegExp>={
 };
 export function supportedCompetition(name:string):string {
   // PIMSO's established name includes Science; its selected catalog subject must still be mathematics.
-  if(/\b(?:HKISO|IESO|VTASPS?|VTAMPS)\b/iu.test(name))throw new Error('Unsupported competition identity.');
+  if(/\b(?:HKISO|IESO|VTASPS?|VTAMPS|science)\b/iu.test(canonicalPimsoIdentity(name)))throw new Error('Unsupported competition identity.');
   const names=Object.entries(competitionAliases).filter(([,pattern])=>pattern.test(name));
   if(names.length!==1)throw new Error('Unsupported or ambiguous mathematics competition identity.');
   return names[0]![0];

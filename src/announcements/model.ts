@@ -76,7 +76,7 @@ export function validateCatalog(c: Catalog) {
   }
   for(const item of c.competitions) {
     checkKeys(item,['id','name','year','subject']);
-    if(item.subject!=='mathematics' || !text(item.name) || /\b(?:VTAMPS|VTASPS?|IESO|HKISO|science)\b/i.test(item.name) || !Number.isInteger(item.year) || item.year<2000 || item.year>2200) throw new Error('Catalog accepts mathematics competitions only; VTAMPS is a separate program.');
+    if(item.subject!=='mathematics' || !text(item.name) || !Number.isInteger(item.year) || item.year<2000 || item.year>2200) throw new Error('Catalog accepts mathematics competitions only; VTAMPS is a separate program.');
     supportedCompetition(item.name);
   }
   for(const r of c.rounds) {checkKeys(r,['id','competitionId','name']);if(!text(r.name) || !c.competitions.some(x=>x.id===r.competitionId)) throw new Error('Round must belong to a known competition.');}

@@ -7,6 +7,22 @@ const now=Date.parse('2030-01-01T08:00:00+08:00');
 const catalog:Catalog={competitions:[{id:'contest-picked-by-model',name:'TIMO',year:2030,subject:'mathematics'}],rounds:[{id:'round-picked-by-model',competitionId:'contest-picked-by-model',name:'Heat Round'}],programs:[{id:'program-picked-by-model',name:'VTAMPS',version:'V.30.0'}]};
 function event(patch:Partial<ScheduleEvent>={}):ScheduleEvent{const e:ScheduleEvent={competitionId:null,roundId:null,programId:'program-picked-by-model',preparesFor:[],yearLevel:'Senior Secondary',type:'training-session',slot:'1',start:now+86400000,end:now+86400000+7200000,deadline:null,timezone:'Asia/Manila',timezoneAssumed:false,url:null,detailLabel:null,...patch};if(patch.temporal===undefined)e.temporal=Object.fromEntries((['start','end','deadline'] as const).filter(field=>e[field]!==null).map(field=>[field,{precision:'exact',expression:new Date(e[field]!).toISOString(),sourceTime:now}]));return e;}
 
+test('official PIMSO expanded identity is public and canonical mathematics without masking other science scope',()=>{
+  const name='Philippine International Mathematics and Science Olympiad';
+  const classify=(text:string)=>classifySource({evidence:[{id:'body',text}],blocked:[],sensitive:false}).disposition;
+  assert.equal(classify(`${name} 2030 National Round mathematics guidelines.`),'public');
+  assert.equal(classify(`${name} 2030 and HKISO 2030.`),'needs_review');
+  assert.equal(classify(`${name} 2030 and VTASP guidelines.`),'needs_review');
+  assert.equal(classify(`${name} 2030. Separate science program registration.`),'needs_review');
+  assert.equal(classify('Generic science Olympiad guidelines.'),'ignore');
+  const value:Extraction={source:{account:'synthetic',messageId:'official-pimso',attachment:null,sha256:'a'.repeat(64),locator:'body'},catalog:{competitions:[{id:'picked',name,year:2030,subject:'mathematics'}],rounds:[],programs:[]},events:[{event:event({competitionId:'picked',programId:null,type:'competition-day'}),confidence:'high',issues:[],evidenceIds:['body']}]};
+  assert.doesNotThrow(()=>validateExtraction(value));
+  const normalized=normalizeCatalogAndEvents(value);assert.equal(normalized.catalog.competitions[0]!.name,'PIMSO');assert.equal(normalized.events[0]!.event.competitionId,'pimso-2030');
+  assert.deepEqual(entityEvidenceIssues(normalized.events[0]!.event,normalized.catalog,{evidence:[{id:'body',text:`${name} 2030 National Round mathematics.`}],evidenceIds:['body']}),[]);
+  for(const subject of ['science','Mathematics']){const bad=structuredClone(value);bad.catalog.competitions[0]!.subject=subject as 'mathematics';assert.throws(()=>validateExtraction(bad));}
+  for(const unsupported of ['PIMSO science competition','HKISO','VTASP','Generic science Olympiad',`${name} and another science program`]){const bad=structuredClone(value);bad.catalog.competitions[0]!.name=unsupported;assert.throws(()=>validateExtraction(bad));}
+});
+
 test('host source time accepts Gmail internalDate and explicit-offset Date headers, never an implicit timezone',()=>{
   assert.equal(sourceTimeAnchor({id:'synthetic',internalDate:String(now)}),now);
   assert.equal(sourceTimeAnchor({id:'synthetic',payload:{headers:[{name:'Date',value:'Tue, 1 Jan 2030 08:00:00 +0800'}]}}),now);
