@@ -12,7 +12,7 @@ import {attributeFields,attributeStaffEdit,attributionIssues,publicFactFields,ty
 export interface Candidate { id:string;public_id:number;guild:string;batch:string;event_key:string;event_json:string;catalog_json:string;issues_json:string;confidence:string;base_revision:number;review_version:number;state:string;public_safety_version:number;fact_semantics_version:number;evidence_ids_json:string;timezone_confirmed:number;fact_fingerprint:string|null;correction_patch_json:string|null;superseded_by:string|null;reconsideration_of:string|null;requires_correction_resolution:number }
 export interface ApprovedEvent { event_key:string;guild:string;revision:number;event_json:string;catalog_json:string;approved_by:string;approved_at:number;public_safety_version:number;fact_semantics_version:number;authoritative_source_time:number|null;authoritative_source_hash:string|null }
 export interface Payload {content:string;allowedMentions:{parse:[];roles:string[];users:string[];repliedUser:boolean}}
-export interface AnnouncementJob {id:string;guild:string;event_key:string;revision:number;policy:string;channel:string;role:string|null;due:number;expires:number;major:number;asset_policy:string;asset:string|null;payload_json:string;state:string;message:string|null;approved_by:string|null;public_safety_version?:number;logical_delivery_id?:string|null;rule_id?:string|null;policy_revision?:number|null;plan_hash?:string|null;approved_payload_hash?:string|null}
+export interface AnnouncementJob {attempt_at?:number;id:string;guild:string;event_key:string;revision:number;policy:string;channel:string;role:string|null;due:number;expires:number;major:number;asset_policy:string;asset:string|null;payload_json:string;state:string;message:string|null;approved_by:string|null;public_safety_version?:number;logical_delivery_id?:string|null;rule_id?:string|null;policy_revision?:number|null;plan_hash?:string|null;approved_payload_hash?:string|null}
 export class AnnouncementStore {
   readonly db:DatabaseSync;
   constructor(path:string){
@@ -470,7 +470,7 @@ export class AnnouncementStore {
   job(guild:string,id:string){return this.db.prepare('SELECT * FROM announcement_jobs WHERE guild=? AND id=?').get(guild,id) as unknown as AnnouncementJob|undefined;}
   legacyDeliveryGuard(guild:string,key:string,revision:number,channel:string){return !!this.db.prepare('SELECT job FROM legacy_delivery_guards WHERE guild=? AND event_key=? AND revision=? AND channel=? LIMIT 1').get(guild,key,revision,channel);}
   logicalDeliveryConsumed(logicalId:string){return !!this.db.prepare(`SELECT job FROM logical_delivery_reservations WHERE logical_delivery_id=?
-    UNION ALL SELECT j.id FROM announcement_jobs j WHERE j.logical_delivery_id=? AND (j.state IN ('sent','delivering','uncertain','cancelled','skipped') OR EXISTS(SELECT 1 FROM delivery_attempts a WHERE a.job=j.id)) LIMIT 1`).get(logicalId,logicalId);}
+    UNION ALL SELECT j.id FROM announcement_jobs j WHERE j.logical_delivery_id=? AND (j.state IN ('sent','delivering','uncertain','cancelled','skipped') OR EXISTS(SELECT 1 FROM delivery_attempts a WHERE a.job=j.id AND a.state<>'preflight_failed')) LIMIT 1`).get(logicalId,logicalId);}
   addJob(job:Omit<AnnouncementJob,'id'|'asset'|'message'|'approved_by'>){
     const id=randomUUID();let safety=0;
     if(job.state!=='blocked'&&job.payload_json!==''&&JSON.parse(job.payload_json).content){validatePublicDiscordPayload(JSON.parse(job.payload_json),{role:job.role,channel:job.channel});safety=1;}
@@ -493,9 +493,10 @@ export class AnnouncementStore {
     const row=this.event(j.guild,j.event_key),rule=snapshot.policy.policies.find(r=>r.id===j.rule_id);if(!row||row.revision!==j.revision||!rule)return false;
     try{const p=projectDelivery(row,snapshot.policy,rule);return !p.blocked&&p.logical_delivery_id===j.logical_delivery_id&&p.plan_hash===j.plan_hash&&p.channel===j.channel&&p.role===j.role&&p.due===j.due&&p.expires===j.expires&&p.major===j.major&&p.asset_policy===j.asset_policy&&(!j.major||!!j.rule_id)&&(!j.major?canonical(JSON.parse(j.payload_json))===p.payload_json:true);}catch{return false;}
   }
-  validateDelivery(id:string,snapshot:EffectivePolicySnapshot,now=Date.now(),expectedPayload?:Payload):AnnouncementJob {
+  validateDelivery(id:string,snapshot:EffectivePolicySnapshot,now=Date.now(),expectedPayload?:Payload,attemptAt?:number):AnnouncementJob {
     const j=this.job(snapshot.guild,id);if(!j||j.state!=='delivering'||!j.logical_delivery_id||!this.jobPolicyCurrent(j,snapshot))throw new Error('Delivery policy/reservation is stale.');
     if(!this.db.prepare('SELECT job FROM logical_delivery_reservations WHERE logical_delivery_id=? AND job=?').get(j.logical_delivery_id,j.id)||!this.db.prepare("SELECT job FROM delivery_attempts WHERE job=? AND state='reserved'").get(j.id))throw new Error('Delivery reservation is unavailable.');
+    if(attemptAt!==undefined&&!this.db.prepare("SELECT job FROM delivery_attempts WHERE job=? AND state='reserved' AND at=?").get(j.id,attemptAt))throw new Error('Delivery attempt is stale.');
     const e=this.event(j.guild,j.event_key);if(!e||e.revision!==j.revision||this.held(j.event_key)||(JSON.parse(e.event_json) as ScheduleEvent).status&& (JSON.parse(e.event_json) as ScheduleEvent).status!=='active')throw new Error('Delivery event changed or is held.');
     if(now<j.due||now>j.expires)throw new Error('Delivery is outside its publication window.');
     const payload=JSON.parse(j.payload_json) as Payload;validatePublicDiscordPayload(payload,{role:j.role,channel:j.channel});
@@ -518,9 +519,20 @@ export class AnnouncementStore {
     if(j.major&&(!j.approved_by||j.approved_payload_hash!==digest([j.payload_json,j.asset])||(j.asset_policy==='required'&&!j.asset))){this.db.prepare("UPDATE announcement_jobs SET state='pending_approval',approved_by=NULL,approved_payload_hash=NULL WHERE id=?").run(id);return undefined;}
     if(this.logicalDeliveryConsumed(j.logical_delivery_id)){this.db.prepare("UPDATE announcement_jobs SET state='superseded' WHERE id=?").run(id);return undefined;}
     const reserved=this.db.prepare('INSERT OR IGNORE INTO logical_delivery_reservations VALUES(?,?,?)').run(j.logical_delivery_id,id,now);if(!reserved.changes)return undefined;
-    this.db.prepare("UPDATE announcement_jobs SET state='delivering' WHERE id=? AND state='scheduled'").run(id);this.db.prepare("INSERT INTO delivery_attempts VALUES(?,'reserved',NULL,?)").run(id,now);return this.job(j.guild,id)!;
+    const previous=this.db.prepare('SELECT at FROM delivery_attempts WHERE job=?').get(id),attemptAt=Math.max(now,Number(previous?.at??0)+1);
+    this.db.prepare("UPDATE announcement_jobs SET state='delivering' WHERE id=? AND state='scheduled'").run(id);this.db.prepare("INSERT INTO delivery_attempts VALUES(?,'reserved',NULL,?) ON CONFLICT(job) DO UPDATE SET state='reserved',message=NULL,at=excluded.at WHERE delivery_attempts.state='preflight_failed'").run(id,attemptAt);return {...this.job(j.guild,id)!,attempt_at:attemptAt};
   });}
-  finish(j:AnnouncementJob,message:string|null){this.transaction(()=>{const changed=this.db.prepare("UPDATE announcement_jobs SET state=?,message=? WHERE id=? AND guild=? AND state='delivering'").run(message?'sent':'uncertain',message,j.id,j.guild);if(!changed.changes){if(message)this.alert(j.guild,'delivery-reconciled-during-send',j.id);return;}this.db.prepare("UPDATE delivery_attempts SET state=?,message=? WHERE job=? AND state='reserved'").run(message?'sent':'uncertain',message,j.id);if(!message)this.alert(j.guild,'uncertain-delivery',j.id);});}
+  /** Only the trusted pre-send boundary may release this matching attempt. Audit retains every denial. */
+  preflightFailed(j:AnnouncementJob){return this.transaction(()=>{
+    if(j.attempt_at===undefined||!j.logical_delivery_id)return false;
+    const current=this.job(j.guild,j.id);
+    if(current?.state!=='delivering'||!this.db.prepare("SELECT job FROM delivery_attempts WHERE job=? AND state='reserved' AND at=?").get(j.id,j.attempt_at))return false;
+    const released=this.db.prepare('DELETE FROM logical_delivery_reservations WHERE logical_delivery_id=? AND job=?').run(j.logical_delivery_id,j.id);if(!released.changes)return false;
+    this.db.prepare("UPDATE delivery_attempts SET state='preflight_failed' WHERE job=?").run(j.id);
+    this.db.prepare("UPDATE announcement_jobs SET state='scheduled' WHERE id=?").run(j.id);
+    this.audit(j.guild,'transport','delivery-preflight-failed',j.id,{attemptAt:j.attempt_at,logicalDeliveryId:j.logical_delivery_id});return true;
+  });}
+  finish(j:AnnouncementJob,message:string|null){this.transaction(()=>{if(j.attempt_at!==undefined&&!this.db.prepare("SELECT job FROM delivery_attempts WHERE job=? AND state='reserved' AND at=?").get(j.id,j.attempt_at))return;const changed=this.db.prepare("UPDATE announcement_jobs SET state=?,message=? WHERE id=? AND guild=? AND state='delivering'").run(message?'sent':'uncertain',message,j.id,j.guild);if(!changed.changes){if(message)this.alert(j.guild,'delivery-reconciled-during-send',j.id);return;}this.db.prepare("UPDATE delivery_attempts SET state=?,message=? WHERE job=? AND state='reserved'").run(message?'sent':'uncertain',message,j.id);if(!message)this.alert(j.guild,'uncertain-delivery',j.id);});}
   reconcile(guild:string,id:string,message:string|null,actor:string){this.transaction(()=>{const j=this.job(guild,id);if(!j||!['uncertain','delivering'].includes(j.state))throw new Error('Only uncertain deliveries can be reconciled.');if(j.logical_delivery_id)this.db.prepare('INSERT OR IGNORE INTO logical_delivery_reservations VALUES(?,?,?)').run(j.logical_delivery_id,j.id,Date.now());this.db.prepare('UPDATE announcement_jobs SET state=?,message=? WHERE id=?').run(message?'sent':'cancelled',message,id);this.audit(guild,actor,'reconcile',id,{message,previousState:j.state});});}
   close(){this.db.close();}
 }

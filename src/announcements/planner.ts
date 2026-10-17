@@ -24,11 +24,11 @@ export function plan(store:AnnouncementStore,policy:PolicyFile,now=Date.now(),sn
         if(store.legacyDeliveryGuard(policy.guild,row.event_key,row.revision,projection.channel)){store.alert(policy.guild,'delivery-identity-review',row.event_key,now);continue;}
         const active=store.db.prepare("SELECT * FROM announcement_jobs WHERE guild=? AND logical_delivery_id=? AND state IN ('scheduled','held','pending_approval','blocked','draft') ORDER BY rowid DESC").all(policy.guild,logical) as unknown as AnnouncementJob[];
         if(store.logicalDeliveryConsumed(logical)){
-          for(const old of active)store.db.prepare("UPDATE announcement_jobs SET state='superseded' WHERE id=? AND NOT EXISTS(SELECT 1 FROM delivery_attempts WHERE job=?)").run(old.id,old.id);
+          for(const old of active)store.db.prepare("UPDATE announcement_jobs SET state='superseded' WHERE id=? AND NOT EXISTS(SELECT 1 FROM delivery_attempts WHERE job=? AND state<>'preflight_failed')").run(old.id,old.id);
           continue;
         }
         const same=active.find(j=>j.plan_hash===projection.plan_hash&&(projection.blocked||j.public_safety_version===1));
-        for(const old of active){if(old.id!==same?.id)store.db.prepare("UPDATE announcement_jobs SET state='superseded' WHERE id=? AND NOT EXISTS(SELECT 1 FROM delivery_attempts WHERE job=?)").run(old.id,old.id);}
+        for(const old of active){if(old.id!==same?.id)store.db.prepare("UPDATE announcement_jobs SET state='superseded' WHERE id=? AND NOT EXISTS(SELECT 1 FROM delivery_attempts WHERE job=? AND state<>'preflight_failed')").run(old.id,old.id);}
         let state=projection.blocked?'blocked':rule.major?'pending_approval':'scheduled';
         if(!projection.blocked&&now>projection.expires)state='skipped';
         const unheld=state;if(store.held(row.event_key))state='held';
@@ -39,7 +39,7 @@ export function plan(store:AnnouncementStore,policy:PolicyFile,now=Date.now(),sn
         if(job.major && job.state==='pending_approval')store.alert(policy.guild,job.asset_policy==='required'&&!job.asset?'waiting-for-canva':'message-review',job.id,now);
       }
     }
-    const obsolete=store.db.prepare("SELECT id,logical_delivery_id FROM announcement_jobs WHERE guild=? AND logical_delivery_id IS NOT NULL AND state IN ('scheduled','held','pending_approval','blocked','draft') AND NOT EXISTS(SELECT 1 FROM delivery_attempts WHERE job=announcement_jobs.id)").all(policy.guild) as {id:string;logical_delivery_id:string}[];
+    const obsolete=store.db.prepare("SELECT id,logical_delivery_id FROM announcement_jobs WHERE guild=? AND logical_delivery_id IS NOT NULL AND state IN ('scheduled','held','pending_approval','blocked','draft') AND NOT EXISTS(SELECT 1 FROM delivery_attempts WHERE job=announcement_jobs.id AND state<>'preflight_failed')").all(policy.guild) as {id:string;logical_delivery_id:string}[];
     for(const job of obsolete)if(!desired.has(job.logical_delivery_id))store.db.prepare("UPDATE announcement_jobs SET state='superseded' WHERE id=?").run(job.id);
     const expired=store.db.prepare("SELECT id FROM announcement_jobs WHERE guild=? AND expires<? AND state IN ('scheduled','pending_approval','held','blocked','draft')").all(policy.guild,now) as {id:string}[];
     for(const job of expired){store.db.prepare("UPDATE announcement_jobs SET state='skipped' WHERE id=?").run(job.id);store.alert(policy.guild,'missed-reminder',job.id,now);}

@@ -7,7 +7,7 @@ import { documentTemplates, type Extraction } from '../src/announcements/model.j
 import type { AutomationConfig } from '../src/announcements/config.js';
 import { effectivePolicy, registerEffectivePolicy } from '../src/announcements/delivery-identity.js';
 import { plan } from '../src/announcements/planner.js';
-import { createAnnouncementTransport } from '../src/announcements/delivery.js';
+import { createAnnouncementTransport,deliverAnnouncements } from '../src/announcements/delivery.js';
 
 const guild = '111111111111111111', channelId = '222222222222222222', roleId = '333333333333333333';
 const baseConfig: AutomationConfig = {
@@ -26,6 +26,7 @@ interface TransportFixture {
   send: ReturnType<typeof createAnnouncementTransport>;
   messages: unknown[];
   awaited: AwaitPoint[];
+  sendError?:boolean;
 }
 
 function fixture(point: AwaitPoint, mutate: (fixture: TransportFixture) => void): TransportFixture {
@@ -67,7 +68,7 @@ function fixture(point: AwaitPoint, mutate: (fixture: TransportFixture) => void)
       members: { fetchMe: async () => { await wait('member'); return { id: '555555555555555555' }; } },
       roles: { fetch: async () => { await wait('role'); return { id: roleId, mentionable: true }; } },
     },
-    send: async (message: unknown) => { messages.push(message); return { id: '666666666666666666' }; },
+    send: async (message: unknown) => { messages.push(message); if(prepared.sendError)throw new Error('Synthetic timeout after send invocation.');return { id: '666666666666666666' }; },
   };
   const client = { channels: { fetch: async (id: string) => { assert.equal(id, channelId); await wait('channel'); return fakeChannel; } } } as unknown as Client;
   const send = createAnnouncementTransport(client, store, () => structuredClone(runtime));
@@ -89,6 +90,65 @@ const denied: { label: string; mutate: (fixture: TransportFixture) => void }[] =
   { label: 'the publication window expires', mutate: fixture => { fixture.store.db.prepare('UPDATE announcement_jobs SET expires=? WHERE id=?').run(Date.now() - 1_000, fixture.job.id); } },
   { label: 'the bot loses send permissions', mutate: fixture => { fixture.permissions.allowed = false; } },
 ];
+
+test('known-unsent permission failures retry the same obligation once resolved, without duplicate active jobs',async()=>{
+  const f=fixture('channel',()=>{}),{store,job}=f;try{
+    assert.equal(store.preflightFailed(job),true);f.permissions.allowed=false;
+    for(let attempt=0;attempt<3;attempt++){
+      plan(store,f.runtime.policy,Date.now());await deliverAnnouncements(store,f.runtime,f.send);
+      assert.equal(f.messages.length,0);assert.equal(store.job(guild,job.id)!.state,'scheduled');
+      assert.equal(store.logicalDeliveryConsumed(job.logical_delivery_id!),false);
+      assert.equal(store.db.prepare('SELECT count(*) n FROM logical_delivery_reservations').get()!.n,0);
+      assert.equal(store.jobs(guild).filter(j=>['scheduled','delivering'].includes(j.state)).length,1);
+    }
+    assert.equal(store.db.prepare("SELECT count(*) n FROM audit_log WHERE action='delivery-preflight-failed'").get()!.n,4);
+    f.permissions.allowed=true;await deliverAnnouncements(store,f.runtime,f.send);
+    assert.equal(f.messages.length,1);assert.equal(store.job(guild,job.id)!.state,'sent');
+    plan(store,f.runtime.policy,Date.now());await deliverAnnouncements(store,f.runtime,f.send);assert.equal(f.messages.length,1);
+  }finally{store.close();}
+});
+
+test('post-send errors remain uncertain and consumed across planner ticks',async()=>{
+  const f=fixture('channel',()=>{}),{store,job}=f;try{
+    store.preflightFailed(job);f.sendError=true;await deliverAnnouncements(store,f.runtime,f.send);
+    assert.equal(f.messages.length,1);assert.equal(store.job(guild,job.id)!.state,'uncertain');assert.equal(store.logicalDeliveryConsumed(job.logical_delivery_id!),true);
+    assert.equal(store.preflightFailed(job),false);
+    for(let tick=0;tick<3;tick++){plan(store,f.runtime.policy,Date.now());await deliverAnnouncements(store,f.runtime,f.send);}
+    assert.equal(f.messages.length,1);
+  }finally{store.close();}
+});
+
+test('a stale preflight callback cannot release or finish a newer reserved attempt',()=>{
+  const f=fixture('channel',()=>{}),{store,job}=f;try{
+    assert.equal(store.preflightFailed(job),true);const next=store.claim(job.id,Date.now(),effectivePolicy(store,guild))!;assert.ok(next);
+    assert.notEqual(next.attempt_at,job.attempt_at);assert.equal(store.preflightFailed(job),false);store.finish(job,null);
+    assert.equal(store.job(guild,job.id)!.state,'delivering');assert.equal(store.logicalDeliveryConsumed(job.logical_delivery_id!),true);
+    assert.throws(()=>store.validateDelivery(job.id,effectivePolicy(store,guild)!,Date.now(),f.payload,job.attempt_at),/stale/);
+  }finally{store.close();}
+});
+
+test('known-unsent retries recheck current policy and replace only the obsolete unsent generation',async()=>{
+  const f=fixture('channel',()=>{}),{store,job}=f;try{
+    store.preflightFailed(job);f.permissions.allowed=false;await deliverAnnouncements(store,f.runtime,f.send);
+    f.runtime.policy.templates.session='Session {{slot}} at {{timeRange}}.';
+    const snapshot=registerEffectivePolicy(store,f.runtime.policy,effectivePolicy(store,guild)!.revision).snapshot;
+    plan(store,f.runtime.policy,Date.now(),snapshot);
+    assert.equal(store.job(guild,job.id)!.state,'superseded');
+    const active=store.jobs(guild).filter(j=>j.state==='scheduled');assert.equal(active.length,1);assert.equal(active[0]!.logical_delivery_id,job.logical_delivery_id);
+    f.permissions.allowed=true;await deliverAnnouncements(store,f.runtime,f.send);assert.equal(f.messages.length,1);
+  }finally{store.close();}
+});
+
+test('known-unsent obligations remain held or gated and expire without catch-up',async()=>{
+  const f=fixture('channel',()=>{}),{store,job}=f;try{
+    store.preflightFailed(job);f.runtime.autoSend=false;await deliverAnnouncements(store,f.runtime,f.send);assert.equal(f.messages.length,0);
+    f.runtime.autoSend=true;const source=store.source(guild,{account:'synthetic',messageId:'temporary-source-barrier',attachment:null,sha256:'e'.repeat(64),locator:'body'});
+    await deliverAnnouncements(store,f.runtime,f.send);assert.equal(f.messages.length,0);assert.equal(store.job(guild,job.id)!.state,'held');
+    store.dismissSource(guild,source,'staff');
+    plan(store,f.runtime.policy,job.expires+1);await deliverAnnouncements(store,f.runtime,f.send,job.expires+1);
+    assert.equal(f.messages.length,0);assert.equal(store.job(guild,job.id)!.state,'skipped');
+  }finally{store.close();}
+});
 
 for (const point of ['channel', 'member', 'role'] as const) {
   for (const scenario of denied) test(`transport rechecks ${scenario.label} after asynchronous ${point} fetch`, async () => {

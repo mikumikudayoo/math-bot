@@ -32,7 +32,7 @@ export function alertActionable(store:AnnouncementStore,guild:string,alert:Staff
     if(alert.kind==='uncertain-delivery')return job.state==='uncertain';
     if(alert.kind==='stuck-delivery')return job.state==='delivering';
     if(alert.kind==='missed-reminder')return job.state==='skipped';
-    if(alert.kind==='delivery-preflight-blocked')return job.state==='cancelled';
+    if(alert.kind==='delivery-preflight-blocked')return ['scheduled','held','blocked'].includes(job.state)&&store.db.prepare('SELECT state FROM delivery_attempts WHERE job=?').get(job.id)?.state==='preflight_failed';
     if(job.expires<now)return false;
     if(store.event(guild,job.event_key)?.revision!==job.revision||store.held(job.event_key))return false;
     if(alert.kind==='blocked-announcement')return job.state==='blocked';

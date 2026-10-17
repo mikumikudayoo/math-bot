@@ -21,12 +21,12 @@ export async function deliverAnnouncements(store:AnnouncementStore,config:Automa
     const job=store.claim(candidate.id,now,snapshot);if(!job)continue;let id:string|null=null;
     try{
       let payload:Payload;
-      try{payload=JSON.parse(job.payload_json) as Payload;validatePublicDiscordPayload(payload,{role:job.role,channel:job.channel});store.validateDelivery(job.id,snapshot,now,payload);}
+      try{payload=JSON.parse(job.payload_json) as Payload;validatePublicDiscordPayload(payload,{role:job.role,channel:job.channel});store.validateDelivery(job.id,snapshot,now,payload,job.attempt_at);}
       catch{throw new AnnouncementPreflightError('Announcement delivery preflight blocked.');}
       id=(await send(job,payload)).id;
     }
     catch(error){
-      if(error instanceof AnnouncementPreflightError){store.finish(job,null);if(store.job(job.guild,job.id)?.state==='uncertain')store.reconcile(job.guild,job.id,null,'transport-preflight');store.alert(job.guild,'delivery-preflight-blocked',job.id);continue;}
+      if(error instanceof AnnouncementPreflightError){if(store.preflightFailed(job))store.alert(job.guild,'delivery-preflight-blocked',job.id);continue;}
       // A transport error may follow acceptance; its reservation stays consumed.
     }
     store.finish(job,id);
@@ -54,7 +54,7 @@ export function createAnnouncementTransport(client:Client,store:AnnouncementStor
     const final=loadAnnouncementRuntime(store,job.guild,load);
     if(isStopped()||!final.config.enabled||!final.config.autoSend||final.config.assets!==fresh.assets)throw new Error('Delivery runtime changed.');
     if(!channel.permissionsFor(bot)?.has([PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages]))throw new Error('Bot permissions changed.');
-    store.validateDelivery(job.id,final.snapshot,Date.now(),payload);
+    store.validateDelivery(job.id,final.snapshot,Date.now(),payload,job.attempt_at);
     }catch{throw new AnnouncementPreflightError('Announcement transport preflight blocked.');}
     if(!channel||channel.type!==ChannelType.GuildText)throw new AnnouncementPreflightError('Destination unavailable.');
     return channel.send({...payload,files,nonce:createHash('sha256').update(job.id).digest('hex').slice(0,25),enforceNonce:true});
