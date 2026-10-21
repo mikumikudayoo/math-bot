@@ -4,7 +4,22 @@ import type { RouteDecision } from './router.js';
 import { UserError } from './types.js';
 export class ProviderBackoff extends UserError { constructor(readonly retryAt:number,readonly reason='provider-backoff'){super('stronger inference is temporarily queued; no weaker answer was substituted.');} }
 export class ProviderPayloadTooLarge extends UserError {constructor(){super('The inference request is too large (HTTP 413). Shorten or split the source before retrying.');}}
-export const providerHealth=new Map<string,{state:'healthy'|'rate-limited'|'unavailable'|'misconfigured';retryAt:number;requestsRemaining:string|null;tokensRemaining:string|null}>();
+export class ProviderRequestRejected extends UserError {
+  constructor(readonly status:number,readonly category:'output-validation'|'request-rejected'|'authentication'){
+    super(`Inference backend returned HTTP ${status} (${category}). Manual review required.`);
+  }
+}
+// Never retain raw provider errors: they can echo private inputs or credentials.
+async function rejectionCategory(response:Response):Promise<'output-validation'|'request-rejected'|'authentication'>{
+  if(response.status===401||response.status===403){await response.body?.cancel();return 'authentication';}
+  const reader=response.body?.getReader();if(!reader)return 'request-rejected';
+  let raw='',bytes=0;const decoder=new TextDecoder();
+  try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.length;if(bytes>16384)return 'request-rejected';raw+=decoder.decode(value,{stream:true});}
+    raw+=decoder.decode();const code=JSON.parse(raw)?.error?.code;
+    return ['json_validate_failed','tool_use_failed'].includes(code)?'output-validation':'request-rejected';
+  }catch{return 'request-rejected';}finally{await reader.cancel();}
+}
+export const providerHealth=new Map<string,{state:'healthy'|'rate-limited'|'unavailable'|'misconfigured'|'request-rejected';retryAt:number;requestsRemaining:string|null;tokensRemaining:string|null}>();
 
 export interface ProviderConfig {
   backend: string;
@@ -61,7 +76,7 @@ export async function completeProvider(provider: ProviderConfig, body: Record<st
       throw new ProviderBackoff(retryAt,signal.aborted?'request-timeout':'transport-failure');
     }
     if (!response.ok) {
-      await response.body?.cancel();
+      if(response.status===413||response.status===429||response.status>=500)await response.body?.cancel();
       if(response.status===413){providerHealth.set(healthKey,{state:'healthy',retryAt:0,requestsRemaining:null,tokensRemaining:null});throw new ProviderPayloadTooLarge();}
       if(response.status===429 || response.status>=500){
         const raw=response.headers.get('retry-after');const seconds=raw===null?NaN:Number(raw);
@@ -69,8 +84,9 @@ export async function completeProvider(provider: ProviderConfig, body: Record<st
         const retryAt=Date.now()+(Number.isFinite(delay)?Math.min(delay,86400000):30000);
         providerHealth.set(healthKey,{state:response.status===429?'rate-limited':'unavailable',retryAt,requestsRemaining:response.headers.get('x-ratelimit-remaining-requests'),tokensRemaining:response.headers.get('x-ratelimit-remaining-tokens')});throw new ProviderBackoff(retryAt,`http-${response.status}`);
       }
-      providerHealth.set(healthKey,{state:'misconfigured',retryAt:0,requestsRemaining:null,tokensRemaining:null});
-      throw new UserError(`Inference backend returned HTTP ${response.status}. Ask a moderator to check its configuration.`);
+      const category=await rejectionCategory(response);
+      providerHealth.set(healthKey,{state:category==='authentication'?'misconfigured':'request-rejected',retryAt:0,requestsRemaining:null,tokensRemaining:null});
+      throw new ProviderRequestRejected(response.status,category);
     }
     providerHealth.set(healthKey,{state:'healthy',retryAt:0,requestsRemaining:response.headers.get('x-ratelimit-remaining-requests'),tokensRemaining:response.headers.get('x-ratelimit-remaining-tokens')});
     const reader = response.body?.getReader();

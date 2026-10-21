@@ -69,9 +69,15 @@ export async function deliverStaffAlerts(client:Client,store:AnnouncementStore,c
   let sent=0;
   for(const alert of alerts){
     if(sent>=5)break;
-    // Everything after these awaits is checked synchronously at the send boundary.
+    // Resolve only the host-configured staff role; source text never chooses mentions.
+    const before=loadAnnouncementRuntime(store,config.policy.guild,load).config;
+    const staffRole=before.policy.staffRole??null;
+    const role=staffRole?await channel.guild.roles.fetch(staffRole,{force:true}):null;
+    // Re-read configuration after the role lookup, immediately before claiming/sending.
     const fresh=loadAnnouncementRuntime(store,config.policy.guild,load).config;
     if(isStopped()||!fresh.enabled||fresh.policy.staffChannel!==destination||store.state('maintenance:reset')==='true')return;
+    if((fresh.policy.staffRole??null)!==staffRole)return;
+    if(staffRole&&(!role||role.id!==staffRole||role.id===fresh.policy.guild||(!role.mentionable&&!channel.permissionsFor(bot)?.has(PermissionFlagsBits.MentionEveryone))))throw new Error('Staff notification role unavailable or not mentionable.');
     if(channel.permissionsFor(channel.guild.roles.everyone)?.has(PermissionFlagsBits.ViewChannel)||!channel.permissionsFor(bot)?.has([PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages]))throw new Error('Staff channel permissions changed.');
     const claimed=store.transaction(()=>{
       if(!alertActionable(store,config.policy.guild,alert)){
@@ -83,7 +89,7 @@ export async function deliverStaffAlerts(client:Client,store:AnnouncementStore,c
     try{
       const content=staffAlertContent(store,config.policy.guild,alert);validatePublicText(content,'staff alert');
       if(!alertActionable(store,config.policy.guild,alert)){store.db.prepare("UPDATE staff_alerts SET state='superseded' WHERE id=? AND state='delivering'").run(alert.id);continue;}
-      const message=await channel.send({content,allowedMentions:{parse:[]},nonce:alert.id.replaceAll('-','').slice(0,25),enforceNonce:true});
+      const message=await channel.send({content:(staffRole?`<@&${staffRole}>\n`:'')+content,allowedMentions:{parse:[],roles:staffRole?[staffRole]:[],users:[],repliedUser:false},nonce:alert.id.replaceAll('-','').slice(0,25),enforceNonce:true});
       store.db.prepare("UPDATE staff_alerts SET state='sent',message=? WHERE id=? AND state='delivering'").run(message.id,alert.id);sent++;
     }catch{store.db.prepare("UPDATE staff_alerts SET state='uncertain' WHERE id=? AND state='delivering'").run(alert.id);}
   }

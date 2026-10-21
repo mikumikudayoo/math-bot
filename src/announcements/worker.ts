@@ -7,7 +7,7 @@ import { extractFacts } from './extraction.js';
 import { plan } from './planner.js';
 import { draftMajor } from './writing.js';
 import { clearSourceFailure,recordSourceFailure,reconcileExtractionIncident } from './alerts.js';
-import { ProviderBackoff,ProviderPayloadTooLarge,providerHealth } from '../service/providers.js';
+import { ProviderBackoff,ProviderPayloadTooLarge,ProviderRequestRejected,providerHealth } from '../service/providers.js';
 import { digest,type Source } from './model.js';
 import {loadAnnouncementRuntime,capturedAnnouncementRuntime} from './runtime-policy.js';
 import {classifySource} from './semantics.js';
@@ -48,7 +48,7 @@ export async function workerTick(store:AnnouncementStore,config:AutomationConfig
       else store.sourceState(row.id,'blocked');
       if(error instanceof ProviderBackoff)providerFailed=true;
       const provider=error instanceof ProviderBackoff?'groq':error instanceof GmailError?'gmail':'review';
-      const reason=error instanceof ProviderPayloadTooLarge?'Groq request/payload too large (HTTP 413); split or shorten the source for manual review.':error instanceof ProviderBackoff?`Groq ${error.reason}; ${row.attempts<12?'retry scheduled':'retry budget exhausted; manual review required'}.`:provider==='gmail'?'Gmail message or attachment could not be fetched.':error instanceof Error&&/Inference backend returned HTTP (\d{3})/.test(error.message)?`Groq configuration rejected (HTTP ${error.message.match(/HTTP (\d{3})/)![1]}); manual review required.`:'Extraction output could not be validated; manual review required.';
+      const reason=error instanceof ProviderRequestRejected?`Groq ${error.category==='authentication'?'authentication/permission rejected; verify private provider settings':error.category==='output-validation'?'output failed provider validation':'request rejected; check model/request compatibility'} (HTTP ${error.status}); manual review required.`:error instanceof ProviderPayloadTooLarge?'Groq request/payload too large (HTTP 413); split or shorten the source for manual review.':error instanceof ProviderBackoff?`Groq ${error.reason}; ${row.attempts<12?'retry scheduled':'retry budget exhausted; manual review required'}.`:provider==='gmail'?'Gmail message or attachment could not be fetched.':error instanceof Error&&/Inference backend returned HTTP (\d{3})/.test(error.message)?`Groq configuration rejected (HTTP ${error.message.match(/HTTP (\d{3})/)![1]}); manual review required.`:'Extraction output could not be validated; manual review required.';
       recordSourceFailure(store,row.id,provider,reason);
       if(provider==='gmail')store.alert(config.policy.guild,'gmail-unavailable','gmail');
       else if(provider==='review'||row.attempts>=12)store.alert(config.policy.guild,'blocked-source',row.id);
