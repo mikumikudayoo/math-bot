@@ -5,11 +5,12 @@ import { documentTemplates,validateConfig,type PreviewConfig,type EventType } fr
 import type { ProviderConfig } from '../service/providers.js';
 
 export interface Policy { id:string; type:EventType; anchor:'start'|'deadline'|'approval'; beforeMinutes:number; template:string; major:boolean; asset:'none'|'optional'|'required'; competitionId?:string; programId?:string; roundId?:string;channel?:string;role?:string|null;reminderGraceMinutes?:number;editorialWindowMinutes?:number }
-export interface PolicyFile { guild:string; channel:string; role:string|null; staffChannel:string|null; policies:Policy[]; templates:Record<string,string> }
+export interface PolicyFile { guild:string; channel:string; role:string|null; staffChannel:string|null; staffRole?:string|null; policies:Policy[]; templates:Record<string,string> }
 export interface AutomationConfig { enabled:boolean; autoSend:boolean; database:string; assets:string; policy:PolicyFile; gmail:{clientId:string;clientSecret:string;refreshToken:string;account:string;query:string;senders:string[]}; provider:ProviderConfig; pollMs:number }
 export function validatePolicy(p:PolicyFile){
   const preview:PreviewConfig={guild:p.guild,channel:p.channel,role:p.role,rules:p.policies.map(r=>({...r,anchor:r.anchor==='approval'?'start':r.anchor})),templates:p.templates};validateConfig(preview);
   if(p.staffChannel!==null&&!/^\d{17,20}$/.test(p.staffChannel))throw new Error('Invalid private staff channel.');
+  if(p.staffRole!==undefined&&p.staffRole!==null&&(!/^\d{17,20}$/.test(p.staffRole)||p.staffRole===p.guild||!p.staffChannel))throw new Error('Invalid private staff notification role.');
   for(const r of p.policies){
     if(r.channel!==undefined&&!/^\d{17,20}$/.test(r.channel))throw new Error('Invalid policy channel.');
     if(r.role!==undefined&&r.role!==null&&(!/^\d{17,20}$/.test(r.role)||r.role===p.guild))throw new Error('Invalid policy role.');

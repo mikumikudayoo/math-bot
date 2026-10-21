@@ -33,7 +33,7 @@ test('a model cannot relabel unsupported VTASP or claim supported facts from unr
 
 test('personal readiness and unsupported programs never call the provider and yield no public facts',async()=>{
   let calls=0;const complete=async()=>{calls++;throw new Error('Provider must not be called.');};
-  for(const [text,disposition] of [['Your ClassMarker is ready to take','private'],['HKISO 2030 Heat Round guidelines','ignore'],['ERRATUM: VTASP V.9.0 schedule','ignore']] as const){
+  for(const [text,disposition] of [['Your ClassMarker is ready to take','private'],['HKISO 2030 Heat Round guidelines','ignore'],['ERRATUM: VTASP V.9.0 schedule','ignore'],['PhIMO and IESO science schedule','needs_review'],['Unidentified schedule','needs_review']] as const){
     const result=await extractFacts(provider,mail(text),source,AbortSignal.timeout(1000),complete);
     assert.equal(result.disposition,disposition);assert.equal(result.events.length,0);
   }

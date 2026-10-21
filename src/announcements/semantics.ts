@@ -16,7 +16,7 @@ export interface SemanticContext {
   sourceTime?:number|null;
   timezoneConfirmed?:boolean;
 }
-export interface SourceClassification {disposition:SourceDisposition;reason:string;correction:boolean}
+export interface SourceClassification {disposition:SourceDisposition;reason:string;correction:boolean;providerEligible?:boolean}
 
 const unsupported=/\b(?:HKISO|IESO|VTASPS?|science)\b/iu;
 const supported=/\b(?:VTAMPS|TIMO|HKIMO|BBB|PhIMO|PIMSO)\b/iu;
@@ -45,13 +45,13 @@ export function classifySource(mail:ParsedMail):SourceClassification {
   const identityText=canonicalPimsoIdentity(text);
   const hasSupported=supported.test(identityText),hasUnsupported=unsupported.test(identityText);
   if(hasUnsupported&&!hasSupported)return {disposition:'ignore',reason:'Unsupported competition or training program; mathematics scope was not widened.',correction};
-  if(hasUnsupported&&hasSupported)return {disposition:'needs_review',reason:'Mixed supported and unsupported source scope requires explicit factual separation.',correction};
+  if(hasUnsupported&&hasSupported)return {disposition:'needs_review',reason:'Mixed supported and unsupported source scope requires explicit factual separation.',correction,providerEligible:false};
   if(correction&&mail.blocked.length)return {disposition:'needs_review',reason:'Correction replacement evidence is unreadable or incomplete; retain the source hold.',correction:true};
   if(/\byour\s+(?:ClassMarker|(?:ClassMarker\s+)?(?:test|assessment))\s+(?:is\s+)?(?:now\s+)?ready\s+to\s+take\b/iu.test(subject+'\n'+text)){
     if(correction&&hasSupported)return {disposition:'needs_review',reason:'Supported correction mixed with personal readiness requires review; retain the source hold.',correction:true};
     return {disposition:'private',reason:'Personal assessment readiness is not evidence of public availability.',correction:false};
   }
-  if(!hasSupported)return {disposition:'needs_review',reason:'Supported mathematics entity identity is unresolved.',correction};
+  if(!hasSupported)return {disposition:'needs_review',reason:'Supported mathematics entity identity is unresolved.',correction,providerEligible:false};
   return {disposition:'public',reason:'Supported mathematics source; every extracted proposal still requires host validation.',correction};
 }
 

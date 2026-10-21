@@ -154,6 +154,23 @@ test('worker extraction outage becomes durable retry/blocked source without cras
   }finally{s.close();}
 });
 
+test('rejected provider output remains blocked with actionable diagnosis and no jobs or automatic retry',async()=>{
+  const {ProviderRequestRejected}=await import('../src/service/providers.js');
+  for(const category of ['output-validation','request-rejected','authentication'] as const){
+    const s=new AnnouncementStore(':memory:');try{
+      const x=input();s.source(guild,x.source);s.setState('gmail:retry-at',String(Date.now()+60000));let calls=0;
+      const gmail={get:async()=>({id:x.source.messageId,payload:{mimeType:'text/plain',body:{data:Buffer.from('VTAMPS schedule').toString('base64url')}}})} as unknown as GmailClient;
+      const extract=async()=>{calls++;throw new ProviderRequestRejected(category==='authentication'?401:400,category);};
+      await workerTick(s,config,gmail,extract);await workerTick(s,config,gmail,extract);
+      assert.equal(calls,1);assert.equal(s.db.prepare('SELECT state FROM sources').get()!.state,'blocked');
+      assert.equal(s.jobs(guild).length,0);assert.equal(s.events(guild).length,0);
+      const reason=String(s.db.prepare('SELECT reason FROM source_failures').get()!.reason);
+      assert.ok(reason.includes('manual review required'));assert.equal(reason.includes('authentication/permission'),category==='authentication');
+      assert.equal(s.db.prepare("SELECT COUNT(*) n FROM staff_alerts WHERE kind='blocked-source'").get()!.n,1);
+    }finally{s.close();}
+  }
+});
+
 test('alternative MIME bodies share one redacted evidence item',async()=>{
  const body='BBB 2026 Heat Round username private-user password private-password';
  const mail=await parseMail({id:'mime',payload:{mimeType:'multipart/alternative',parts:[{mimeType:'text/plain',body:{data:Buffer.from(body).toString('base64url')}},{mimeType:'text/html',body:{data:Buffer.from(`<p>${body}</p>`).toString('base64url')}}]}},async()=>Buffer.alloc(0));
