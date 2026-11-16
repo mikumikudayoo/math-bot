@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { deliveryChunks } from '../src/delivery.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { serviceConfigFrom } from '../src/service/config.js';
@@ -27,6 +29,47 @@ function fixture(client:ResponsesClient['create'],extras:Partial<InferenceDepend
     user:sender,discordContext:JSON.stringify(metadata),kind:'ask',coach:false,prompt},100);
   return {job,run,events,store,runtime,execute:(j:ReturnType<typeof job>,s=AbortSignal.timeout(10000))=>run(j,s,()=>{})};
 }
+type VerityCase = {question: string; expected: string | null; canonical?: boolean; normalAnswerIncludes?: string[]};
+const verityCases: VerityCase[] = JSON.parse(readFileSync(new URL('../evals/verity/cases.json',import.meta.url), 'utf8'));
+const canonicalPairs = verityCases.filter(row => row.canonical);
+
+// These fixtures verify what Luna sees and what Discord receives. The live smoke
+// reuses the cases to evaluate the model's recognition independently.
+for (const sample of verityCases) {
+  test('verity prompt and delivery contract: ' + sample.question, async () => {
+    const scriptedReply = sample.expected ?? sample.normalAnswerIncludes?.[0] ?? 'pourquoi sais-tu où je dors ?';
+    let calls = 0;
+    const f = fixture(async request => {
+      calls++;
+      const input = request.input as {role?: string; content?: string}[];
+      assert.equal(request.model, 'gpt-6-luna');
+      assert.equal(input[0]?.role, 'developer');
+      const instructions = input[0]!.content!;
+      assert.equal(canonicalPairs.length, 4);
+      for (const pair of canonicalPairs) {
+        assert.ok(instructions.includes(pair.question + '\n' + pair.expected), pair.question);
+      }
+      assert.ok(input.some(item => item.role === 'user' && item.content === sample.question));
+      return response(answer(scriptedReply));
+    });
+    try {
+      const job = f.job(sample.question);
+      const result = await f.execute(job);
+      assert.equal(calls, 1);
+      assert.equal(result.answer, scriptedReply);
+      assert.deepEqual(deliveryChunks(job, result.answer), [scriptedReply]);
+    } finally { f.store.close(); }
+  });
+}
+
+test('a matching verity question uses the model response without a host-side substitution', async () => {
+  const alternate = 'this is the model response for the transport control.';
+  const f = fixture(async () => response(answer(alternate)));
+  try {
+    assert.equal((await f.execute(f.job(canonicalPairs[0]!.question))).answer, alternate);
+  } finally { f.store.close(); }
+});
+
 test('parallel and dependent tools retain exact IDs and encrypted reasoning and do not repeat effects',async()=>{
   let step=0,active=0,peak=0,n=0;
   const f=fixture(async p=>{
