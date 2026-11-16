@@ -68,6 +68,29 @@ test('user forcing, role imitation and escalation quota cannot authorize special
       assert.equal(f.runtime.ledger.requestClass(j.id),'ordinary');}finally{f.store.close();}
   }
 });
+test('multiple findings from one specialist must survive synthesis as whole numeric values',async()=>{
+  let rounds=0;
+  const f=fixture(async p=>{
+    if(p.model!=='gpt-6-luna'){
+      const request=JSON.stringify(p.input);
+      return response(answer(request.includes('first value')?'FINAL: 12':'FINAL: -37'));
+    }
+    rounds++;
+    if(rounds===1)return response(call('first','consult_terra',{task:'first value',reason:'check the first root'}));
+    if(rounds===2)return response(call('second','consult_terra',{task:'second value',reason:'check the other root'}));
+    if(rounds===3)return response(call('delivery','prepare_final',{answer:'the two values are 112 and -37.'}));
+    if(rounds===4){
+      assert.match(outputs(p).at(-1)?.output??'',/finish verifying/);
+      return response(answer('the two values are -12 and -37.'));
+    }
+    assert.ok(JSON.stringify(p.input).includes('Reconcile your answer'));
+    return response(answer('the two values are 12 and −37.'));
+  });
+  try{
+    assert.equal((await f.execute(f.job('check the two roots'))).answer,'the two values are 12 and −37.');
+    assert.equal(rounds,5);
+  }finally{f.store.close();}
+});
 test('private Discord and web in either order never race; broker facts and checked links are scoped',async()=>{
   let n=0,searched=0,privateReads=0;
   const f=fixture(async p=>{

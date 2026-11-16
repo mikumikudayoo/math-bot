@@ -44,6 +44,14 @@ const extra = [
     consultArgs,['task','reason']))
 ];
 const boundedText = (v:unknown,n:number) => typeof v==='string' ? v.trim().slice(0,n) : '';
+// Preserve a specialist's numeric conclusion as a whole token (12 is distinct from -12, 112 and 12.5).
+function mentionsConclusion(answer:string, finding:string) {
+  const number = /[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?/gi;
+  const normalized = finding.replace(/−/g,'-');
+  if(normalized.match(number)?.[0] !== normalized)return answer.includes(finding);
+  const tokens = answer.replace(/−/g,'-').match(number) ?? [];
+  return tokens.some(token=>token.replace(/^\+/,'') === normalized.replace(/^\+/,''));
+}
 function safeAnswer(raw:string,turn:Turn,knownIds:Set<string>) {
   const {boundary,requester,job}=turn;
   turn.protect(raw);
@@ -78,7 +86,8 @@ export async function orchestrate(turn:Turn):Promise<Result> {
   const emit=(type:JobEventType,data:JobEventData={})=>io.events?.emit(job.id,type,data);
   const guard=new LoopGuard({softRounds:settings.softRounds,hardRounds:settings.hardRounds,maxRepeatedCall:2,maxConsecutiveFailures:4});
   const knownIds=new Set([job.user,job.guild,job.channel,CREATOR_ID,job.sourceMessageId??'']);
-  const proofs=new Map<string,string>(), specialistFinals=new Map<string,string>();
+  const proofs=new Map<string,string>(), specialistFinals=new Set<string>();
+  const missingConclusions=(answer:string)=>[...specialistFinals].filter(finding=>!mentionsConclusion(answer,finding));
   const computed:string[]=[],successful=new Set<string>();
   const callKeys=new Map<string,string>(), cache=new Map<string,Promise<unknown>>();
   const byTool=new Map<string,number>();
@@ -176,7 +185,7 @@ export async function orchestrate(turn:Turn):Promise<Result> {
           s.throwIfAborted();await screen(result,s);
           const final=result.match(/^FINAL:\s*(.+)$/im)?.[1]?.trim();
           if(!final||final.length>1000)throw new UserError('specialist did not return a usable conclusion.');
-          specialistFinals.set(role,final); emit('consultation_completed',{label:role,ok:true});
+          specialistFinals.add(final); emit('consultation_completed',{label:role,ok:true});
           return {assessment:result.slice(0,10000),final};
         }catch(error){emit('consultation_completed',{label:role,ok:false});throw error;}
       }
@@ -305,7 +314,7 @@ export async function orchestrate(turn:Turn):Promise<Result> {
         if(limited||!allowed.has(missing))return partial("i couldn't verify that with the requested source or tool.");
         limited=true;messages.push({role:'system',content:'Verify this request using '+missing+' before answering. Do not invent the verification.'});continue;
       }
-      const omitted=[...specialistFinals.values()].filter(v=>!answer.includes(v));
+      const omitted=missingConclusions(answer);
       if(omitted.length&&!reconciled){
         reconciled=true; messages.push({role:'assistant',content:answer},{role:'system',content:'Reconcile your answer with the following specialist conclusions. Preserve mathematical essentials, or explicitly identify an error if you disagree.'},{role:'user',content:JSON.stringify(omitted)});continue;
       }
@@ -324,7 +333,7 @@ export async function orchestrate(turn:Turn):Promise<Result> {
         protect(args);
         if(name==='prepare_final'){
           if(calls.length!==1||typeof args.answer!=='string'||!args.answer.trim()||args.answer.length>5500||missingEvidence()
-              ||[...specialistFinals.values()].some(v=>!String(args.answer).includes(v)))
+              ||missingConclusions(args.answer).length)
             throw new UserError('finish verifying the answer before delivery.');
           prepared=safeAnswer(args.answer.trim(),turn,knownIds);
           return {approved:true,finalText:prepared,instruction:'deliver the approved final text verbatim, without tools.'};

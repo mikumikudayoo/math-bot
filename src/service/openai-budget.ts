@@ -32,6 +32,11 @@ export function costMicros(spec: ModelSpec, usage: Usage): number {
   return Math.ceil(inputCost * (long ? 2 : 1) + usage.outputTokens * spec.output * (long ? 1.5 : 1));
 }
 
+/** Estimate text and image inputs before the provider returns its measured usage. */
+export function estimateInputTokens(chars: number, images: number) {
+  return Math.ceil(chars / 3) + images * 1600;
+}
+
 const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const CLASS_RANK: RequestClass[] = ['system', 'ordinary', 'terra', 'sol', 'both', 'seven'];
 
