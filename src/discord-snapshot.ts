@@ -1,5 +1,5 @@
 import { PermissionFlagsBits, type Guild, type GuildMember, type Message, type MessageReference } from 'discord.js';
-import { CREATOR_ID, MAX_CONTEXT_ROLES, discordIntent,serverScope,type HostFacts } from './discord-context.js';
+import { CREATOR_ID, MAX_CONTEXT_ROLES, discordIntent,serverScope,visibleAtAnchor,type HostFacts } from './discord-context.js';
 import { canRead } from './discord-tools.js';
 import { historyVisibleToViewers } from './discord-audience.js';
 import { CONTEXT_LIMITS, contextSnapshot, type ContextMessage, type ContextSnapshot } from './service/context-snapshot.js';
@@ -31,10 +31,8 @@ function localReply(reference: MessageReference | null | undefined, anchor: Snap
 }
 
 function captureMessage(message: Message, anchor: SnapshotAnchor, botId: string): ContextMessage | undefined {
-  const receivedAt=Number(BigInt(anchor.id)>>22n)+1420070400000;
   if (message.guildId !== anchor.guildId || message.channelId !== anchor.channelId ||
-      !/^\d{17,20}$/.test(message.id) || BigInt(message.id) >= BigInt(anchor.id) ||
-      (message.editedTimestamp!=null && message.editedTimestamp>receivedAt) ||
+      !visibleAtAnchor(message,anchor.id) ||
       message.author.id === botId || message.system || message.webhookId) return undefined;
   // Bot answers can depend on sources with separate publication permissions.
   // The service already retrieves its own answers through authorized job history.

@@ -57,6 +57,14 @@ export function serverScope(prompt:string):boolean {
 // discord_audience is host-only and is never advertised to the model.
 export type DiscordTool='discord_search'|'discord_member'|'discord_audience';
 export interface DiscordTask {id:string;job:string;user:string;guild:string;channel:string;sourceMessageId?:string;tool:DiscordTool;args:Record<string,unknown>}
+/** Discord supplies the creation instant in the anchor snowflake. A fetch only
+ * returns the latest revision, so exclude messages edited after that instant. */
+export function visibleAtAnchor(message:{id:string;editedTimestamp?:number|null}, anchor:string):boolean {
+  if (!/^\d{17,20}$/.test(message.id)) return false;
+  const anchorId = BigInt(anchor);
+  const receivedAt = Number(anchorId >> 22n) + 1420070400000;
+  return BigInt(message.id) < anchorId && (message.editedTimestamp == null || message.editedTimestamp <= receivedAt);
+}
 export function discordIntent(prompt:string):DiscordTool|null {
   if(/\b(?:what did .{1,80}? (?:say|mention|write|post)|did anyone mention|find (?:the |a |my |your |their )?message|search (?:this |the |our )?(?:server|discord|messages)|(?:server|discord) (?:history|search))\b/i.test(prompt))return 'discord_search';
   if(/\b(?:(?:my|your|their|his|her) (?:discord )?(?:profile|nickname|roles|user id)|(?:discord|server|member) (?:profile|nickname|roles))\b/i.test(prompt))return 'discord_member';

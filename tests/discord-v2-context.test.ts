@@ -186,6 +186,20 @@ test('ranked cursor pages recheck permissions, deletion and requester/job scope;
   const denied:any=await executeDiscordTool(f.client,{...task,args:{...task.args,cursor:second.nextCursor}},true);
   assert.deepEqual(denied.results,[]);assert.equal(f.reads.length,count);
 });
+test('search respects the request instant and excludes derived bot replies for scans, exact references and slash commands',async()=>{
+  const f=fixture();
+  f.message(3,'geometry original');
+  Object.assign(f.message(4,'geometry edited later'),{editedTimestamp:Date.now()});
+  f.message(5,'geometry from a previous bot answer',bot);
+  f.message(11,'geometry posted later');
+  const search=(task:DiscordTask)=>executeDiscordTool(f.client,task,true) as Promise<{results:{id:string}[]}>;
+  for(const scope of [{job:anchor.id},{job:'message-job',sourceMessageId:anchor.id}]){
+    const task:DiscordTask={...scope,id:'t',guild:gid,channel:cid,user,tool:'discord_search',args:{query:'geometry'}};
+    assert.deepEqual((await search(task)).results.map(r=>r.id),[id(3)]);
+    const refs=[3,4,5,11].map(n=>({id:id(n),channelId:cid}));
+    assert.deepEqual((await search({...task,args:{messageRefs:refs}})).results.map(r=>r.id),[id(3)]);
+  }
+});
 test('resume beyond six channels and continue older pages without repeating hits',async()=>{
   const f=fixture();for(let n=1;n<=7;n++){const ch=f.channel(String(711111111111111111n+BigInt(n)));if(n===7)f.message(3,'geometry beyond six',user,ch);}
   for(let n=1;n<=110;n++)f.message(n,n<=10?'geometry older':'other headlines');

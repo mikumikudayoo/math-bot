@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ChannelType,PermissionFlagsBits,type Guild,type Client,type GuildMember,type GuildBasedChannel,type Message } from 'discord.js';
-import { currentUser,type DiscordTask } from './discord-context.js';
+import { currentUser,visibleAtAnchor,type DiscordTask } from './discord-context.js';
 import { service } from './ai-client.js';
 import { loadConfig } from './config.js';
 import { isAITester } from './ai-access.js';
@@ -60,8 +60,10 @@ function saveContinuation(scope:string,scan:Scan[],pending:MessageRef[]) {
   return key;
 }
 type SearchHit = {author:{id:string;username:string};channel:string;channelId:string;timestamp:string;content:string;id:string;url:string;digest:string;audience:string};
-async function discordSearch(guild:Guild,task:DiscordTask,signal:AbortSignal) {
+async function discordSearch(guild:Guild,task:DiscordTask,signal:AbortSignal,botId:string) {
   const args=task.args;
+  // Slash commands use their interaction ID as the job ID.
+  const anchor=snowflake(task.sourceMessageId)?task.sourceMessageId:snowflake(task.job)?task.job:undefined;
   if(Object.keys(args).some(k=>!['query','limit','authorId','authorName','before','after','channelId','messageId','excludeMessageIds','messageRefs','cursor'].includes(k)))return unavailable;
   const query=args.query??'';
   if(typeof query!=='string'||query.length>200||(!query.trim()&&!args.channelId&&!args.messageId&&!args.messageRefs&&!args.authorId&&!args.authorName&&!args.before&&!args.after))return unavailable;
@@ -112,7 +114,6 @@ async function discordSearch(guild:Guild,task:DiscordTask,signal:AbortSignal) {
       for(const c of [...channels.values(),...active.threads.values()])if(c)ids.add(c.id);
     }
     const timeBound=before===null?undefined:String((BigInt(Math.max(before,1420070400000))-1420070400000n)<<22n);
-    const anchor=snowflake(task.sourceMessageId)?task.sourceMessageId:undefined;
     const start=anchor&&(!timeBound||BigInt(anchor)<BigInt(timeBound))?anchor:timeBound;
     scan=[...ids].map(channelId=>({channelId,...(start?{before:start}:{})}));
   }
@@ -129,7 +130,9 @@ async function discordSearch(guild:Guild,task:DiscordTask,signal:AbortSignal) {
   };
   const results:SearchHit[]=[];
   function collect(message:Message,channel:{id:string;name:string},witness:string){
-    if(message.id===task.sourceMessageId||excluded.has(message.id)||message.guildId!==task.guild||message.channelId!==channel.id||!message.content||
+    // The bot's own answers can depend on other sources. The authorized job
+    // history carries that provenance; refetching their Discord text does not.
+    if(message.author.id===botId||(anchor&&!visibleAtAnchor(message,anchor))||excluded.has(message.id)||message.guildId!==task.guild||message.channelId!==channel.id||!message.content||
       (!refs&&!terms.every(t=>message.content.toLocaleLowerCase().includes(t)))||(author&&message.author.id!==author)||
       (after!==null&&message.createdTimestamp<after)||(before!==null&&message.createdTimestamp>=before))return;
     results.push({author:{id:message.author.id,username:message.author.username.slice(0,80)},channel:channel.name.slice(0,80),channelId:channel.id,
@@ -222,7 +225,7 @@ export async function executeDiscordTool(client:Client,task:DiscordTask,messageC
         avatar:member.displayAvatarURL(),banner:user.bannerURL()??null,bio:'User bio/about-me is not available through this bot lookup.'};
     }
     if(task.tool!=='discord_search'||!messageContent)return unavailable;
-    return await discordSearch(guild,task,timeout);
+    return await discordSearch(guild,task,timeout,bot.id);
   }catch{return unavailable;}
   }
 }
