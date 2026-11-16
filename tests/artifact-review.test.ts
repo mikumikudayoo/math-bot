@@ -39,3 +39,12 @@ test('text-only approval, broken review protocol and provider failures cannot pu
   }
   assert.equal((await reviewArtifact(artifact,args,async()=>{throw new Error('timeout')})).approved,false);
 });
+test('generated pixels reach the embargo checker only after format and sample validation',async()=>{
+  let screened=0,reviews=0;
+  const review=async()=>{reviews++;return verdict(true);};
+  const screen=async()=>{screened++;throw new Error('competition guard denied this image');};
+  assert.equal((await reviewArtifact('invalid',args,review,screen)).approved,false);
+  assert.equal(screened,0);
+  await assert.rejects(reviewArtifact(plot(),args,review,screen),/competition guard denied/);
+  assert.equal(screened,1);assert.equal(reviews,0);
+});

@@ -151,9 +151,9 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
       if(job.kind==='calculate')return {answer:result.answer};
       if(job.kind==='plot'&&openai&&result.artifact){
         io.events?.emit(job.id,'image_inspection',{attempt:1});
-        const review=await reviewArtifact(result.artifact,args,inspect('image-inspection'));
+        const review=await reviewArtifact(result.artifact,args,inspect('image-inspection'),artifact=>
+          guardImages(protectedProblems,[{type:'image_url',image_url:{url:'data:image/png;base64,'+artifact}}],inspect('vision-guard'),authorizeReferences));
         if(!review.approved)return {answer:"i couldn't verify the generated plot for publication."};
-        await guardImages(protectedProblems,[{type:'image_url',image_url:{url:'data:image/png;base64,'+result.artifact}}],inspect('vision-guard'),authorizeReferences);
       }
       status('preparing answer');return result;
     }

@@ -202,12 +202,12 @@ export async function orchestrate(turn:Turn):Promise<Result> {
           ...chat.slice(0,1),
           {role:'system',content:'Also verify that this plot addresses the original request. A corrected range can improve the view; reject a change of function or meaning that does not follow from the task.'},
           {role:'user',content:JSON.stringify({request:job.prompt,initialPlot:originalPlot})},...chat.slice(1)
-        ],tools??[],s));
+          ],tools??[],s),async png=>{
+            try{await turn.verifyPlotPixels(png,s);}catch(error){rejected=error;throw error;}
+            s.throwIfAborted();
+          });
         s.throwIfAborted();protect(review.feedback);
-        if(review.approved){
-          try{await turn.verifyPlotPixels(result.artifact,s);}catch(error){rejected=error;throw error;}
-          s.throwIfAborted();artifact=result.artifact;
-        }
+          if(review.approved)artifact=result.artifact;
         return {approved:review.approved,feedback:review.feedback,remainingCorrections:Math.max(0,settings.imageCorrections+1-plots)};
       }
       case 'search':{

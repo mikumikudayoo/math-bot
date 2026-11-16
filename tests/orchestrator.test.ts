@@ -5,7 +5,7 @@ import { JobEvents } from '../src/service/events.js';
 import { runner, type InferenceDependencies } from '../src/service/inference.js';
 import { OpenAIRuntime, type ResponsesClient } from '../src/service/openai.js';
 import { Store } from '../src/service/store.js';
-import { fixturePlot } from './fixtures/review-plot.js';
+import { fixturePlot, fixturePlotArgs } from './fixtures/review-plot.js';
 import { createService } from '../src/service/server.js';
 import { once } from 'node:events';
 import { CREATOR_ID } from '../src/discord-context.js';
@@ -244,6 +244,46 @@ test('only the corrected graph reviewed by Luna is delivered, and the image is n
     assert.match(results[1]!.output!,/"approved":true/);return response(answer('the curve is ready.'));
   },{mathTool:async()=>({answer:'generated',artifact:++attempts===1?rejected:corrected})});
   try{const r=await f.execute(f.job('draw a graph'));assert.equal(r.artifact,corrected);assert.equal(attempts,2);assert.equal(reviews,2);}finally{f.store.close();}
+});
+test('direct and orchestrated generated plots screen the validated pixels before the ordinary review model',async()=>{
+  const png=fixturePlot(), active={id:1,posted:true,question:'arrange the colored counters into concentric rings',
+    answer:'secret',solution:'confidential',message:'',thread:''};
+  let screened=0, ordinaryReviews=0;
+  const f=fixture(async p=>{
+    const names=(p.tools as {name:string}[]).map(t=>t.name);
+    if(names.includes('classify_competition_request'))return response(call('guard','classify_competition_request',{assessment:'unrelated'}));
+    if(names.includes('record_transcription')){
+      screened++;assert.ok(JSON.stringify(p.input).includes(png));
+      return response(call('vision','record_transcription',{images:[{complete:true,assessment:'related',description:'a related figure'}]}));
+    }
+    if(names.includes('review_plot')){ordinaryReviews++;return response(call('review','review_plot',{approved:true,feedback:'looks good'}));}
+    return response(call('plot','plot',fixturePlotArgs));
+  },{protectedProblems:()=>[active],mathTool:async()=>({answer:'generated',artifact:png})});
+  try{
+    for(const kind of ['plot','ask'] as const){
+      const job=f.store.admit({id:'embargo-'+kind,guild,user,channel,kind,coach:false,prompt:kind==='plot'?JSON.stringify(fixturePlotArgs):'please draw a graph'},100);
+      await assert.rejects(f.execute(job),/embargo/);f.store.cancel(job.id);
+    }
+    assert.equal(screened,2);assert.equal(ordinaryReviews,0);
+  }finally{f.store.close();}
+});
+test('legacy direct plot withholds its png while the competition is active',async()=>{
+  const config=serviceConfigFrom({AI_SERVICE_TOKEN:'legacy-fixture-'.repeat(3),AI_DATABASE:':memory:',
+    INFERENCE_BASE_URL:'http://127.0.0.1:9080',INFERENCE_MODEL:'local',INFERENCE_NATIVE_TOOLS:'true'},'development');
+  const store=new Store(':memory:');
+  const active={id:1,posted:true,question:'arrange the colored counters into concentric rings',answer:'secret',solution:'confidential',message:'',thread:''};
+  const run=runner(config,store,{protectedProblems:()=>[active],mathTool:async()=>({answer:'sampled successfully',artifact:fixturePlot()}),
+    complete:async(_url,init)=>{
+      const request=JSON.parse(String(init.body));
+      assert.deepEqual(request.tools.map((t:{function:{name:string}})=>t.function.name),['classify_competition_request']);
+      return Response.json({choices:[{finish_reason:'tool_calls',message:{role:'assistant',content:null,tool_calls:[
+        {id:'g',type:'function',function:{name:'classify_competition_request',arguments:'{"assessment":"unrelated"}'}}]}}]});
+    }});
+  try {
+    const job=store.admit({id:'legacy-graph',guild,user,channel,kind:'plot',coach:false,prompt:JSON.stringify(fixturePlotArgs)},100);
+    const output=await run(job,AbortSignal.timeout(10000),()=>{});
+    assert.equal(output.artifact,undefined);assert.match(output.answer,/withheld the graphic/);
+  }finally{store.close();}
 });
 test('a protected screenshot is classified with the actual pixels before any conversational model call',async()=>{
   const png=fixturePlot();let inspections=0;
