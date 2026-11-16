@@ -8,13 +8,24 @@ import { plan } from './planner.js';
 import { draftMajor } from './writing.js';
 import { clearSourceFailure,recordSourceFailure,reconcileExtractionIncident } from './alerts.js';
 import { ProviderBackoff,ProviderPayloadTooLarge,providerHealth } from '../service/providers.js';
+import { openAIRuntime, ProviderError } from '../service/openai.js';
+import { BudgetError } from '../service/openai-budget.js';
+import { announcementAISettings, installAnnouncementAI } from './provider.js';
 import { digest,type Source } from './model.js';
 import {loadAnnouncementRuntime,capturedAnnouncementRuntime} from './runtime-policy.js';
 import {classifySource} from './semantics.js';
 
+function providerReady(config: AutomationConfig) {
+  return config.provider.kind === 'openai' ? Boolean(openAIRuntime()) : Boolean(config.provider.backendKey);
+}
 export async function workerTick(store:AnnouncementStore,config:AutomationConfig,gmail=new GmailClient(config.gmail),extract=extractFacts,reload?:()=>AutomationConfig){
   if(!config.enabled||store.state('maintenance:reset')==='true')return;
   config=(reload?loadAnnouncementRuntime(store,config.policy.guild,reload):capturedAnnouncementRuntime(store,config)).config;
+  const engine = config.provider.kind === 'openai' ? 'openai' : 'groq';
+  const providerLabel = engine === 'openai' ? 'OpenAI' : 'Groq';
+  if(store.state('provider:name')!==engine)store.setState('provider:health','not-started');
+  store.setState('provider:name',engine);
+  store.setState('provider:configured',String(providerReady(config)));
   const signal=AbortSignal.timeout(120000);
   if(Number(store.state('gmail:retry-at')??0)<=Date.now()){
     try{await syncGmail(store,gmail,config,signal);store.setState('gmail:retry-at','0');}
@@ -38,36 +49,49 @@ export async function workerTick(store:AnnouncementStore,config:AutomationConfig
         else clearSourceFailure(store,row.id);
         continue;
       }
-      if(extract===extractFacts&&!config.provider.backendKey){store.setState('provider:health','misconfigured');store.alert(config.policy.guild,'extraction-provider-misconfigured','groq');continue;}
+      if(extract===extractFacts&&!providerReady(config)){store.setState('provider:health','misconfigured');store.alert(config.policy.guild,'extraction-provider-misconfigured',engine);continue;}
       const extraction=await extract(config.provider,parsed,source,signal);
       if(!extraction.events.length&&!extraction.disposition)throw new Error('No resolvable event identities; source needs staff disposition.');
       store.ingest(config.policy.guild,extraction);clearSourceFailure(store,row.id);extractionHealthy=true;
     }catch(error){
-      const transient=error instanceof ProviderBackoff||error instanceof GmailError;
-      if(transient&&row.attempts<12)store.sourceState(row.id,'retry',error instanceof ProviderBackoff?error.retryAt:Date.now()+Math.min(3600000,30000*2**row.attempts));
+      const dailyLimit=error instanceof BudgetError&&error.scope==='daily';
+      const transient=dailyLimit||error instanceof ProviderBackoff||error instanceof GmailError;
+      const tomorrowUTC=(Math.floor(Date.now()/86400000)+1)*86400000;
+      if(transient&&row.attempts<12)store.sourceState(row.id,'retry',dailyLimit?tomorrowUTC:error instanceof ProviderBackoff?error.retryAt:Date.now()+Math.min(3600000,30000*2**row.attempts));
       else store.sourceState(row.id,'blocked');
       if(error instanceof ProviderBackoff)providerFailed=true;
-      const provider=error instanceof ProviderBackoff?'groq':error instanceof GmailError?'gmail':'review';
-      const reason=error instanceof ProviderPayloadTooLarge?'Groq request/payload too large (HTTP 413); split or shorten the source for manual review.':error instanceof ProviderBackoff?`Groq ${error.reason}; ${row.attempts<12?'retry scheduled':'retry budget exhausted; manual review required'}.`:provider==='gmail'?'Gmail message or attachment could not be fetched.':error instanceof Error&&/Inference backend returned HTTP (\d{3})/.test(error.message)?`Groq configuration rejected (HTTP ${error.message.match(/HTTP (\d{3})/)![1]}); manual review required.`:'Extraction output could not be validated; manual review required.';
+      const provider=error instanceof ProviderBackoff?engine:error instanceof GmailError?'gmail':'review';
+      const reason=error instanceof ProviderPayloadTooLarge?`${providerLabel} request/payload too large (HTTP 413); split or shorten the source for manual review.`:error instanceof ProviderBackoff?`${providerLabel} ${error.reason}; ${row.attempts<12?'retry scheduled':'retry budget exhausted; manual review required'}.`:error instanceof BudgetError?`${providerLabel} ${error.scope} budget limit reached; ${dailyLimit&&row.attempts<12?'retry scheduled for the next UTC day':'manual review required'}.`:error instanceof ProviderError?`${providerLabel} extraction failed (${error.kind}); manual review required.`:provider==='gmail'?'Gmail message or attachment could not be fetched.':error instanceof Error&&/Inference backend returned HTTP (\d{3})/.test(error.message)?`${providerLabel} configuration rejected (HTTP ${error.message.match(/HTTP (\d{3})/)![1]}); manual review required.`:'Extraction output could not be validated; manual review required.';
       recordSourceFailure(store,row.id,provider,reason);
       if(provider==='gmail')store.alert(config.policy.guild,'gmail-unavailable','gmail');
       else if(provider==='review'||row.attempts>=12)store.alert(config.policy.guild,'blocked-source',row.id);
     }
   }
-  reconcileExtractionIncident(store,config.policy.guild,extractionHealthy&&!providerFailed,Date.now(),providerFailed);
+  reconcileExtractionIncident(store,config.policy.guild,extractionHealthy&&!providerFailed,Date.now(),providerFailed,engine);
   const current=reload?loadAnnouncementRuntime(store,config.policy.guild,reload):capturedAnnouncementRuntime(store,config);
   config=current.config;
   plan(store,config.policy,Date.now(),current.snapshot);
-  try{if(config.provider.backendKey)await draftMajor(store,config.policy,config.provider,signal,fetch,current.snapshot);}catch{store.alert(config.policy.guild,'writing-unavailable','writer');}
+  try{if(providerReady(config))await draftMajor(store,config.policy,config.provider,signal,fetch,current.snapshot);}catch{store.alert(config.policy.guild,'writing-unavailable','writer');}
   const health=providerHealth.get(`${config.provider.backend}:${config.provider.model}`);
   if(health){store.setState('provider:health',health.state);store.setState('provider:retry-at',String(health.retryAt));}
   store.setState('worker:last-tick',String(Date.now()));
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
-    const config=automationConfig();const store=new AnnouncementStore(config.database);let stopped=false,busy=false;
-    const tick=async()=>{if(stopped||busy)return;busy=true;try{const fresh=automationConfig();await workerTick(store,fresh,new GmailClient(fresh.gmail),extractFacts,automationConfig);}catch{console.error('Announcement worker tick failed; inspect private status.');}finally{busy=false;}};
+    const mode=process.env.BOT_ENV??'development',config=automationConfig(mode);
+    const settings=config.provider.kind==='openai'?announcementAISettings(mode):undefined;
+    const closeAI=settings?installAnnouncementAI(settings.config,settings.database):undefined;
+    // Keep one model configuration and ledger handle for this process lifetime.
+    // A provider switch requires the worker restart that also loads the new key and limits.
+    const load=()=>{
+      const fresh=automationConfig(mode);
+      if(fresh.provider.kind!==config.provider.kind)throw new Error('Restart the worker after changing AI_PROVIDER.');
+      if(settings)fresh.provider.model=settings.config.models.luna;
+      return fresh;
+    };
+    const store=new AnnouncementStore(config.database);let stopped=false,busy=false;
+    const tick=async()=>{if(stopped||busy)return;busy=true;try{const fresh=load();await workerTick(store,fresh,new GmailClient(fresh.gmail),extractFacts,load);}catch{console.error('Announcement worker tick failed; inspect private status.');}finally{busy=false;}};
     const timer=setInterval(()=>void tick(),config.pollMs);void tick();console.log(`Announcement worker: ${config.enabled?'shadow ingestion enabled':'disabled'}; public delivery is controlled only by the Discord bot gate.`);
-    for(const s of ['SIGINT','SIGTERM'] as const)process.once(s,()=>{stopped=true;clearInterval(timer);const wait=setInterval(()=>{if(!busy){clearInterval(wait);store.close();}},50);});
+    for(const s of ['SIGINT','SIGTERM'] as const)process.once(s,()=>{stopped=true;clearInterval(timer);const wait=setInterval(()=>{if(!busy){clearInterval(wait);store.close();closeAI?.();}},50);});
   }catch{console.error('Announcement configuration failed. Check the private automation env and policy file.');process.exitCode=1;}
 }

@@ -2,6 +2,7 @@ import { config as dotenv } from 'dotenv';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { documentTemplates,validateConfig,type PreviewConfig,type EventType } from './model.js';
+import { announcementProvider } from './provider.js';
 import type { ProviderConfig } from '../service/providers.js';
 
 export interface Policy { id:string; type:EventType; anchor:'start'|'deadline'|'approval'; beforeMinutes:number; template:string; major:boolean; asset:'none'|'optional'|'required'; competitionId?:string; programId?:string; roundId?:string;channel?:string;role?:string|null;reminderGraceMinutes?:number;editorialWindowMinutes?:number }
@@ -33,5 +34,5 @@ export function automationConfig(mode=process.env.BOT_ENV??'development'):Automa
   if(enabled&&(!query.trim()||!senders.length))throw new Error('Configure a restricted Gmail query and organizer sender list.');
   if(senders.some(s=>! /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(s)))throw new Error('Organizer senders must be explicit email addresses.');
   const pollMs=Number(env.ANNOUNCEMENT_POLL_SECONDS??120)*1000;if(!Number.isFinite(pollMs)||pollMs<30000||pollMs>3600000)throw new Error('Invalid polling interval.');
-  return {enabled,autoSend:env.ANNOUNCEMENT_AUTO_SEND_ENABLED==='true',database:resolve(env.ANNOUNCEMENT_DB_PATH??`data/announcements.${mode}.sqlite`),assets:resolve(env.ANNOUNCEMENT_ASSET_PATH??`data/announcement-assets.${mode}`),policy,gmail:{clientId:env.GMAIL_CLIENT_ID??'',clientSecret:env.GMAIL_CLIENT_SECRET??'',refreshToken:env.GMAIL_REFRESH_TOKEN??'',account:env.GMAIL_ACCOUNT_ID??'primary',query,senders},provider:{backend:'https://api.groq.com/openai/v1',model:env.EXTERNAL_INFERENCE_MODEL??'openai/gpt-oss-120b',backendKey:env.GROQ_API_KEY??'',vision:false,nativeTools:false},pollMs};
+  return {enabled,autoSend:env.ANNOUNCEMENT_AUTO_SEND_ENABLED==='true',database:resolve(env.ANNOUNCEMENT_DB_PATH??`data/announcements.${mode}.sqlite`),assets:resolve(env.ANNOUNCEMENT_ASSET_PATH??`data/announcement-assets.${mode}`),policy,gmail:{clientId:env.GMAIL_CLIENT_ID??'',clientSecret:env.GMAIL_CLIENT_SECRET??'',refreshToken:env.GMAIL_REFRESH_TOKEN??'',account:env.GMAIL_ACCOUNT_ID??'primary',query,senders},provider:announcementProvider(env),pollMs};
 }

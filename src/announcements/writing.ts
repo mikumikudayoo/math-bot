@@ -1,4 +1,5 @@
-import { completeProvider,type ProviderConfig } from '../service/providers.js';
+import { completeAnnouncement } from './provider.js';
+import type { ProviderConfig } from '../service/providers.js';
 import { renderEvent,digest,validateEvent,type ScheduleEvent,type Catalog,type PreviewConfig } from './model.js';
 import { AnnouncementStore } from './store.js';
 import type { PolicyFile } from './config.js';
@@ -20,7 +21,8 @@ export async function draftMajor(store:AnnouncementStore,policy:PolicyFile,provi
     if(row.public_safety_version!==1||row.fact_semantics_version!==1||!store.eventEvidenceCurrent(row))continue;
     validateEvent(e,catalog,true);
     // AI sees approved public structured facts, never organizer body or credentials.
-    const result=await completeProvider(provider,{messages:[{role:'system',content:'Draft a short Mathematikaws announcement from approved facts. Return JSON {"text":"..."}. Use only lowercase named locked placeholders {{role}}, {{competition}}, {{year}}, {{round}}, {{program}}, {{version}}, {{slot}}, {{date}}, {{timeRange}}, {{deadline}}, {{url}}, {{detailLabel}} for authoritative values. Do not type dates, numbers, role IDs or URLs. Do not invent outcomes or qualification. This message still needs human editorial approval.'},{role:'user',content:JSON.stringify({event:e,catalog,templateStyle:policy.templates})}],response_format:{type:'json_object'},max_tokens:600,temperature:0.2},signal,complete) as {choices?:{message?:{content?:string}}[]};
+    const result=await completeAnnouncement(provider,'draft',digest([j.id,j.revision,snapshot.fingerprint]),{messages:[{role:'system',content:'Draft a short Mathematikaws announcement from approved facts. Return JSON {"text":"..."}. Use only lowercase named locked placeholders {{role}}, {{competition}}, {{year}}, {{round}}, {{program}}, {{version}}, {{slot}}, {{date}}, {{timeRange}}, {{deadline}}, {{url}}, {{detailLabel}} for authoritative values. Do not type dates, numbers, role IDs or URLs. Do not invent outcomes or qualification. This message still needs human editorial approval.'},{role:'user',content:JSON.stringify({event:e,catalog,templateStyle:policy.templates})}],response_format:provider.kind==='openai'?{type:'json_schema',json_schema:{name:'announcement_draft',strict:true,schema:{type:'object',properties:{text:{type:'string'}},required:['text'],additionalProperties:false}}}:{type:'json_object'},max_tokens:600,temperature:0.2},signal,complete) as {choices?:{finish_reason?:string;message?:{content?:string}}[]};
+    if(provider.kind==='openai'&&result.choices?.[0]?.finish_reason!=='stop')throw new Error('Incomplete or refused announcement draft.');
     const output=JSON.parse(result.choices?.[0]?.message?.content??'{}') as {text?:string};validateLockedDraft(output.text??'');
     const config:PreviewConfig={guild:policy.guild,channel:j.channel,role:j.role,rules:[],templates:{draft:output.text!}};
     const payload=renderEvent(e,catalog,config,'draft');
