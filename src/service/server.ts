@@ -10,6 +10,8 @@ import { runner } from './inference.js';
 import { DiscordBroker } from './discord-broker.js';
 import { currentUser } from '../discord-context.js';
 import { UserError, type Submission, type JobKind } from './types.js';
+import { UsageLedger } from './openai-budget.js';
+import { describeOpenAIConfig } from './openai-config.js';
 
 function text(value:unknown,name:string,max=100):string {
   if(typeof value!=='string'||!value.trim()||value.length>max)throw new UserError(`Invalid ${name}.`);return value;
@@ -19,6 +21,8 @@ export function createService(config:ServiceConfig, injected?:Runner) {
   mkdirSync(dirname(config.database),{recursive:true});
   const store=new Store(config.database);
   const discord=new DiscordBroker();
+  const usage=config.openai?new UsageLedger(store.db,config.openai):undefined;
+  const modelConfigured=()=>Boolean(config.openai||(config.backend&&config.model));
   const scheduler=new Scheduler(store,config,injected??runner(config,store,{discord:(job,tool,args,signal)=>discord.request(job,tool,args,signal)}));
   const server=createServer(async(req,res)=>{
     const send=(code:number,body:unknown)=>{res.writeHead(code,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(body));};
@@ -27,7 +31,9 @@ export function createService(config:ServiceConfig, injected?:Runner) {
     try{
       const url=new URL(req.url??'/','http://localhost');
       if(req.method==='GET'&&url.pathname==='/discord-tools'){send(200,discord.take());return;}
-      if(req.method==='GET'&&url.pathname==='/health'){send(200,{ok:true,modelConfigured:!!(config.backend&&config.model),vision:config.vision,sandbox:config.sandbox});return;}
+      if(req.method==='GET'&&url.pathname==='/health'){send(200,{ok:true,modelConfigured:modelConfigured(),provider:config.openai?'openai':'legacy',vision:config.vision,sandbox:config.sandbox});return;}
+      // Estimated spend only; no prompts or answers are stored in the usage ledger.
+      if(req.method==='GET'&&url.pathname==='/usage'){send(200,usage?usage.summary():{provider:'legacy'});return;}
       if(req.method==='GET'&&url.pathname==='/pending'){
         const order=store.queued().map(x=>x.id);
         send(200,store.pending().map(job=>job.state==='queued'?{...job,status:`queued · priority position ${order.indexOf(job.id)+1}`} :job));return;
@@ -52,7 +58,7 @@ export function createService(config:ServiceConfig, injected?:Runner) {
         case '/jobs':{
           const kind=text(body.kind,'kind') as JobKind;
           if(!['ask','calculate','plot','python'].includes(kind))throw new UserError('Unknown request kind.');
-          if(kind==='ask'&&(!config.backend||!config.model)&&!injected)throw new UserError('No AI model is connected yet. /calculate and /plot can still work.');
+          if(kind==='ask'&&!modelConfigured()&&!injected)throw new UserError('No AI model is connected yet. /calculate and /plot can still work.');
           if(kind==='python'&&!config.sandbox)throw new UserError('Sandboxed Python is not enabled.');
           const input:Submission={id:id(body.id,'id'),guild:id(body.guild,'guild'),channel:id(body.channel,'channel'),user:id(body.user,'user'),
             coach:body.coach===true,kind,prompt:text(body.prompt,'prompt',8000),
@@ -91,7 +97,7 @@ export function createService(config:ServiceConfig, injected?:Runner) {
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
     const config=serviceConfig();const service=createService(config);
-    service.server.listen(config.port,'127.0.0.1',()=>console.log(`AI service listening on 127.0.0.1:${config.port}; model ${config.model?'configured':'not configured'}.`));
+    service.server.listen(config.port,'127.0.0.1',()=>{console.log(`AI service listening on 127.0.0.1:${config.port}; model ${config.model?'configured':'not configured'}.`);if(config.openai)console.log('OpenAI provider enabled',describeOpenAIConfig(config.openai));});
     service.server.on('error',()=>{console.error('AI service could not listen. Check its port.');process.exitCode=1;});
     for(const signal of ['SIGINT','SIGTERM'] as const)process.once(signal,()=>void service.close());
   }catch(error){console.error(error instanceof Error?error.message:'AI service startup failed.');process.exitCode=1;}

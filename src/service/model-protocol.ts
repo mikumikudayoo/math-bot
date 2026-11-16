@@ -1,9 +1,10 @@
 import { UserError } from './types.js';
 
 export interface ToolCall {id: string; type: 'function'; function: {name: string; arguments: string}}
-export interface ModelMessage {role: 'assistant'; content: string | null; tool_calls?: ToolCall[]}
+/** provider_items: opaque provider state (e.g. encrypted reasoning) replayed to the same provider only. */
+export interface ModelMessage {role: 'assistant'; content: string | null; tool_calls?: ToolCall[]; provider_items?: unknown[]}
 
-export interface ResponseContext {provider: 'local' | 'external'; reasoning: 'fast' | 'standard' | 'deep'}
+export interface ResponseContext {provider: 'local' | 'external' | 'openai'; reasoning: 'fast' | 'standard' | 'deep'}
 type Failure = 'malformed' | 'truncated' | 'reasoning_only' | 'empty_final' | 'filtered';
 const failures: Record<Failure, string> = {
   malformed: 'the model returned an unreadable response. try again.',
@@ -80,7 +81,7 @@ export function parseModelResponse(value: unknown, context?: ResponseContext): M
     // JSON/tool arguments and grounded excerpts are data; sanitize only the eventual answer.
     const clean = content === null ? null : /^(?:[{\[]|```)/.test(content.trim()) ? content : finalText(content);
     if (!calls.length && !clean?.trim()) fail(hasReasoning || hasThink ? 'reasoning_only' : 'empty_final');
-    return {role:'assistant',content:clean,...(calls.length?{tool_calls:calls}:{})};
+    return {role:'assistant',content:clean,...(calls.length?{tool_calls:calls}:{}),...(calls.length&&Array.isArray(m.provider_items)?{provider_items:m.provider_items}:{})};
   } catch (error) {
     // Only allowlisted classifications and numeric usage leave the provider boundary.
     const failure = (Object.keys(failures) as Failure[]).find(key => error instanceof UserError && error.message === failures[key]) ?? 'malformed';

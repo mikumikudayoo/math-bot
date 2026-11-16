@@ -9,6 +9,8 @@ export interface ProviderConfig {
   backendKey: string;
   vision: boolean;
   nativeTools: boolean;
+  /** 'openai' uses the official Responses API adapter; absent means OpenAI-compatible chat completions. */
+  kind?: 'openai';
 }
 
 export function validateProvider(provider: ProviderConfig, remote = false) {

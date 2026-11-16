@@ -1,5 +1,6 @@
 import { config } from 'dotenv';
 import { validateProvider, type ProviderConfig } from './providers.js';
+import { parseOpenAIConfig, ConfigError } from './openai-config.js';
 export function serviceConfig() {
   const mode = process.env.BOT_ENV ?? 'development';
   if (!['development','production'].includes(mode)) throw new Error('Invalid BOT_ENV.');
@@ -17,12 +18,16 @@ export function serviceConfig() {
     ? validateProvider({backend:env.EXTERNAL_INFERENCE_BASE_URL?.replace(/\/$/,'') ?? '',model:env.EXTERNAL_INFERENCE_MODEL ?? '',
       backendKey:env.EXTERNAL_INFERENCE_API_KEY ?? '',vision:env.EXTERNAL_INFERENCE_VISION==='true',nativeTools:env.EXTERNAL_INFERENCE_NATIVE_TOOLS==='true'},true)
     : undefined;
+  let openai;
+  try { openai = parseOpenAIConfig(env, process.env); }
+  catch (error) { throw new Error(error instanceof ConfigError ? `${error.message} (in .env.ai.${mode})` : `Invalid OpenAI configuration in .env.ai.${mode}.`); }
+  if (openai?.fallback === 'external' && !external?.nativeTools) throw new Error('OPENAI_FALLBACK=external requires an external provider with EXTERNAL_INFERENCE_NATIVE_TOOLS=true.');
   if (backend) {
     const url = new URL(backend);
     if (url.username || url.password || !['http:','https:'].includes(url.protocol)) throw new Error('Invalid inference URL.');
     if (url.protocol === 'http:' && !['127.0.0.1','localhost','[::1]'].includes(url.hostname)) throw new Error('Remote inference must use HTTPS.');
   }
-  return { ...(external?{external}:{}),...(env.COGNITIVE_ROUTING==='true'?{cognitiveRouting:true}:{}),mode, secret, port:integer('AI_PORT',8787,1024,65535), database:env.AI_DATABASE ?? `data/${mode}.sqlite`,
+  return { ...(external?{external}:{}),...(openai?{openai}:{}),...(env.COGNITIVE_ROUTING==='true'?{cognitiveRouting:true}:{}),mode, secret, port:integer('AI_PORT',8787,1024,65535), database:env.AI_DATABASE ?? `data/${mode}.sqlite`,
     concurrency:integer('AI_CONCURRENCY',1,1,16),reserved:integer('COACH_RESERVED_SLOTS',0,0,15),borrow:env.COACH_BORROW_RESERVED === 'true',
     timeoutMs:integer('AI_TIMEOUT_SECONDS',600,10,3600)*1000,maxQueue:integer('AI_MAX_QUEUE',50,1,500),
     backend,model:env.INFERENCE_MODEL ?? '',backendKey:env.INFERENCE_API_KEY ?? '',vision:env.INFERENCE_VISION === 'true',

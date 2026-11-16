@@ -1,0 +1,344 @@
+[
+  {
+    "id": "aa-linear-equation",
+    "category": "arithmetic-algebra",
+    "difficulty": "routine",
+    "prompt": "Solve for x: 3x + 7 = 25.",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 6}
+  },
+  {
+    "id": "aa-factor-difference-of-squares",
+    "category": "arithmetic-algebra",
+    "difficulty": "routine",
+    "prompt": "Factor x^2 - 9 completely over the integers.",
+    "expectedTier": "light",
+    "check": {"type": "exact", "answers": ["(x-3)(x+3)", "(x+3)(x-3)"]}
+  },
+  {
+    "id": "aa-sum-of-squares-notation",
+    "category": "arithmetic-algebra",
+    "difficulty": "routine",
+    "prompt": "Compute \\sum_{k=1}^{10} k^2.",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 385}
+  },
+  {
+    "id": "aa-radical-equation",
+    "category": "arithmetic-algebra",
+    "difficulty": "routine",
+    "prompt": "Find all real x such that \\sqrt{x + 3} = x - 3.",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 6}
+  },
+  {
+    "id": "aa-fraction-sum",
+    "category": "arithmetic-algebra",
+    "difficulty": "routine",
+    "prompt": "Compute \\frac{2}{3} + \\frac{1}{4} and give the result as a fraction in lowest terms.",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 0.9166666666666666}
+  },
+  {
+    "id": "pc-logarithms",
+    "category": "precalculus",
+    "difficulty": "routine",
+    "prompt": "Evaluate \\log_2 1024 + \\log_3 81.",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 14}
+  },
+  {
+    "id": "pc-trig-limit",
+    "category": "precalculus",
+    "difficulty": "routine",
+    "prompt": "Compute \\lim_{x \\to 0} \\frac{\\sin(3x)}{x}.",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 3}
+  },
+  {
+    "id": "pc-definite-integral",
+    "category": "precalculus",
+    "difficulty": "routine",
+    "prompt": "Evaluate \\int_0^2 (3x^2 + 1)\\,dx.",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 10}
+  },
+  {
+    "id": "pc-complex-power",
+    "category": "precalculus",
+    "difficulty": "routine",
+    "prompt": "Compute (1 + i)^8, where i^2 = -1.",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 16}
+  },
+  {
+    "id": "geo-heron-13-14-15",
+    "category": "geometry",
+    "difficulty": "routine",
+    "prompt": "Find the area of a triangle whose side lengths are 13, 14 and 15.",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 84}
+  },
+  {
+    "id": "geo-inradius-3-4-5",
+    "category": "geometry",
+    "difficulty": "routine",
+    "prompt": "What is the radius of the incircle of a right triangle with legs 3 and 4?",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 1}
+  },
+  {
+    "id": "geo-ptolemy-diagonals",
+    "category": "geometry",
+    "difficulty": "advanced",
+    "prompt": "ABCD is a cyclic quadrilateral (vertices in that order around the circle) with AB = 3, BC = 4, CD = 5 and DA = 6. Find the product of the diagonals AC * BD.",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 39}
+  },
+  {
+    "id": "geo-law-of-cosines",
+    "category": "geometry",
+    "difficulty": "routine",
+    "prompt": "In triangle ABC, AB = 5, AC = 8 and angle BAC = 60 degrees. Find BC.",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 7}
+  },
+  {
+    "id": "comb-mississippi",
+    "category": "combinatorics",
+    "difficulty": "routine",
+    "prompt": "How many distinct arrangements of the letters of MISSISSIPPI are there?",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 34650}
+  },
+  {
+    "id": "comb-lattice-paths",
+    "category": "combinatorics",
+    "difficulty": "routine",
+    "prompt": "How many lattice paths go from (0, 0) to (4, 3) if each step moves one unit right or one unit up?",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 35}
+  },
+  {
+    "id": "comb-derangement-probability",
+    "category": "combinatorics",
+    "difficulty": "routine",
+    "prompt": "Five letters are placed at random into five addressed envelopes, one letter per envelope, and each letter has exactly one correct envelope. What is the probability that no letter ends up in its correct envelope? Give the answer as a fraction in lowest terms.",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 0.36666666666666664}
+  },
+  {
+    "id": "comb-no-two-consecutive",
+    "category": "combinatorics",
+    "difficulty": "advanced",
+    "prompt": "How many subsets of {1, 2, ..., 10}, including the empty set, contain no two consecutive integers?",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 144}
+  },
+  {
+    "id": "comb-hexagon-colorings-up-to-rotation",
+    "category": "combinatorics",
+    "difficulty": "advanced",
+    "prompt": "Each of the six vertices of a regular hexagon is colored black or white. Two colorings count as the same if one can be rotated onto the other. How many different colorings are there?",
+    "expectedTier": "advanced",
+    "check": {"type": "numeric", "answer": 14}
+  },
+  {
+    "id": "nt-divisor-sum-360",
+    "category": "number-theory",
+    "difficulty": "routine",
+    "prompt": "What is the sum of all positive divisors of 360?",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 1170}
+  },
+  {
+    "id": "nt-power-remainder-mod-7",
+    "category": "number-theory",
+    "difficulty": "routine",
+    "prompt": "What is the remainder when 2^{100} is divided by 7?",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 2}
+  },
+  {
+    "id": "nt-trailing-zeros-factorial",
+    "category": "number-theory",
+    "difficulty": "routine",
+    "prompt": "How many zeros are at the end of the decimal representation of 100!?",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 24}
+  },
+  {
+    "id": "nt-last-three-digits",
+    "category": "number-theory",
+    "difficulty": "advanced",
+    "prompt": "Find the last three digits of 3^{2024}.",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 481}
+  },
+  {
+    "id": "nt-difference-of-squares-pairs",
+    "category": "number-theory",
+    "difficulty": "routine",
+    "prompt": "How many pairs of positive integers (x, y) satisfy x^2 - y^2 = 45?",
+    "expectedTier": "light",
+    "check": {"type": "numeric", "answer": 3}
+  },
+  {
+    "id": "oly-functional-equation",
+    "category": "olympiad",
+    "difficulty": "olympiad",
+    "prompt": "Find all functions f: \\mathbb{R} \\to \\mathbb{R} such that f(x)f(y) - f(xy) = x + y for all real x and y. Then state the value of f(2).",
+    "expectedTier": "advanced",
+    "check": {"type": "numeric", "answer": 3}
+  },
+  {
+    "id": "oly-lcm-ordered-pairs",
+    "category": "olympiad",
+    "difficulty": "olympiad",
+    "prompt": "How many ordered pairs (a, b) of positive integers satisfy lcm(a, b) = 72?",
+    "expectedTier": "advanced",
+    "check": {"type": "numeric", "answer": 35}
+  },
+  {
+    "id": "oly-cubic-divisibility",
+    "category": "olympiad",
+    "difficulty": "olympiad",
+    "prompt": "What is the greatest positive integer n for which n^3 + 100 is divisible by n + 10?",
+    "expectedTier": "advanced",
+    "check": {"type": "numeric", "answer": 890}
+  },
+  {
+    "id": "oly-prime-square-plus-two",
+    "category": "olympiad",
+    "difficulty": "olympiad",
+    "prompt": "Find all primes p such that p^2 + 2 is also prime.",
+    "expectedTier": "advanced",
+    "check": {"type": "numeric", "answer": 3}
+  },
+  {
+    "id": "oly-josephus-100",
+    "category": "olympiad",
+    "difficulty": "olympiad",
+    "prompt": "100 people stand in a circle, numbered 1 to 100 clockwise. Going around the circle starting after person 1, every second person is removed (2, 4, 6, and so on), continuing around the circle until only one person remains. What number does that person have?",
+    "expectedTier": "advanced",
+    "check": {"type": "numeric", "answer": 73}
+  },
+  {
+    "id": "oly-n-divides-two-to-n-minus-one",
+    "category": "olympiad",
+    "difficulty": "olympiad",
+    "prompt": "Find all positive integers n such that n divides 2^n - 1.",
+    "expectedTier": "advanced",
+    "check": {"type": "numeric", "answer": 1}
+  },
+  {
+    "id": "proof-sqrt2-irrational",
+    "category": "proof",
+    "difficulty": "routine",
+    "prompt": "Prove that \\sqrt{2} is irrational.",
+    "expectedTier": "advanced",
+    "check": {"type": "contains-all", "terms": [
+      "even",
+      "contradiction|contradicts|impossible|cannot both|can't both",
+      "lowest terms|coprime|relatively prime|common factor|gcd|no common|infinite descent|smallest"
+    ]}
+  },
+  {
+    "id": "proof-infinitely-many-primes",
+    "category": "proof",
+    "difficulty": "routine",
+    "prompt": "Prove that there are infinitely many prime numbers.",
+    "expectedTier": "advanced",
+    "check": {"type": "contains-all", "terms": [
+      "+1|plus 1|plus one",
+      "divisible|divides|divisor|factor"
+    ]}
+  },
+  {
+    "id": "proof-odd-square-mod-8",
+    "category": "proof",
+    "difficulty": "routine",
+    "prompt": "Prove that the square of any odd integer leaves remainder 1 when divided by 8.",
+    "expectedTier": "advanced",
+    "check": {"type": "contains-all", "terms": [
+      "2k+1|2n+1|2m+1|2a+1|2t+1|2j+1|2r+1|mod 8|modulo 8",
+      "even|consecutive|49"
+    ]}
+  },
+  {
+    "id": "proof-x-over-y-plus-y-over-x",
+    "category": "proof",
+    "difficulty": "routine",
+    "prompt": "Show that x/y + y/x \\ge 2 for all positive real numbers x and y.",
+    "expectedTier": "advanced",
+    "check": {"type": "contains-all", "terms": [
+      "(x-y)^2|(y-x)^2|am-gm|amgm|arithmetic mean|geometric mean|(t-1)^2|(a-1)^2|(a-b)^2|(√x-√y)",
+      "positive|xy>0|>0"
+    ]}
+  },
+  {
+    "id": "proof-induction-sum-of-odds",
+    "category": "proof",
+    "difficulty": "routine",
+    "prompt": "Prove by induction that 1 + 3 + 5 + \\cdots + (2n - 1) = n^2 for every positive integer n.",
+    "expectedTier": "advanced",
+    "check": {"type": "contains-all", "terms": [
+      "base case|n=1",
+      "induct|assume|hypothesis",
+      "(k+1)^2|(n+1)^2|(m+1)^2"
+    ]}
+  },
+  {
+    "id": "amb-triangle-two-sides",
+    "category": "ambiguous-unsolvable",
+    "difficulty": "routine",
+    "prompt": "A triangle has two sides of lengths 5 and 7. What is its area?",
+    "expectedTier": "light",
+    "check": {"type": "flags-ambiguity", "terms": [
+      "ambiguous", "not enough", "underspecified", "under-specified", "cannot be determined", "can't be determined",
+      "not determined", "not uniquely", "depends on", "missing", "need more", "need the angle", "need the third", "isn't enough", "is not enough"
+    ]}
+  },
+  {
+    "id": "amb-zero-times-x",
+    "category": "ambiguous-unsolvable",
+    "difficulty": "routine",
+    "prompt": "Solve for x: 0 * x = 5.",
+    "expectedTier": "light",
+    "check": {"type": "flags-ambiguity", "terms": [
+      "no solution", "no solutions", "no real solution", "no value", "no x", "impossible", "not possible", "inconsistent", "undefined", "cannot be solved", "can't be solved"
+    ]}
+  },
+  {
+    "id": "amb-one-equation-two-unknowns",
+    "category": "ambiguous-unsolvable",
+    "difficulty": "routine",
+    "prompt": "If x + y = 10, what is x?",
+    "expectedTier": "light",
+    "check": {"type": "flags-ambiguity", "terms": [
+      "ambiguous", "not enough", "underspecified", "under-specified", "cannot be determined", "can't be determined",
+      "not determined", "not uniquely", "depends on", "infinitely many", "any real", "any value", "need more", "need another", "missing"
+    ]}
+  },
+  {
+    "id": "amb-largest-prime",
+    "category": "ambiguous-unsolvable",
+    "difficulty": "routine",
+    "prompt": "What is the largest prime number?",
+    "expectedTier": "light",
+    "check": {"type": "flags-ambiguity", "terms": [
+      "no largest", "no biggest", "no greatest", "infinitely many", "does not exist", "doesn't exist", "no such", "there is none", "isn't one", "is no largest"
+    ]}
+  },
+  {
+    "id": "amb-ratio-total",
+    "category": "ambiguous-unsolvable",
+    "difficulty": "routine",
+    "prompt": "In a class the ratio of boys to girls is 3:2. How many students are in the class?",
+    "expectedTier": "light",
+    "check": {"type": "flags-ambiguity", "terms": [
+      "ambiguous", "not enough", "underspecified", "under-specified", "cannot be determined", "can't be determined",
+      "not determined", "not uniquely", "depends on", "multiple of 5", "need more", "missing"
+    ]}
+  }
+]

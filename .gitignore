@@ -38,3 +38,6 @@ training/aleph/holdout.jsonl
 training/aleph/reviewed.jsonl
 training/aleph/scenarios.json
 /training
+
+# Local math evaluation outputs
+evals/math/results/
