@@ -112,10 +112,18 @@ export function extractUsage(raw: unknown): Usage | undefined {
   if (!u || typeof u !== 'object') return undefined;
   const n = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : undefined;
   const input = n(u.input_tokens), output = n(u.output_tokens);
-  if (input === undefined || output === undefined) return undefined;
-  return {inputTokens: input, outputTokens: output,
-    cachedTokens: n((u.input_tokens_details as Record<string, unknown> | undefined)?.cached_tokens) ?? 0,
-    reasoningTokens: n((u.output_tokens_details as Record<string, unknown> | undefined)?.reasoning_tokens) ?? 0};
+  const details = u.input_tokens_details as Record<string, unknown> | undefined;
+  const writes = details?.cache_write_tokens_details as Record<string, unknown> | undefined;
+  const out = u.output_tokens_details as Record<string, unknown> | undefined;
+  const cached = n(details?.cached_tokens ?? 0), reasoning = n(out?.reasoning_tokens ?? 0);
+  const short = n(writes?.ttl_30m_tokens ?? 0), long = n(writes?.ttl_12h_tokens ?? 0);
+  if (input === undefined || output === undefined || cached === undefined || reasoning === undefined ||
+      short === undefined || long === undefined || cached + short + long > input || reasoning > output) return undefined;
+  // A nonzero total without its retention breakdown cannot be priced accurately.
+  // Keep the reservation for such a receipt as for other unmetered responses.
+  if (details?.cache_write_tokens !== undefined && n(details.cache_write_tokens) !== short + long) return undefined;
+  return {inputTokens: input, outputTokens: output, cachedTokens: cached, reasoningTokens: reasoning,
+    write30mTokens: short, write12hTokens: long};
 }
 
 /** Returns a chat-completions-shaped body for `parseModelResponse`. Reasoning items are kept opaque, never shown. */
@@ -241,12 +249,17 @@ export class OpenAIRuntime {
     const maxOutputTokens = Math.min(128_000, request.maxOutputTokens ?? this.config.maxOutputTokens[request.role]);
     const input = toResponsesInput(request.messages);
     const tools = toResponsesTools(request.tools);
-    const inputJson = JSON.stringify(input);
-    const serialized = inputJson.length + JSON.stringify(tools).length;
-    const images = inputJson.split('"input_image"').length - 1;
-    const imageChars = (inputJson.match(/data:image\/[a-z]+;base64,[A-Za-z0-9+/=]+/g) ?? []).reduce((n, s) => n + s.length, 0);
-    if (serialized - imageChars > this.config.maxInputChars) throw new UserError('that conversation is too long for me to send. start a new question.');
-    const inputTokens = estimateInputTokens(serialized - imageChars, images);
+    const format = toTextFormat(request.responseFormat);
+    let images = 0;
+    const serialized = JSON.stringify({input, tools, text: format}, function (key, value) {
+      if (key === 'image_url' && this.type === 'input_image') {
+        images++;
+        return '';
+      }
+      return value;
+    });
+    if (serialized.length > this.config.maxInputChars) throw new UserError('that conversation is too long for me to send. start a new question.');
+    const inputTokens = estimateInputTokens(serialized.length, images);
     const streaming = Boolean(request.onTextDelta) && this.config.streaming;
 
     const params: Record<string, unknown> = {
@@ -261,7 +274,7 @@ export class OpenAIRuntime {
       // A one-way hash lets OpenAI attribute abuse without receiving the Discord ID.
       safety_identifier: createHash('sha256').update(`aleph-zero:${request.job.user}`).digest('hex').slice(0, 32),
       prompt_cache_key: 'aleph-zero-v2',
-      ...(toTextFormat(request.responseFormat) ? {text: toTextFormat(request.responseFormat)} : {}),
+      ...(format ? {text: format} : {}),
       ...(streaming ? {stream: true} : {}),
     };
 
