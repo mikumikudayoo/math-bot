@@ -233,3 +233,31 @@ test('slash recovery creates a standalone placeholder; conflicting late primary 
   await assert.rejects(bindPrimary(async()=>{throw new Error('service offline');},row.id,duplicate as never));
   assert.equal(deleted,false);
 });
+
+test('a publication timeout retracts an earlier preview until the final answer can be reauthorized', async () => {
+  const f = fixture();
+  let now = 0, offline = false;
+  const request = async <T>(path:string, body?:unknown):Promise<T> => {
+    if (path === '/publication' && offline) throw new DOMException('synthetic timeout','TimeoutError');
+    return f.request<T>(path,body);
+  };
+  const manager = new DeliveryManager(discordPublisher(f.client,request),()=>now);
+  const preview = job({progress:progress('earlier checked preview')});
+  const final = job({state:'completed',answer:'final checked answer',artifact:'aQ=='});
+  await manager.update([preview]);
+  assert.equal(f.contents.get(main)?.content,'earlier checked preview');
+  now = 1500; offline = true;
+  await manager.update([final]);
+  assert.equal(f.contents.get(main)?.content,'checking what i can share.');
+  assert.deepEqual(f.contents.get(main)?.files,[]);
+  assert.equal(f.control.ack,false);
+  offline = false; now = 2999;
+  await manager.update([final]);
+  assert.equal(f.control.ack,false);
+  now = 3000;
+  await manager.update([final]);
+  await manager.update([preview]);
+  assert.equal(f.contents.get(main)?.content,final.answer);
+  assert.equal(f.contents.get(main)?.files?.length,1);
+  assert.equal(f.contents.size,1); assert.equal(f.control.ack,true);
+});

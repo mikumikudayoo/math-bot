@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {ChannelType,Collection,PermissionFlagsBits,type Client} from 'discord.js';
+import {ChannelType,Collection,PermissionFlagsBits,type Client, type MessageEditOptions} from 'discord.js';
+import {DeliveryManager, discordPublisher} from '../src/delivery.js';
 import {studyDeliveryPayload} from '../src/study-audience.js';
 import type {Job} from '../src/service/types.js';
 
@@ -95,4 +96,50 @@ test('ordinary public delivery preserves existing content and attachment behavio
 test('nonterminal private status updates do not contain artifacts or require content-audience lookups',async()=>{
   const f=fixture(),j={...job(),state:'running' as const};const result=await studyDeliveryPayload(f.client,j,'thinking...');
   assert.equal(result.content,'thinking...');assert.equal(result.files.length,0);assert.deepEqual(f.calls,[]);
+});
+
+test('overlapping deliveries recheck each requester independently when access changes mid-request', {timeout:5000}, async () => {
+  const f = fixture();
+  const first = {...job(), id:'delivery-a', answer:'first synthetic answer'};
+  const second = {...job(), id:'delivery-b', user:'623456789012345679', message:'723456789012345679', answer:'second synthetic answer'};
+  const destination = f.channels.get(privateId);
+  destination.readers.add(second.user);
+  let entered!: () => void, resume!: () => void;
+  const firstStarted = new Promise<void>(resolve => { entered = resolve; });
+  const pause = new Promise<void>(resolve => { resume = resolve; });
+  f.guild.members.fetch = async ({user, force, cache}:{user:string;force:boolean;cache:boolean}) => {
+    assert.equal(force,true); assert.equal(cache,false);
+    if (user === first.user) { entered(); await pause; }
+    return {id:user, guild:f.guild, manage:false};
+  };
+  const edits = new Map<string,MessageEditOptions[]>();
+  function write(id:string, payload:MessageEditOptions) {
+    edits.set(id,[...(edits.get(id) ?? []),payload]);
+  }
+  destination.messages = {
+    fetch:async (id:string) => ({id,edit:async (payload:MessageEditOptions) => write(id,payload)}),
+    edit:async (id:string, payload:MessageEditOptions) => write(id,payload),
+  };
+  const client = {guilds:f.client.guilds,channels:{fetch:async()=>destination}} as unknown as Client;
+  const acknowledgments:string[] = [];
+  const request = async <T>(path:string, body?:unknown):Promise<T> => {
+    const {id} = body as {id:string};
+    if (path === '/publication') { assert.equal(id,second.id); return {allowed:true} as T; }
+    assert.equal(path,'/delivered'); acknowledgments.push(id); return {} as T;
+  };
+  const manager = new DeliveryManager(discordPublisher(client,request));
+  const pending = manager.update([first]);
+  try {
+    await firstStarted;
+    await manager.update([first,second]);
+    assert.equal(edits.has(first.message),false);
+    assert.equal(edits.get(second.message)?.[0]?.content,second.answer);
+    assert.equal(edits.get(second.message)?.[0]?.files?.length,1);
+    destination.readers.delete(first.user);
+  } finally { resume(); await pending; }
+  assert.deepEqual(acknowledgments,[second.id,first.id]);
+  const denied = edits.get(first.message)!;
+  assert.equal(denied.length,1); assert.match(String(denied[0]?.content),/can't safely share/);
+  assert.deepEqual(denied[0]?.files,[]); assert.deepEqual(denied[0]?.attachments,[]);
+  assert.equal(edits.get(second.message)?.length,1);
 });
