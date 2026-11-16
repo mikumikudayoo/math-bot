@@ -134,6 +134,27 @@ test('all four eval profiles run through the normal orchestrator and report actu
   assert.ok(!JSON.stringify(report).includes(mockEnv.OPENAI_API_KEY));
 });
 
+test('consultation success reflects a usable conclusion independently of token metering', async () => {
+  const options = parseCli(['--live', '--max-usd', '0.8', '--profiles', 'luna-terra,luna-sol']);
+  const report = await evaluate(options, [simple], mockEnv, AbortSignal.timeout(15000), {
+    create: async params => {
+      if (params.model === 'gpt-6.1-terra') return reply('I was unable to conclude.');
+      if (params.model === 'gpt-6.1-sol') {
+        return {status: 'completed', output: reply('FINAL: 6').output};
+      }
+      const input = params.input as {type?: string}[];
+      if (input.some(item => item.type === 'function_call_output')) return reply('answer: 6');
+      const [tool] = params.tools as {name: string}[];
+      return response([{type: 'function_call', call_id: 'consult', name: tool!.name,
+        arguments: JSON.stringify({task: 'Solve the equation.', reason: 'Check the algebra.'})}]);
+    },
+  });
+  assert.equal(report.stoppedReason, '');
+  assert.deepEqual(report.samples.map(sample => sample.calls.find(call => call.purpose === 'consult')?.status), ['ok', 'unmetered']);
+  assert.deepEqual(report.summary.map(summary => summary.actuallyConsulted), [0, 1]);
+  assert.ok(report.summary.every(summary => summary.consultUsd > 0));
+});
+
 test('direct reasoning profiles grade number theory when tool support is intentionally disabled', async () => {
   const question = {...simple, prompt:'Compute the remainder when 20 is divided by 7.',check:num(6)};
   const report = await evaluate(parseCli(['--live','--max-usd','0.1','--profiles','luna']),[question],mockEnv,AbortSignal.timeout(5000),{

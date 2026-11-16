@@ -89,7 +89,7 @@ function summarize(samples: Sample[], selection: Profile[]) {
       accuracy: rows.length ? passed / rows.length : null,
       meanLatencyMs: rows.length ? Math.round(rows.reduce((n, row) => n + row.latencyMs, 0) / rows.length) : null,
       costUsd: rows.reduce((n, row) => n + row.costUsd, 0), consultUsd: rows.reduce((n, row) => n + row.consultUsd, 0),
-      actuallyConsulted: rows.filter(row => row.calls.some(call => call.purpose === 'consult' && call.status === 'ok')).length};
+      actuallyConsulted: rows.filter(row => row.toolsCompleted.some(tool => tool === 'consult_terra' || tool === 'consult_sol')).length};
   });
 }
 
