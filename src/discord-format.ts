@@ -150,4 +150,3 @@ export function splitDiscordMessage(text: string, limit = DISCORD_PART_LENGTH): 
   if (chunk && chunk !== (open ? open + '\n' : '')) flush();
   return parts.length ? parts : ['…'];
 }
-

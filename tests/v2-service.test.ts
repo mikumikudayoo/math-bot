@@ -7,6 +7,7 @@ import { Store } from '../src/service/store.js';
 import { search } from '../src/service/tools.js';
 import { UsageLedger } from '../src/service/openai-budget.js';
 import { JobEvents } from '../src/service/events.js';
+import { rowProvenance } from '../src/service/provenance.js';
 import { protectionVersion, type ProtectedProblem } from '../src/service/mpotd-guard.js';
 
 const guild = '123456789012345678', channel = '234567890123456789', user = '345678901234567890';
@@ -94,10 +95,10 @@ test('a search receipt records provider credits once and keeps the separate USD 
   const store=new Store(':memory:');
   const ledger=new UsageLedger(store.db,config.openai!);
   try {
-    const results=await search({searchKey:'fixture'},'test query',AbortSignal.timeout(1000),async(_url,init)=>{
+    const results=await search({searchKey:'fixture'},'test query',AbortSignal.timeout(1000),Object.assign(async(_url: RequestInfo | URL,init?: RequestInit)=>{
       assert.equal(JSON.parse(String(init?.body)).include_usage,true);
       return Response.json({results:[],usage:{credits:1},request_id:'receipt-1'});
-    },(credits,request)=>ledger.recordSearchCredits(id,request,credits));
+    },{preconnect:()=>{}}),(credits,request)=>ledger.recordSearchCredits(id,request,credits));
     assert.deepEqual(results,[]);
     ledger.recordSearchCredits(id,'receipt-1',1);
     assert.equal(ledger.summary().searchCreditsToday,1);
@@ -117,4 +118,13 @@ test('startup repairs a terminal event interrupted after persisting its result',
     assert.equal(events.progress(id)?.stream,'');
     assert.equal(events.since(id).filter(event=>event.type==='completed').length,1);
   } finally {store.close();}
+});
+
+test('malformed stored evidence or a missing label on a snapshot withholds its audience',()=>{
+  for(const row of [{guild,retrievalContext:'{broken'}, {guild,context:'{"version":1,"recent":["private fixture"]}',provenance:'{}'}]){
+    const permission=rowProvenance(row);
+    assert.equal(permission.classification,'private-discord');
+    assert.equal(permission.audienceUnknown,true);
+  }
+  assert.equal(rowProvenance({guild,context:'',retrievalContext:'[]'}).classification,'public');
 });

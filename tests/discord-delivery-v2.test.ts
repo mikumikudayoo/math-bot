@@ -211,4 +211,3 @@ test('slash recovery creates a standalone placeholder; conflicting late primary 
   await assert.rejects(bindPrimary(async()=>{throw new Error('service offline');},row.id,duplicate as never));
   assert.equal(deleted,false);
 });
-

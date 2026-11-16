@@ -312,4 +312,3 @@ export function startDelivery(client: Client) {
   void poll();
   return () => { closed = true; clearInterval(timer); clearInterval(recovery); client.rest.off('rateLimited',observe); manager.stop(); };
 }
-

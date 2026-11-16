@@ -15,7 +15,7 @@ export function messageDigest(m:Message):string {
 }
 
 /** A restricted source is tied to its captured channel policy. Private threads
- * also bind their roster. Overlarge or unavailable rosters cannot be witnessed. */
+ * also bind their roster. Incomplete or unavailable rosters cannot be witnessed. */
 export async function audienceDigest(channel:GuildBasedChannel):Promise<string|undefined>{
   if(await publicSource(channel))return 'public';
   const source=channel.isThread()&&channel.parentId?await channel.guild.channels.fetch(channel.parentId,{force:true}):channel;
@@ -26,9 +26,23 @@ export async function audienceDigest(channel:GuildBasedChannel):Promise<string|u
     .filter(o=>o[2]!=='0'||o[3]!=='0').sort();
   let members:string[]=[];
   if(channel.type===ChannelType.PrivateThread){
-    const roster=await channel.members.fetch({withMember:true,limit:100,cache:false});
-    if(!Number.isSafeInteger(roster.size)||roster.size>=100)return undefined;
-    members=[...roster.keys()].sort();
+    const ids=new Set<string>(),deadline=Date.now()+5000;
+    let after:string|undefined;
+    while(true){
+      if(Date.now()>=deadline)return undefined;
+      const roster=await channel.members.fetch({withMember:true,limit:100,cache:false,...(after?{after}:{})});
+      if(!Number.isSafeInteger(roster.size))return undefined;
+      let largest=after;
+      for(const id of roster.keys()){
+        if(!/^\d{17,20}$/.test(id)||ids.has(id)||(after&&BigInt(id)<=BigInt(after)))return undefined;
+        ids.add(id);
+        if(!largest||BigInt(id)>BigInt(largest))largest=id;
+      }
+      if(roster.size<100)break;
+      if(!largest||largest===after)return undefined;
+      after=largest;
+    }
+    members=[...ids].sort();
   }
   return digest([channel.guildId,channel.id,channel.type,source.id,'nsfw' in source&&source.nsfw,roles,policy,members]);
 }

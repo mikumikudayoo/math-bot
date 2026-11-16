@@ -26,8 +26,9 @@ export async function canRead(channel:GuildBasedChannel,member:GuildMember):Prom
  */
 export async function canDisclose(source:GuildBasedChannel,destination:GuildBasedChannel,requester:GuildMember,bot:GuildMember):Promise<boolean>{
   if(source.guildId!==destination.guildId)return false;
-  for(const channel of [source,destination])if(!await canRead(channel,requester)||!await canRead(channel,bot))return false;
-  return source.id===destination.id?await historyVisibleToViewers(source):await publicSource(source);
+  const sameChannel=source.id===destination.id;
+  for(const channel of sameChannel?[destination]:[source,destination])if(!await canRead(channel,requester)||!await canRead(channel,bot))return false;
+  return sameChannel?await historyVisibleToViewers(destination):await publicSource(source);
 }
 const unavailable={error:'Discord information unavailable for this request.'};
 

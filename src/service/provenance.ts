@@ -14,6 +14,7 @@ export interface Provenance {
   audienceUnknown:boolean;
 }
 export const publicProvenance=():Provenance=>({version:1,classification:'public',discordSources:[],audienceUnknown:false});
+const unknownAudience=():Provenance=>({version:1,classification:'private-discord',discordSources:[],audienceUnknown:true});
 const id=(value:unknown):value is string=>typeof value==='string'&&/^\d{17,20}$/.test(value);
 export function readProvenance(value:unknown):Provenance{
   try{
@@ -26,7 +27,7 @@ export function readProvenance(value:unknown):Provenance{
     return {version:1,classification:'private-discord',discordSources:valid,...(checked.length?{discordEvidence:checked}:{}),
       audienceUnknown:data.audienceUnknown===true||valid.length!==sources.length||!valid.length||checked.length!==evidence.length||
         (data.discordEvidence!==undefined&&!Array.isArray(data.discordEvidence))};
-  }catch{return {version:1,classification:'private-discord',discordSources:[],audienceUnknown:true};}
+  }catch{return unknownAudience();}
 }
 export function mergeProvenance(...values:Provenance[]):Provenance{
   const privateValues=values.filter(v=>v.classification==='private-discord');
@@ -45,15 +46,16 @@ export function mergeProvenance(...values:Provenance[]):Provenance{
     ...(evidence.size?{discordEvidence:[...evidence.values()].slice(0,MAX_DISCORD_EVIDENCE)}:{}),
     audienceUnknown:conflict||evidence.size>MAX_DISCORD_EVIDENCE||privateValues.some(v=>v.audienceUnknown)};
 }
-export function rowProvenance(row:{provenance?:string;retrievalContext?:string;guild:string}):Provenance{
+export function rowProvenance(row:{provenance?:string;retrievalContext?:string;context?:string;guild:string}):Provenance{
   const explicit=readProvenance(row.provenance);
   if(explicit.classification==='private-discord')return explicit;
+  if(row.context && row.context!=='{}' && row.context!=='[]')return unknownAudience();
   try{
-    const legacy=JSON.parse(row.retrievalContext??'{}');
+    const legacy=JSON.parse(row.retrievalContext||'{}');
     if(legacy?.kind==='discord'){
       const refs=Array.isArray(legacy.refs)?legacy.refs:[];
       return readProvenance({classification:'private-discord',discordSources:refs.map((r:any)=>({guildId:row.guild,channelId:r.channelId}))});
     }
-  }catch{}
+  }catch{return unknownAudience();}
   return explicit;
 }

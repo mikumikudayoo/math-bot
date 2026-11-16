@@ -137,13 +137,18 @@ test('witnesses retain verified content only: edits, deletions, permission widen
 });
 test('private thread roster changes withdraw earlier snapshots and parent history denies prevent re-publication',async()=>{
   const f=fixture(),parent=f.main,thread=f.channel('711111111111111111');
-  const joined=new Set([bot,user]);thread.type=ChannelType.PrivateThread;thread.parentId=cid;thread.isThread=()=>true;
-  thread.members={fetch:async(o:any)=>{if(o.withMember)return new Collection([...joined].map(id=>[id,{id}]));if(joined.has(o.member))return {id:o.member};throw new Error('not a member');}};
+  const joined=new Set([bot,user,...Array.from({length:101},(_,i)=>String(900111111111111100n+BigInt(i)))]);
+  let continuationPages=0;
+  thread.type=ChannelType.PrivateThread;thread.parentId=cid;thread.isThread=()=>true;
+  thread.members={fetch:async(o:any)=>{
+    if(o.withMember){if(o.after)continuationPages++;return new Collection([...joined].sort().filter(id=>!o.after||id>o.after).slice(0,o.limit).map(id=>[id,{id}]));}
+    if(joined.has(o.member))return {id:o.member};throw new Error('not a member');
+  }};
   parent.permissionsFor=(member:{id:string})=>({has:(bit:unknown)=>bit===PermissionFlagsBits.ManageThreads?false:member.id===gid?true:parent.readable});
   f.message(8,'geometry from thread',user,thread);
   const state=await captureDiscordState(f.guild,{...anchor,channelId:thread.id,reference:ref(id(8),thread.id)},true);assert.ok(state.context);
   const p=snapshotProvenance(state.context,gid),task:DiscordTask={id:'auth',job:'x',user,guild:gid,channel:thread.id,tool:'discord_audience',args:{sourceChannels:[thread.id],evidence:p.discordEvidence}};
-  assert.equal((await executeDiscordTool(f.client,task,false) as any).allowed,true);
+  assert.equal((await executeDiscordTool(f.client,task,false) as any).allowed,true);assert.ok(continuationPages>0);
   joined.add('811111111111111111');assert.equal((await executeDiscordTool(f.client,task,false) as any).allowed,false);
   joined.delete('811111111111111111');parent.permissionOverwrites.cache.set('reader',{id:'reader',type:0,allow:new PermissionsBitField(),deny:new PermissionsBitField(PermissionFlagsBits.ReadMessageHistory)});
   const requester=await f.guild.members.fetch({user,force:true}),application=await f.guild.members.fetchMe();

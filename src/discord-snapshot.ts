@@ -1,6 +1,7 @@
 import { PermissionFlagsBits, type Guild, type GuildMember, type Message, type MessageReference } from 'discord.js';
 import { CREATOR_ID, MAX_CONTEXT_ROLES, discordIntent,serverScope,type HostFacts } from './discord-context.js';
-import { canDisclose } from './discord-tools.js';
+import { canRead } from './discord-tools.js';
+import { historyVisibleToViewers } from './discord-audience.js';
 import { CONTEXT_LIMITS, contextSnapshot, type ContextMessage, type ContextSnapshot } from './service/context-snapshot.js';
 import { imageAttachments } from './service/vision.js';
 import { audienceDigest,messageDigest } from './discord-evidence.js';
@@ -87,7 +88,7 @@ export async function captureDiscordState(guild: Guild | null, anchor: SnapshotA
     ]);
     if (!channel || channel.guildId !== anchor.guildId || channel.id !== anchor.channelId ||
         requester.id !== anchor.userId || !('messages' in channel) ||
-        !await canDisclose(channel,channel,requester,bot)) return undefined;
+        !await canRead(channel,requester)||!await canRead(channel,bot)) return undefined;
     return {channel, requester, bot};
   };
   try {
@@ -95,6 +96,7 @@ export async function captureDiscordState(guild: Guild | null, anchor: SnapshotA
     if (!initial) return {host:{}};
     if (!includeContext || standaloneWeb(anchor)) return {host:moderatorFacts(initial.requester)};
     const {channel, bot} = initial;
+    if(!await historyVisibleToViewers(channel))return {host:moderatorFacts(initial.requester)};
     const audience=await audienceDigest(channel);
     if(!audience)return {host:moderatorFacts(initial.requester)};
     let next = localReply(anchor.reference, anchor);
@@ -121,7 +123,8 @@ export async function captureDiscordState(guild: Guild | null, anchor: SnapshotA
     }
     recent.sort((a,b) => BigInt(a.id) < BigInt(b.id) ? -1 : 1);
     const checked = await access();
-    if (!checked || audience!==await audienceDigest(checked.channel)) return {host:{}};
+    if (!checked||!await historyVisibleToViewers(checked.channel)||
+      audience!==await audienceDigest(checked.channel)) return {host:{}};
     const host = moderatorFacts(checked.requester);
     if (!reply && !chain.length && !recent.length) return {host};
     const context = contextSnapshot({version:1,anchorMessageId:anchor.id,channelId:anchor.channelId,capturedAt:Date.now(),audience,
