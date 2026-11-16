@@ -168,7 +168,7 @@ export interface ResponsesClient {
 }
 export function officialClient(config: OpenAIConfig): ResponsesClient {
   // SDK retries are disabled: retries are bounded and budgeted here instead.
-  const client = new OpenAI({apiKey: config.apiKey, maxRetries: 0, timeout: config.timeoutMs});
+  const client = new OpenAI({apiKey: config.apiKey, baseURL: 'https://api.openai.com/v1', maxRetries: 0, timeout: config.timeoutMs});
   return {create: (params, options) => client.responses.create(params as never, options) as Promise<unknown>};
 }
 
