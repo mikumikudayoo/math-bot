@@ -1,7 +1,8 @@
-import { isModerator } from '../admin/auth.js';
-import { PermissionFlagsBits, SlashCommandBuilder, MessageFlags } from 'discord.js';
+import { isDatabaseModerator, isModerator } from '../admin/auth.js';
+import { type ChatInputCommandInteraction, PermissionFlagsBits, SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { submit } from '../study.js';
 import { service } from '../ai-client.js';
+import { formatUsageSummary, type UsageLedger } from '../service/openai-budget.js';
 import type { Command } from './types.js';
 
 export const ask:Command={
@@ -40,16 +41,30 @@ export const queue:Command={
   data:new SlashCommandBuilder().setName('queue').setDescription('Show your accepted requests and their IDs.'),
   async execute(i){await i.deferReply({flags:MessageFlags.Ephemeral});const jobs=await service<{id:string;state:string;status:string}[]>(`/queue?guild=${i.guildId}&user=${i.user.id}`);await i.editReply(jobs.map(j=>`${j.id}: ${j.state} (${j.status})`).join('\n')||'You have no queued or active requests.');},
 };
+type UsageSummary = ReturnType<UsageLedger['summary']> | {provider:'legacy'};
+
+export async function showUsage(i:ChatInputCommandInteraction, readUsage = () => service<UsageSummary>('/usage')) {
+  if (!await isDatabaseModerator(i)) {
+    await i.editReply('Only the bot’s database moderators can view account-wide estimates.');
+    return;
+  }
+  const usage = await readUsage();
+  await i.editReply('day' in usage ? formatUsageSummary(usage).slice(0,1900) : 'The OpenAI provider is disabled.');
+}
+
 export const ai:Command={
   access:'ai-tester',
   data:new SlashCommandBuilder().setName('ai').setDescription('Manage study assistance.').setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand(o=>o.setName('enable').setDescription('Accept new study requests.'))
     .addSubcommand(o=>o.setName('disable').setDescription('Reject future requests; accepted requests still finish.'))
-    .addSubcommand(o=>o.setName('status').setDescription('Show availability.')),
+    .addSubcommand(o=>o.setName('status').setDescription('Show availability.'))
+    .addSubcommand(o=>o.setName('usage').setDescription('Show estimated OpenAI token usage and spending.')),
   async execute(i){
     if(!isModerator(i,PermissionFlagsBits.ManageGuild)){await i.reply({content:'Manage Server permission is required.',flags:MessageFlags.Ephemeral});return;}
     await i.deferReply({flags:MessageFlags.Ephemeral});const action=i.options.getSubcommand();
-    if(action==='status'){
+    if(action==='usage'){
+      await showUsage(i);
+    }else if(action==='status'){
       const [settings,health]=await Promise.all([service<{enabled:boolean}>(`/settings?guild=${i.guildId}`),service<{modelConfigured:boolean}>('/health')]);
       await i.editReply(`Assistance: ${settings.enabled?'enabled':'disabled'}\nAI backend: ${health.modelConfigured?'configured':'not configured'}`);
     }else{await service('/settings',{guild:i.guildId,user:i.user.id,moderator:true,enabled:action==='enable'});await i.editReply(action==='enable'?'New study requests are enabled.':'New study requests are disabled. Active and accepted queued requests will still finish.');}

@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {"rootDir": ".", "noEmit": true},
+  "include": [
+    "tests/*v2*.test.ts",
+    "tests/*openai*.test.ts",
+    "tests/ai-usage-command.test.ts",
+    "tests/artifact-review*.test.ts",
+    "tests/math-eval.test.ts",
+    "tests/mpotd*.test.ts",
+    "tests/orchestrator*.test.ts",
+    "tests/regex-tool*.test.ts",
+    "tests/tool-pool*.test.ts"
+  ]
+}
