@@ -88,8 +88,11 @@ test('a paraphrased verity answer fails the release check before later paid stag
   const db=openReleaseLedger(join(dir,'smoke.sqlite'));
   try {
     const bad=mockModel('paris.');
-    assert.equal(await runReleaseAcceptance(db,key,()=>{},bad.client),false);
+    const logs:string[]=[];
+    assert.equal(await runReleaseAcceptance(db,key,line=>logs.push(line),bad.client),false);
     assert.equal(bad.seen.length,4);
+    const mismatch=logs.map(line=>JSON.parse(line)).find(row=>row.answer!==undefined);
+    assert.deepEqual(mismatch,{stage:'verity 1',question:cases[0]!.question,expected:cases[0]!.expected,answer:'paris.'});
   } finally {db.close();rmSync(dir,{recursive:true,force:true});}
 });
 

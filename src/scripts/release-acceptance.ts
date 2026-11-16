@@ -37,7 +37,7 @@ export function openReleaseLedger(path: string) {
 /** Additional authorization for this text-only smoke. It uses a conservative input
  * allowance at configured prices, survives crashes, and never refunds an attempt.
  * The normal service ledger still tracks reservations and measured charges. */
-function boundedClient(db: DatabaseSync, config: OpenAIConfig, client: ResponsesClient): ResponsesClient {
+export function boundedClient(db: DatabaseSync, config: OpenAIConfig, client: ResponsesClient): ResponsesClient {
   const authorize = db.prepare('UPDATE release_smoke_budget SET authorized_micros=authorized_micros+? WHERE id=1 AND authorized_micros+?<=?');
   return {create: async (params, options) => {
     const spec = config.pricing[String(params.model)];
@@ -99,6 +99,7 @@ export async function runReleaseAcceptance(db: DatabaseSync, key: string, log: (
         : Boolean(answer.trim()) && ![...replies].some(reply=>lower.includes(reply.toLowerCase()))
           && (!c.normalAnswerIncludes || c.normalAnswerIncludes.some(word=>lower.includes(word.toLowerCase())));
       log(JSON.stringify({stage,passed}));
+      if (!passed) log(JSON.stringify({stage,question:c.question,expected:c.expected,answer}));
       if (!passed) return false;
     }
     stage = 'character';
@@ -112,8 +113,10 @@ export async function runReleaseAcceptance(db: DatabaseSync, key: string, log: (
     const consulted = proof.events.some(event=>event.type==='consultation_completed' && event.data.ok===true &&
       (event.data.label==='sol' || event.data.label==='terra') &&
       proof.rows.some(row=>row.tier==='consult' && row.model===settings.models[event.data.label as 'sol'|'terra']));
-    const passed = consulted && grade({type:'numeric',answer:265},proof.answer).pass;
+    const grading = grade({type:'numeric',answer:265},proof.answer);
+    const passed = consulted && grading.pass;
     log(JSON.stringify({stage,passed,consulted}));
+    if (!passed) log(JSON.stringify({stage,answer:proof.answer,grading}));
     if (!passed) return false;
 
     stage = 'synthetic announcement schemas';

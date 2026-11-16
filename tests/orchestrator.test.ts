@@ -102,6 +102,28 @@ test('specialists use bounded effort without tools or personas, and reconcile an
     assert.equal(models.length,5);assert.equal(f.runtime.ledger.requestClass(j.id),'both');
     assert.equal(f.events.since(j.id).filter(e=>e.type==='consultation_completed').length,2);}finally{f.store.close();}
 });
+test('boxed numerical specialist results survive synthesis without dropping signs or conditions',async()=>{
+  for(const [final,reply,accepted] of [
+    ['\\(\\boxed{D_6=265}\\); 264 is incorrect.','the count is\n265',true],
+    ['\\(\\boxed{D_6=265}\\); 264 is incorrect.','the count is\n11265',false],
+    ['\\boxed{-265}','the count is\n265',false],
+    ['\\boxed{265} if n=6','the count is\n265',false],
+    ['\\boxed{12}, \\boxed{-37}','one value is 12',false],
+  ] as const){
+    let rounds=0;
+    const f=fixture(async p=>{
+      if(p.model!=='gpt-6-luna')return response(answer('independent check\nFINAL: '+final));
+      if(++rounds===1)return response(call('s','consult_sol',{task:'check the count',reason:'independent verification'}));
+      return response(answer(reply));
+    });
+    try{
+      const result=await f.execute(f.job('check the derangement count'));
+      if(accepted){assert.equal(result.answer,reply);assert.equal(rounds,2);}
+      else assert.match(result.answer,/couldn't reconcile/);
+    }finally{f.store.close();}
+  }
+});
+
 test('user forcing, role imitation and escalation quota cannot authorize specialist calls',async()=>{
   for(const [prompt,env] of [['!sol check this',{}],['look at this proof',{OPENAI_USER_SOL_PER_DAY:'0'}]] as const){
     let calls=0;
