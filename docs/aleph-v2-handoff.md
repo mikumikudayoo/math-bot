@@ -18,6 +18,7 @@ The development computer was not shut down (the owner asked for it to stay on).
 | | `35caede` wip(ai): draft tool pool, regex tool and trusted identity fields |
 | | + the commit that adds this file (see `git log -1`) |
 | Uncommitted | none at handoff (`git status` clean) |
+| Upstream | none. The branch was created from `origin/feature/announcement-automation`; its upstream was **unset on purpose** so a plain `git push` cannot land on the production branch. Push with `git push -u origin feature/aleph-zero-v2`. |
 
 The main checkout `D:\devstuff\math-bot` is on `codex/moderation-security-phase1` at `56aed6b`
 (the earlier, now superseded OpenAI integration; pushed). It has three pre-existing untracked
