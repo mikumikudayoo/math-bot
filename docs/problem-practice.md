@@ -6,11 +6,11 @@ This upgrade changes the existing mathematical QOTD to **Math Problem of the Day
 
 | Mode | Access | Answer handling | Effect |
 |---|---|---|---|
-| Daily MPoTD | Public question and discussion, private modal | Replace until 21:59:59 Manila; reveal at 22:00 | Correct +10, incorrect 0; no speed bonus or rating |
+| Daily MPoTD | Public question and discussion, private modal | Replace until 21:59:59 Manila; reveal at 22:00 | Correct +10 to +15 based on final correct submission time; incorrect 0; no rating |
 | `/problem practice` | Ephemeral | Untimed, unlimited tries; solution button | No daily points or rating |
 | `/problem rated` | Ephemeral, disabled by default | One final answer, ten minutes after confirmed delivery | Experimental Elo-style player update |
 
-Daily posting remains 08:00 Manila using the existing configured schedule. New finalizations use flat ten even if an older open session has a legacy scoring override. Already finalized scores, standings, placements, used-question history and frozen deliveries are preserved. Timestamps still determine daily placement but do not award extra points. Existing moderator score corrections remain available.
+Daily posting remains 08:00 Manila using the existing configured schedule. New sessions snapshot first-correct-to-reveal v2: 10 + 5 × (revealAt - submittedAt) / (revealAt - firstCorrectAt), rounded to three decimals. The earliest correct final submission earns 15; later correct final submissions approach 10 at reveal. Replacements use their final timestamp. Existing sessions retain their snapshotted scoring strategy, including flat-ten and legacy linear-time rules. Finalized scores, standings, placements, used-question history and frozen deliveries remain unchanged. Existing moderator score corrections remain available.
 
 `/mpotd leaderboard` and `/mpotd stats` continue to display daily points only. `/problem profile` and `/problem history` are private and display rated performance only. There is **no public rated leaderboard**. A rating describes performance in this bank and timed format, not intelligence.
 

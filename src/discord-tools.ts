@@ -40,7 +40,7 @@ export async function executeDiscordTool(client:Client,task:DiscordTask,messageC
         avatar:member.displayAvatarURL(),banner:user.bannerURL()??null,bio:'User bio/about-me is not available through this bot lookup.'};
     }
     if(task.tool!=='discord_search'||!messageContent)return unavailable;
-    if(Object.keys(task.args).some(k=>!['query','limit','authorId','before','after'].includes(k)))return unavailable;
+    if(Object.keys(task.args).some(k=>!['query','limit','authorId','before','after','excludeMessageIds'].includes(k)))return unavailable;
     const query=task.args.query;
     if(typeof query!=='string'||!query.trim()||query.length>200)return unavailable;
     const limit=task.args.limit??5;if(!Number.isInteger(limit)||Number(limit)<1||Number(limit)>10)return unavailable;
@@ -50,7 +50,7 @@ export async function executeDiscordTool(client:Client,task:DiscordTask,messageC
     const author=task.args.authorId;
     if(author!==undefined&&(typeof author!=='string'||!/^\d{17,20}$/.test(author)))return unavailable;
     const date=(v:unknown)=>v===undefined?null:typeof v==='string'&&/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(v)&&Number.isFinite(Date.parse(v))?Date.parse(v):NaN;
-    const after=date(task.args.after),before=date(task.args.before);if(Number.isNaN(after)||Number.isNaN(before))return unavailable;
+    const after=date(task.args.after),before=date(task.args.before);if(Number.isNaN(after)||Number.isNaN(before)||(after!==null&&before!==null&&after>=before))return unavailable;
     const channels=await guild.channels.fetch();
     const active=await guild.channels.fetchActiveThreads();
     const candidates=new Map<string,GuildBasedChannel>();
@@ -87,9 +87,12 @@ export async function executeDiscordTool(client:Client,task:DiscordTask,messageC
     // Recheck every returned channel once more before crossing the service boundary.
     await guild.roles.fetch();
     const checked=await guild.members.fetch({user:task.user,force:true});
+    const checkedBot=await guild.members.fetchMe({force:true});
+    const checkedOrigin=await guild.channels.fetch(task.channel,{force:true});
+    if(!checkedOrigin||!await canRead(checkedOrigin,checked)||!await canRead(checkedOrigin,checkedBot))return unavailable;
     const authorized=new Set<string>();
     for(const channelId of new Set(results.map(r=>r.url.split('/')[5]!))){
-      try{const channel=await guild.channels.fetch(channelId,{force:true});if(channel&&await canRead(channel,checked))authorized.add(channelId);}catch{}
+      try{const channel=await guild.channels.fetch(channelId,{force:true});if(channel&&await canRead(channel,checked)&&await canRead(channel,checkedBot))authorized.add(channelId);}catch{}
     }
     return {type:'DISCORD_SEARCH_DATA',untrustedContent:true,coverage:'Limited recent history only; absence is not proof no matching messages exist. Archived threads outside the invoking thread are not searched.',results:results.filter(r=>authorized.has(r.url.split('/')[5]!))};
   }catch{return unavailable;}

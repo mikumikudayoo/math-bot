@@ -1,4 +1,5 @@
 import { fastRoute } from './fast-router.js';
+import { retrievalPolicy } from './retrieval-policy.js';
 import { routingClauses } from './router-clauses.js';
 import { aggregateRoutingSignals } from './router-aggregate.js';
 import { routingConstraints } from './router-constraints.js';
@@ -56,12 +57,14 @@ export async function routePrompt(
   ];
 
   const getSignals = dependencies.signals ?? routerSignals;
-  const clauseSignals = await getSignals(semanticInputs);
-
-  if (clauseSignals.length !== semanticInputs.length) {
-    throw new Error(
-      'Router sensor returned the wrong number of signal sets.',
-    );
+  let clauseSignals: RoutingSignals[];
+  try {
+    clauseSignals = await getSignals(semanticInputs);
+    if (clauseSignals.length !== semanticInputs.length) throw new Error('Incomplete sensor output.');
+  } catch {
+    // Sensor outage must not downgrade reasoning or waive factual retrieval.
+    return applyConstraints({reasoning:'deep',knowledge:retrievalPolicy(prompt).required?'web_required':'web_if_uncertain',
+      tool:'none',scores:{web:1,online:1,calculate:0}},prompt);
   }
 
   const aggregated = aggregateRoutingSignals(clauseSignals);

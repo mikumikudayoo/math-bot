@@ -1,0 +1,27 @@
+{
+  "guild": "111111111111111111",
+  "channel": "222222222222222222",
+  "role": "333333333333333333",
+  "rules": [
+    {
+      "id": "example-session-24h",
+      "type": "training-session",
+      "anchor": "start",
+      "beforeMinutes": 1440,
+      "template": "session"
+    },
+    {
+      "id": "example-classmarker-6h",
+      "type": "classmarker-deadline",
+      "anchor": "deadline",
+      "beforeMinutes": 360,
+      "template": "classmarker"
+    }
+  ],
+  "templates": {
+    "session": "{{role}} participants, please be reminded that our Session {{slot}} is on {{date}} from {{timeRange}}",
+    "classmarker": "{{role}} participants, please be reminded to answer Set {{slot}} in Classmarker before {{deadline}}",
+    "email": "{{role}} participants, please check your email for the {{detailLabel}} sent to you.\nIf you did not receive it, kindly check your spam folder or let us know.",
+    "server": "{{role}} participants, please make sure to join the server event for {{competition}} {{year}}. {{url}}"
+  }
+}

@@ -118,17 +118,15 @@ describe('routePrompt', () => {
           throw new Error('sensor exploded');
         },
       }),
-    ).rejects.toThrow('sensor exploded');
+    ).resolves.toMatchObject({reasoning:'deep',knowledge:'web_if_uncertain'});
   });
 
-  test('wrong sensor result count is rejected', async () => {
+  test('wrong sensor result count uses conservative routing', async () => {
     await expect(
       routePrompt('explain this argument', {
         signals: async () => [],
       }),
-    ).rejects.toThrow(
-      'Router sensor returned the wrong number of signal sets.',
-    );
+    ).resolves.toMatchObject({reasoning:'deep'});
   });
 
   test('reasoning floor never lowers a deep fuzzy route', async () => {

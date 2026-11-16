@@ -37,6 +37,16 @@ test('routing requires exact Pax Silica, niche exhaustive towers, and voice-prov
   assert.ok(retrievalPolicy(towers).entities.includes('Eternal Towers of Hell'));assert.ok(retrievalPolicy(towers).exhaustive);
   assert.ok(retrievalPolicy(miku).entities.includes('Hatsune Miku'));
 });
+
+test('successful source fetch does not trigger a redundant search before grounded output',async()=>{
+  const quote='The supplied source verifies this particular result.';
+  const f=fixture('explain flibber result',[
+    {tool:'fetch',arguments:{url:'https://example.com/source'}},
+    {claims:[{source:1,quote}],insufficient:false}
+  ],{evidence:quote});
+  try{assert.match((await f.run()).answer,/supplied source verifies/);assert.equal(f.calls.search.length,0);}
+  finally{f.store.close();}
+});
 test('Pax cannot become Paxil/paroxetine; required search executes before a model final is possible',async()=>{
   const f=fixture(pax,['Paxil is paroxetine.','Paxil is paroxetine.']);
   try{assert.ok(UNVERIFIED_REPLIES.includes((await f.run()).answer));assert.equal(f.calls.search.length,1);assert.ok(f.calls.search[0]!.includes('"Pax Silica"'));assert.equal(f.calls.requests.length,2);assert.equal(f.calls.statuses[0],'searching');}

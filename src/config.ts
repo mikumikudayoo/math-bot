@@ -19,6 +19,8 @@ export function parseConfig(env: NodeJS.ProcessEnv, mode: string) {
     adminDatabase: env.ADMIN_DB_PATH?.trim() || `data/admin.${mode}.sqlite`,
     adminPython: env.ADMIN_PYTHON_EXECUTABLE?.trim() || 'python3',
     reminderDatabase: env.REMINDER_DB_PATH?.trim() || `data/reminders.${mode}.sqlite`,
+    moderationDatabase: env.MODERATION_DB_PATH?.trim() || `data/moderation.${mode}.sqlite`,
+    moderationEngine: env.MODERATION_ENGINE_ENABLED === 'true',
     token: required('DISCORD_TOKEN'),
     applicationId: snowflake('DISCORD_APPLICATION_ID'),
     guildId: mode === 'development' ? snowflake('DISCORD_GUILD_ID') : undefined,

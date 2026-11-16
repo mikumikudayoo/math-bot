@@ -362,6 +362,18 @@ test('ambiguous Discord send stays leased and cannot silently reroll or start a 
     assert.equal(t.store.player(guild, user).scored, 0); assert.equal(t.store.player(guild, user).sequence, 1);
   } finally { t.source.close(); }
 });
+test('cached question image is rejected as a solution and falls back without changing score', async () => {
+  const t = setup(); bank(t); try {
+    const a = await start(t); t.store.submit(a.id, guild, user, '10');
+    const ended = t.store.solution(a.id, guild, user), rating = t.store.player(guild, user).rating;
+    ended.snapshot.solutionCrop = ended.snapshot.questionCrop;
+    const result = await resultPayload(t.store, ended);
+    assert.ok(result.files?.some((f: any) => f.name === 'official-solution.txt'));
+    assert.ok(!result.files?.some((f: any) => f.name.endsWith('.png')));
+    assert.equal(t.store.player(guild, user).rating, rating);
+  } finally { t.source.close(); }
+});
+
 test('long answer with ten solution pages is split privately without losing the final page', async () => {
   const t = setup(); bank(t); try {
     const a = await start(t); t.store.submit(a.id, guild, user, '10');

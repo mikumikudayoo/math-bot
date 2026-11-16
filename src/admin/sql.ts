@@ -11,9 +11,12 @@ export function databaseRegistry(): DatabaseRegistry {
   const config = loadConfig(), env: NodeJS.ProcessEnv = {};
   dotenv({path:`.env.ai.${config.mode}`, processEnv:env, quiet:true});
   const candidates = {qotd:qotdSettings().database, reminders:config.reminderDatabase, ai:env.AI_DATABASE || `data/${config.mode}.sqlite`};
-  const canonical = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
-  const admin = canonical(config.adminDatabase);
-  if (Object.values(candidates).some(path => canonical(path) === admin)) throw new Error('Admin storage must be separate from SQL databases.');
+  return protectedDatabaseRegistry(candidates,[config.adminDatabase,config.moderationDatabase]);
+}
+export function protectedDatabaseRegistry(candidates:DatabaseRegistry,protectedPaths:string[]):DatabaseRegistry {
+  const canonical=(path:string)=>{try{return realpathSync(path);}catch{return resolve(path);}};
+  const protectedNames=new Set(protectedPaths.map(canonical));
+  if(Object.values(candidates).some(path=>protectedNames.has(canonical(path))))throw new Error('Admin/moderation storage must be separate from SQL databases.');
   return candidates;
 }
 export async function runSQL(registry: DatabaseRegistry, name: string, sql: string, python = 'python3'): Promise<SqlResult> {

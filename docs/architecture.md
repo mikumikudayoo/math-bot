@@ -1,5 +1,7 @@
 # Architecture and next milestones
 
+September 26 continuation: see [current-state audit](audit-2026-09-26.md), [opt-in cognitive routing](cognitive-routing.md), [modular moderation design](moderation-design.md), and [manual deployment plan](deployment-plan-2026-09-26.md). These changes do not deploy services or change historical scoring snapshots.
+
 ## Implemented
 The package manager and JavaScript/TypeScript runtime are Bun, pinned in `.bun-version` and `package.json`. Releases install `bun.lock` with `--frozen-lockfile`. The compatible `node:sqlite` adapter and existing database schema remain unchanged; Python workers use their separate virtual environment.
 

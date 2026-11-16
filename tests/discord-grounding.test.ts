@@ -15,6 +15,21 @@ const results = [{
   content: 'daily qotd is coming back at 8am, with a proper leaderboard'
 }];
 
+test('multiple passages preserve attribution and reject any unsupported claim',()=>{
+  const other={...results[0]!,id:'666456789012345678',author:{id:creator},content:'the schedule has changed to 9am'};
+  const claims=[{messageId:message,support:'qotd is coming back at 8am'},{messageId:other.id,support:other.content}];
+  const answer=groundedDiscordAnswer({claims},[...results,other],guild,requester,creator);
+  assert.match(answer!,/you said/);assert.match(answer!,/emu said/);assert.match(answer!,/9am/);
+  assert.equal(groundedDiscordAnswer({claims:[...claims,{messageId:message,support:'invented schedule'}]},results,guild,requester,creator),null);
+  assert.equal(groundedDiscordAnswer({claims:[{claims}]},results,guild,requester,creator),null);
+});
+
+test('quoted markdown and mentions cannot add fake links or ping users',()=>{
+  const content='@everyone [click](https://example.com) **hello**';
+  const answer=groundedDiscordAnswer({messageId:message,support:content},[{...results[0]!,content}],guild,requester,creator)!;
+  assert.ok(!answer.includes('@everyone'));assert.ok(!answer.includes('[click]('));
+});
+
 test('Discord answer uses verified author, channel and message URL', () => {
   const answer = groundedDiscordAnswer(
     { messageId: message, support: 'qotd is coming back at 8am' },

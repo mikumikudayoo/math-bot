@@ -1,11 +1,14 @@
 import { PermissionFlagsBits, type Message } from 'discord.js';
 import { service } from './ai-client.js';
 import { loadConfig } from './config.js';
+import { moderateSecurity } from './security/runtime.js';
 export function matchesTerm(content:string,term:string){
   const escaped=term.normalize('NFKC').toLowerCase().replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
   return new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`,'u').test(content.normalize('NFKC').toLowerCase());
 }
 export async function moderate(message:Message){
+  const security=await moderateSecurity(message,loadConfig());
+  if(security!==null)return security;
   if(!message.guildId||message.author.bot||message.member?.permissions.has(PermissionFlagsBits.ManageMessages))return false;
   const settings=await service<{rules:{id:number;term:string;action:string}[]}>(`/settings?guild=${message.guildId}`);
   const rule=settings.rules.find(r=>matchesTerm(message.content,r.term));if(!rule)return false;

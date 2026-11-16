@@ -1,6 +1,6 @@
 import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, type InteractionEditReplyOptions, type InteractionReplyOptions } from 'discord.js';
 import { validateCrop } from '../qotd/crops.js';
-import { renderSolutionSnapshot } from '../qotd/solutions.js';
+import { renderSolutionSnapshot, validateSolutionCrop } from '../qotd/solutions.js';
 import { sourceText } from '../qotd/posting.js';
 import type { Attempt, ProblemStore } from './store.js';
 export function questionPayload(a: Attempt): InteractionEditReplyOptions {
@@ -19,7 +19,7 @@ export async function resultPayload(store: ProblemStore, a: Attempt): Promise<In
   catch { console.error(`Practice attempt ${a.id}: official solution crop unavailable; using preserved official text.`); }
   const files: AttachmentBuilder[] = [];
   if (snapshot.solutionCrop) {
-    try { validateCrop(snapshot.solutionCrop); files.push(...snapshot.solutionCrop.images.map((im, i) => new AttachmentBuilder(im.path, { name: `solution-${i + 1}.png` }))); }
+    try { validateSolutionCrop(snapshot); files.push(...snapshot.solutionCrop.images.map((im, i) => new AttachmentBuilder(im.path, { name: `solution-${i + 1}.png` }))); }
     catch { console.error(`Practice attempt ${a.id}: cached solution crop invalid; using official text.`); }
   }
   const correction = store.db.prepare('SELECT result FROM problem_corrections WHERE attempt=? ORDER BY rowid DESC LIMIT 1').get(a.id);

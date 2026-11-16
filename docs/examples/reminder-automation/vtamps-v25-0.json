@@ -1,0 +1,117 @@
+{
+  "catalog": {
+    "competitions": [],
+    "rounds": [],
+    "programs": [
+      {
+        "id": "vtamps-v25-0",
+        "name": "VTAMPS",
+        "version": "25.0"
+      }
+    ]
+  },
+  "source": {
+    "account": "user-supplied-attachment",
+    "messageId": "clipboard-84032601-c7c2-46ea-a6b0-443e267e6a89",
+    "attachment": "codex-clipboard-84032601-c7c2-46ea-a6b0-443e267e6a89.png",
+    "sha256": "d3063c223f8fdf99a10de8afadad62a467d343fe41c065e79b3eebf7c40ead40",
+    "locator": "VTAMPS V.25.0 REVIEW SCHEDULE; SENIOR SECONDARY row; SESSION 1–5 columns. Manually transcribed from provided image, not automated OCR."
+  },
+  "events": [
+    {
+      "event": {
+        "competitionId": null,
+        "roundId": null,
+        "programId": "vtamps-v25-0",
+        "preparesFor": [],
+        "yearLevel": "Senior Secondary",
+        "type": "training-session",
+        "slot": "1",
+        "start": 1788080400000,
+        "end": 1788089400000,
+        "deadline": null,
+        "timezone": "Asia/Manila",
+        "url": null,
+        "detailLabel": null
+      },
+      "confidence": "high",
+      "issues": []
+    },
+    {
+      "event": {
+        "competitionId": null,
+        "roundId": null,
+        "programId": "vtamps-v25-0",
+        "preparesFor": [],
+        "yearLevel": "Senior Secondary",
+        "type": "training-session",
+        "slot": "2",
+        "start": 1789203600000,
+        "end": 1789212600000,
+        "deadline": null,
+        "timezone": "Asia/Manila",
+        "url": null,
+        "detailLabel": null
+      },
+      "confidence": "high",
+      "issues": []
+    },
+    {
+      "event": {
+        "competitionId": null,
+        "roundId": null,
+        "programId": "vtamps-v25-0",
+        "preparesFor": [],
+        "yearLevel": "Senior Secondary",
+        "type": "training-session",
+        "slot": "3",
+        "start": 1789290000000,
+        "end": 1789299000000,
+        "deadline": null,
+        "timezone": "Asia/Manila",
+        "url": null,
+        "detailLabel": null
+      },
+      "confidence": "high",
+      "issues": []
+    },
+    {
+      "event": {
+        "competitionId": null,
+        "roundId": null,
+        "programId": "vtamps-v25-0",
+        "preparesFor": [],
+        "yearLevel": "Senior Secondary",
+        "type": "training-session",
+        "slot": "4",
+        "start": 1789894800000,
+        "end": 1789903800000,
+        "deadline": null,
+        "timezone": "Asia/Manila",
+        "url": null,
+        "detailLabel": null
+      },
+      "confidence": "high",
+      "issues": []
+    },
+    {
+      "event": {
+        "competitionId": null,
+        "roundId": null,
+        "programId": "vtamps-v25-0",
+        "preparesFor": [],
+        "yearLevel": "Senior Secondary",
+        "type": "training-session",
+        "slot": "5",
+        "start": 1790499600000,
+        "end": 1790508600000,
+        "deadline": null,
+        "timezone": "Asia/Manila",
+        "url": null,
+        "detailLabel": null
+      },
+      "confidence": "high",
+      "issues": []
+    }
+  ]
+}
