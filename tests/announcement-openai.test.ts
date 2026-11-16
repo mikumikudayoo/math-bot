@@ -158,6 +158,22 @@ test('extraction enforces private-source, review, system budget, incomplete, and
   } finally {close();}
 });
 
+test('an unreadable attachment never permits extraction of personal or mixed-scope correction text', async () => {
+  const legacy = announcementProvider({AI_PROVIDER:'legacy', GROQ_API_KEY:'synthetic'});
+  const blocked = ['Unreadable replacement image.'];
+  const signal = AbortSignal.timeout(2000);
+  for (const engine of [legacy, provider]) {
+    for (const text of ['VTAMPS and VTASP timetable correction', 'VTAMPS correction: your ClassMarker is ready to take']) {
+      const result = await extractFacts(engine, {...mail, blocked, evidence:[{id:'body', text}]}, source, signal, noLegacy);
+      assert.equal(result.disposition,'needs_review');
+      assert.deepEqual(result.events,[]);
+    }
+  }
+  const result = await extractFacts(provider, {...mail, blocked, evidence:[{id:'body', text:body+' Schedule correction.'}]}, source, signal, noLegacy);
+  assert.equal(result.disposition,'needs_review');
+  assert.deepEqual(result.events,[]);
+});
+
 test('provider incidents aggregate separately across the worker rollout', () => {
   const store = new AnnouncementStore(':memory:');
   try {
