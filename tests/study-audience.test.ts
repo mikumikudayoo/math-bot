@@ -22,7 +22,7 @@ function fixture(){
   function channel(id:string,everyone=false,type=ChannelType.GuildText,parentId:string|null=null){
     const c:any={id,guildId:gid,guild,type,parentId,name:'synthetic-channel',readers:new Set([uid,bid]),joined:new Set([uid,bid]),permissionOverwrites:{cache:new Collection()},
       isTextBased:()=>true,isSendable:()=>true,isThread:()=>[ChannelType.PrivateThread,ChannelType.PublicThread,ChannelType.AnnouncementThread].includes(type),
-      permissionsFor:(member:any)=>({has:(permissions:any)=>permissions===PermissionFlagsBits.ManageThreads?member.manage:member.id===gid?everyone:c.readers.has(member.id)}),
+      permissionsFor:(member:any)=>({has:(permissions:any)=>permissions===PermissionFlagsBits.ManageThreads?member.manage:member.id===gid?(permissions===PermissionFlagsBits.ReadMessageHistory||everyone):c.readers.has(member.id)}),
       members:{fetch:async({member,force,cache}:any)=>{assert.equal(force,true);assert.equal(cache,false);if(!c.joined.has(member))throw new Error('not a member');return {id:member};}},
     };channels.set(id,c);return c;
   }

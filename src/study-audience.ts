@@ -1,12 +1,12 @@
 import {AttachmentBuilder,type Client} from 'discord.js';
-import {canDisclose} from './discord-tools.js';
+import {authorizeEvidence} from './discord-tools.js';
 import {rowProvenance} from './service/provenance.js';
 import type {Job} from './service/types.js';
 
-interface DeliveryPayload {content:string;files:AttachmentBuilder[];allowedMentions:{parse:[]};attachments?:[];embeds?:[]}
+interface DeliveryPayload {content:string;files:AttachmentBuilder[];allowedMentions:{parse:[]};attachments?:[];embeds?:[];denied?:true}
 // An earlier edit may have succeeded before its delivery acknowledgement failed.
 // On a denied retry, explicitly remove retained files/embeds as well as text.
-const refusal=():DeliveryPayload=>({content:"i can't safely share that server history here. ask in the channel the messages came from.",files:[],attachments:[],embeds:[],allowedMentions:{parse:[]}});
+const refusal=():DeliveryPayload=>({content:"i can't safely share that server history here. ask in the channel the messages came from.",files:[],attachments:[],embeds:[],allowedMentions:{parse:[]},denied:true});
 
 /** Content is the host-sanitized studyContent(job), never raw model text.
  * Recheck every source immediately before returning text or attachments to edit.
@@ -28,7 +28,7 @@ export async function studyDeliveryPayload(client:Client,job:Job,content:string)
       if(!destination||destination.guildId!==job.guild||!destination.isTextBased()||!destination.isSendable())return refusal();
       for(const id of new Set(provenance.discordSources.map(source=>source.channelId))){
         const source=await guild.channels.fetch(id,{force:true});
-        if(!source||!await canDisclose(source,destination,requester,bot))return refusal();
+        if(!source||!await authorizeEvidence(source,destination,requester,bot,(provenance.discordEvidence??[]).filter(e=>e.channelId===id)))return refusal();
       }
     }catch{return refusal();}
   }

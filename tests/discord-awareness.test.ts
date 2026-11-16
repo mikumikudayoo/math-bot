@@ -19,14 +19,14 @@ const config:ServiceConfig={mode:'development',secret:'fixture-only-not-a-produc
 function fixture(){
   const calls:string[]=[];const channels=new Collection<string,any>();
   const member:any={id:uid,guild:null,manage:false};const bot:any={id:bid,guild:null,manage:true};
-  const guild:any={id:gid,roles:{fetch:async()=>{},everyone:{id:gid}},members:{fetch:async({user}:any)=>{if(user!==uid)throw new Error('unknown');return member;},fetchMe:async()=>bot},channels:{fetch:async(id?:string)=>id?channels.get(id):channels,fetchActiveThreads:async()=>({threads:channels.filter(c=>c.isThread())})}};
+  const guild:any={id:gid,roles:{fetch:async()=>{},everyone:{id:gid},cache:new Collection()},members:{fetch:async({user}:any)=>{if(user!==uid)throw new Error('unknown');return member;},fetchMe:async()=>bot},channels:{fetch:async(id?:string)=>id?channels.get(id):channels,fetchActiveThreads:async()=>({threads:channels.filter(c=>c.isThread())})}};
   member.guild=bot.guild=guild;
   function channel(id:string,visible=true,type=ChannelType.GuildText,parentId:string|null=null){
     const c:any={id,guildId:gid,guild,name:visible?'public':'SECRET_CHANNEL',type,parentId,visible,joined:false,publicAudience:visible,
       isThread:()=>[ChannelType.PublicThread,ChannelType.PrivateThread,ChannelType.AnnouncementThread].includes(type),
-      permissionsFor:(m:any)=>({has:(p:any)=>p===PermissionFlagsBits.ManageThreads?m.manage:m.id===gid?c.visible&&c.publicAudience:m.id===bid||c.visible}),
+      permissionsFor:(m:any)=>({has:(p:any)=>p===PermissionFlagsBits.ManageThreads?m.manage:m.id===gid?(p===PermissionFlagsBits.ReadMessageHistory||c.visible&&c.publicAudience):m.id===bid||c.visible}),
       permissionOverwrites:{cache:new Collection<string,{deny:PermissionsBitField}>()},
-      members:{fetch:async({member:id}:any)=>{if(id===bid||c.joined)return {id};throw new Error('private');}},
+      members:{fetch:async({member:id,withMember}:any)=>{if(withMember)return new Collection(c.joined?[[uid,{id:uid}],[bid,{id:bid}]]:[[bid,{id:bid}]]);if(id===bid||c.joined)return {id};throw new Error('private');}},
       messages:{fetch:async(options?:{message?:string})=>{calls.push(id);const message={id:'523456789012345678',guildId:gid,channelId:id,author:{id:uid,username:'asker'},content:visible?'phi discussion':'SECRET_CONTENT',createdTimestamp:1000,createdAt:new Date(1000)};return options?.message?message:new Collection([[message.id,message]]);}},
     };channels.set(id,c);return c;
   }

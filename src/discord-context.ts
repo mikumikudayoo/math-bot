@@ -31,18 +31,20 @@ export function discordIdentity(user:{id:string;username?:string;globalName?:str
  * leading bot mention (whitespace allowed in between). Exactly that one character is removed; a
  * U+2063 anywhere else is ordinary prompt text. Detection is not authorization.
  */
-export function parseTrigger(content:string,botId:string|null|undefined):{mention:boolean;prompt:string;sevenAgentTrigger:boolean} {
+export function parseTrigger(content:string,botId:string|null|undefined,allowSeven=true):{mention:boolean;prompt:string;sevenAgentTrigger:boolean} {
   let rest=typeof content==='string'?content:'',sevenAgentTrigger=false;
-  if(rest.startsWith(SEVEN_AGENT_TRIGGER)){sevenAgentTrigger=true;rest=rest.slice(1);}
+  if(allowSeven&&rest.startsWith(SEVEN_AGENT_TRIGGER)){sevenAgentTrigger=true;rest=rest.slice(1);}
   const mention=botId&&/^\d{1,20}$/.test(botId)?rest.match(new RegExp(`^\\s*<@!?${botId}>\\s*([\\s\\S]*)$`)):null;
   let body=mention?mention[1]??'':rest;
-  if(mention&&!sevenAgentTrigger&&body.startsWith(SEVEN_AGENT_TRIGGER)){sevenAgentTrigger=true;body=body.slice(1);}
+  if(allowSeven&&mention&&!sevenAgentTrigger&&body.startsWith(SEVEN_AGENT_TRIGGER)){sevenAgentTrigger=true;body=body.slice(1);}
   return {mention:Boolean(mention),prompt:body.trim(),sevenAgentTrigger};
 }
-export interface SpeakerFacts {type:'TRUSTED_SPEAKER_FACTS';speakerIsCreator:boolean;speakerIsModerator:boolean;creatorName:'emu';speakerName:'emu'|null;speakerLabel:string|null}
+export interface SpeakerFacts {type:'TRUSTED_SPEAKER_FACTS';speakerIsCreator:boolean;speakerIsModerator:boolean;creatorName:'emu';speakerName:'emu'|null;speakerLabel:string|null;roleLabels:string[]}
 export function speakerFacts(context:DiscordContext):SpeakerFacts {
-  const speakerLabel=context.displayName??context.nickname??context.globalName??context.username;
-  return {type:'TRUSTED_SPEAKER_FACTS',speakerIsCreator:context.isCreator,speakerIsModerator:context.isModerator===true,creatorName:'emu',speakerName:context.isCreator?'emu':null,speakerLabel:context.isCreator?null:speakerLabel};
+  const speakerLabel=context.displayName??context.nickname??context.globalName;
+  const safeLabel=(s:string)=>s.replace(/\d{17,20}/g,'[id]');
+  return {type:'TRUSTED_SPEAKER_FACTS',speakerIsCreator:context.isCreator,speakerIsModerator:context.isModerator===true,creatorName:'emu',speakerName:context.isCreator?'emu':null,
+    speakerLabel:context.isCreator||!speakerLabel?null:safeLabel(speakerLabel),roleLabels:context.roles.map(safeLabel)};
 }
 /** Deictic Discord scope only. Topic words such as MPoTD/QOTD do not belong here. */
 export function serverScope(prompt:string):boolean {

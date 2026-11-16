@@ -16,7 +16,7 @@ function fixture(){
   function channel(id:string,isPublic=true,type:ChannelType=ChannelType.GuildText,parentId:string|null=null){
     const c:any={id,guildId:gid,guild,type,parentId,isPublic,requesterAccess:true,botAccess:true,joined:false,
       isThread:()=>[ChannelType.PublicThread,ChannelType.AnnouncementThread,ChannelType.PrivateThread].includes(type),
-      permissionsFor:(principal:{id:string;manage?:boolean})=>({has:(bits:any)=>bits===PermissionFlagsBits.ManageThreads?Boolean(principal.manage):principal.id===gid?c.isPublic:principal.id==='bot'?c.botAccess:c.requesterAccess}),
+      permissionsFor:(principal:{id:string;manage?:boolean})=>({has:(bits:any)=>bits===PermissionFlagsBits.ManageThreads?Boolean(principal.manage):principal.id===gid?(bits===PermissionFlagsBits.ReadMessageHistory||c.isPublic):principal.id==='bot'?c.botAccess:c.requesterAccess}),
       members:{fetch:async({member}:any)=>{if(member==='bot'||c.joined)return {id:member};throw new Error('not a thread member');}},
       permissionOverwrites:{cache:new Collection<string,{deny:PermissionsBitField}>()}};
     if(c.isThread())delete c.permissionOverwrites;

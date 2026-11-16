@@ -24,7 +24,8 @@ export class TurnWebBoundary {
     const data=value as {type?:unknown;results?:unknown};
     if(data.type==='DISCORD_SEARCH_DATA'&&Array.isArray(data.results)){
       const content=data.results.filter(row=>row&&typeof row==='object'&&typeof row.content==='string'&&row.content.length>0);
-      if(content.length)this.observeProvenance(readProvenance({classification:'private-discord',discordSources:content.map(row=>({guildId,channelId:row.channelId}))}));
+      if(content.length)this.observeProvenance(readProvenance({classification:'private-discord',discordSources:content.map(row=>({guildId,channelId:row.channelId})),
+        discordEvidence:content.filter(row=>row.digest!==undefined||row.audience!==undefined).map(row=>({channelId:row.channelId,messageId:row.id,digest:row.digest,audience:row.audience}))}));
     }
   }
   observeHistory(context:string|undefined){
