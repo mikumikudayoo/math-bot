@@ -3,6 +3,7 @@ export type JobState = 'queued' | 'running' | 'completed' | 'failed' | 'cancelle
 export type JobKind = 'ask' | 'calculate' | 'plot' | 'python';
 export interface ImageAttachment {url:string;mime:string;size:number}
 export interface Submission {
+  context?: string;
   discordContext?: string;
   images?: string;
   retrievalContext?: string;
@@ -11,6 +12,7 @@ export interface Submission {
   kind: JobKind; prompt: string; parent?: string; image?: string;
 }
 export interface Job extends Submission {
+  protectionVersion?: string;
   provenance?:string;
   state: JobState; status: string; answer: string; artifact: string;
   created: number; message: string; delivered: number;

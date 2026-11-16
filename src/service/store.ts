@@ -4,6 +4,8 @@ import { discordIntent } from '../discord-context.js';
 import { UserError } from './types.js';
 import {mergeProvenance,rowProvenance,readProvenance,type Provenance} from './provenance.js';
 
+import { snapshotProvenance, type ContextSnapshot } from './context-snapshot.js';
+
 export class Store {
   readonly db: DatabaseSync;
   constructor(path: string) {
@@ -16,6 +18,9 @@ export class Store {
         artifact TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL, message TEXT NOT NULL DEFAULT '', delivered INTEGER NOT NULL DEFAULT 0);
       CREATE INDEX IF NOT EXISTS job_queue ON jobs(state, created);
       CREATE INDEX IF NOT EXISTS job_message ON jobs(guild, channel, message);
+      CREATE TABLE IF NOT EXISTS tool_attempts(job TEXT NOT NULL, digest TEXT NOT NULL, PRIMARY KEY(job,digest));
+      CREATE TABLE IF NOT EXISTS delivery_parts(job TEXT NOT NULL, part INTEGER NOT NULL, message TEXT NOT NULL,
+        PRIMARY KEY(job,part), UNIQUE(message));
       CREATE TABLE IF NOT EXISTS rules(id INTEGER PRIMARY KEY, guild TEXT NOT NULL, term TEXT NOT NULL, action TEXT NOT NULL, UNIQUE(guild, term));
       CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, guild TEXT NOT NULL, actor TEXT NOT NULL, event TEXT NOT NULL, created INTEGER NOT NULL);`);
     if(!this.db.prepare('PRAGMA table_info(jobs)').all().some(row=>row.name==='discordContext'))this.db.exec("ALTER TABLE jobs ADD COLUMN discordContext TEXT NOT NULL DEFAULT '{}'");
@@ -23,6 +28,11 @@ export class Store {
       this.db.exec("ALTER TABLE jobs ADD COLUMN sourceMessageId TEXT");
     for(const column of ['images','retrievalContext'])if(!this.db.prepare('PRAGMA table_info(jobs)').all().some(row=>row.name===column))this.db.exec(`ALTER TABLE jobs ADD COLUMN ${column} TEXT NOT NULL DEFAULT '[]'`);
     if(!this.db.prepare('PRAGMA table_info(jobs)').all().some(row=>row.name==='provenance'))this.db.exec("ALTER TABLE jobs ADD COLUMN provenance TEXT NOT NULL DEFAULT '{}'");
+    const columns = new Set(this.db.prepare('PRAGMA table_info(jobs)').all().map(row => row.name));
+    for (const column of ['context', 'protectionVersion']) {
+      if (!columns.has(column)) this.db.exec(`ALTER TABLE jobs ADD COLUMN ${column} TEXT NOT NULL DEFAULT ''`);
+    }
+    if (!columns.has('recoverDelivery')) this.db.exec('ALTER TABLE jobs ADD COLUMN recoverDelivery INTEGER NOT NULL DEFAULT 0');
     // Repair old unlabelled descendants using host ancestry, never answer text.
     const legacy=this.db.prepare(`WITH RECURSIVE private_jobs(id) AS (
       SELECT id FROM jobs WHERE CASE WHEN json_valid(retrievalContext) THEN json_extract(retrievalContext,'$.kind')='discord' ELSE 0 END
@@ -82,8 +92,12 @@ export class Store {
       this.db.prepare(`INSERT INTO jobs(id,guild,channel,user,coach,kind,prompt,parent,image,state,status,created)
         VALUES(?,?,?,?,?,?,?,?,?,'queued','queued',?)`).run(input.id,input.guild,input.channel,input.user,+input.coach,input.kind,input.prompt,input.parent ?? null,input.image ?? null,Date.now());
       this.db.prepare('UPDATE jobs SET discordContext=? WHERE id=?').run(input.discordContext??'{}',input.id);
-      this.db.prepare('UPDATE jobs SET sourceMessageId=? WHERE id=?').run(input.sourceMessageId??null,input.id);
+      this.db.prepare('UPDATE jobs SET sourceMessageId=?,recoverDelivery=1 WHERE id=?').run(input.sourceMessageId??null,input.id);
       this.db.prepare('UPDATE jobs SET images=? WHERE id=?').run(input.images??'[]',input.id);
+      if (input.context) {
+        const provenance = snapshotProvenance(JSON.parse(input.context) as ContextSnapshot, input.guild);
+        this.db.prepare('UPDATE jobs SET context=?,provenance=? WHERE id=?').run(input.context, JSON.stringify(provenance), input.id);
+      }
       this.db.exec('COMMIT'); return this.get(input.id)!;
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
@@ -99,6 +113,34 @@ export class Store {
   queued() { const deferred=this.db.prepare('PRAGMA table_info(jobs)').all().some(r=>r.name==='ready_at');return this.db.prepare(`SELECT * FROM jobs WHERE state='queued' ${deferred?'AND ready_at<=?':''} ORDER BY coach DESC,created,id`).all(...(deferred?[Date.now()]:[])) as unknown as Job[]; }
   running(id: string) { this.db.prepare("UPDATE jobs SET state='running',status='thinking' WHERE id=? AND state='queued'").run(id); }
   status(id: string, status: string) { this.db.prepare("UPDATE jobs SET status=? WHERE id=? AND state='running'").run(status,id); }
+  markProtectionVersion(id: string, version: string) {
+    this.db.prepare('UPDATE jobs SET protectionVersion=? WHERE id=?').run(version, id);
+  }
+  /** An ambiguous attempt after a worker restart must not dispatch the same side effect again. */
+  claimToolAttempt(id: string, digest: string): boolean {
+    return this.db.prepare('INSERT OR IGNORE INTO tool_attempts(job,digest) VALUES(?,?)').run(id,digest).changes === 1;
+  }
+  deliveryParts(id: string): string[] {
+    return this.db.prepare('SELECT message FROM delivery_parts WHERE job=? ORDER BY part').all(id).map(row => String(row.message));
+  }
+  bindDeliveryPart(id: string, index: number, message: string, previous?: string) {
+    if (!Number.isSafeInteger(index) || index < 1 || index > 64) throw new UserError('Invalid continuation index.');
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const job = this.get(id);
+      if (!job?.message || !['completed','failed','cancelled'].includes(job.state) || message === job.message) throw new UserError('Invalid delivery.');
+      const parts = this.deliveryParts(id);
+      if (parts[index - 1] !== message) {
+        if (job.delivered || parts.includes(message)) throw new UserError('Continuation conflicts with existing delivery.');
+        if (previous && previous === parts[index - 1]) {
+          this.db.prepare('UPDATE delivery_parts SET message=? WHERE job=? AND part=? AND message=?').run(message,id,index,previous);
+        } else if (!previous && index === parts.length + 1) {
+          this.db.prepare('INSERT INTO delivery_parts(job,part,message) VALUES (?,?,?)').run(id,index,message);
+        } else throw new UserError('Continuation conflicts with existing delivery.');
+      }
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
   markProvenance(id:string,value:Provenance){const current=this.get(id);if(!current)return;this.db.prepare('UPDATE jobs SET provenance=? WHERE id=?').run(JSON.stringify(mergeProvenance(rowProvenance(current),value)),id);}
   complete(id: string, result: Result) {
     const current=this.get(id);const provenance=mergeProvenance(readProvenance(result.provenance),...(current?[rowProvenance(current)]:[]));
@@ -106,10 +148,21 @@ export class Store {
   }
   fail(id: string, message: string) { this.db.prepare("UPDATE jobs SET state='failed',status='failed',answer=? WHERE id=? AND state='running'").run(message,id); }
   cancel(id: string) { this.db.prepare("UPDATE jobs SET state='cancelled',status='cancelled',answer='Request cancelled.' WHERE id=? AND state IN ('running','queued')").run(id); }
-  bind(id: string, message: string) { this.db.prepare('UPDATE jobs SET message=? WHERE id=?').run(message,id); }
+  bind(id: string, message: string) {
+    const result=this.db.prepare("UPDATE jobs SET message=? WHERE id=? AND (message='' OR message=?)").run(message,id,message);
+    if (result.changes) return {ok:true, message};
+    const job=this.get(id);
+    if (!job) throw new UserError('Unknown job.');
+    return {ok:false, message:job.message};
+  }
+  unbound() {
+    return this.db.prepare("SELECT * FROM jobs WHERE recoverDelivery=1 AND message='' AND delivered=0 AND created<? ORDER BY created LIMIT 50").all(Date.now()-15_000) as unknown as Job[];
+  }
   delivered(id: string) { this.db.prepare('UPDATE jobs SET delivered=1 WHERE id=?').run(id); }
   pending() { return this.db.prepare("SELECT * FROM jobs WHERE message != '' AND delivered=0 ORDER BY created LIMIT 100").all() as unknown as Job[]; }
-  byMessage(guild: string, channel: string, message: string) { return this.db.prepare('SELECT * FROM jobs WHERE guild=? AND channel=? AND message=?').get(guild,channel,message) as unknown as Job | undefined; }
+  byMessage(guild: string, channel: string, message: string) {
+    return this.db.prepare('SELECT j.* FROM jobs j WHERE guild=? AND channel=? AND (message=? OR id IN (SELECT job FROM delivery_parts WHERE message=?))').get(guild,channel,message,message) as unknown as Job | undefined;
+  }
   history(job: Job) {
     const history: Job[] = []; let parent = job.parent;
     for (let i=0; parent && i<8; i++) {

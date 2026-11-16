@@ -1,6 +1,7 @@
 import type { Store } from './store.js';
 import { UserError, type Job, type Result } from './types.js';
 import { ProviderBackoff } from './providers.js';
+import type { JobEvents } from './events.js';
 export interface QueueConfig { concurrency: number; reserved: number; borrow: boolean; timeoutMs: number }
 export type Runner = (job: Job, signal: AbortSignal, status: (message: string) => void) => Promise<Result>;
 export class Scheduler {
@@ -8,7 +9,7 @@ export class Scheduler {
   stopped = false;
   private wake:ReturnType<typeof setTimeout>|undefined;
   private readonly poll:ReturnType<typeof setInterval>;
-  constructor(readonly store: Store, readonly config: QueueConfig, readonly run: Runner) {
+  constructor(readonly store: Store, readonly config: QueueConfig, readonly run: Runner, readonly events?: JobEvents) {
     if (config.concurrency < 1 || config.reserved < 0 || config.reserved >= config.concurrency) throw new Error('Reserved capacity must be below total concurrency.');
     this.poll=setInterval(()=>this.tick(),1000);this.poll.unref();
   }
@@ -22,6 +23,7 @@ export class Scheduler {
       if (!job) break;
       const controller = new AbortController();
       this.active.set(job.id, {job, controller}); this.store.running(job.id);
+      this.events?.emit(job.id, 'started');
       const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
       Promise.resolve().then(() => this.run(job, controller.signal, status => this.store.status(job.id,status)))
         .then(result => {
@@ -35,9 +37,20 @@ export class Scheduler {
           else if(error instanceof ProviderBackoff)this.store.fail(job.id,'the stronger model is temporarily unavailable. stuck waiting on it too, apparently. try again later.');
           else this.store.fail(job.id, error instanceof UserError ? error.message : controller.signal.aborted ? 'Request timed out.' : 'The AI or tool failed. Please try again.');
         })
-        .finally(() => { clearTimeout(timeout); this.active.delete(job.id); this.tick(); });
+        .finally(() => {
+          clearTimeout(timeout);
+          const state = this.store.get(job.id)?.state;
+          if (state === 'completed' || state === 'failed') this.events?.emit(job.id, state);
+          else if (state === 'queued') this.events?.retract(job.id);
+          this.active.delete(job.id);
+          this.tick();
+        });
     }
   }
-  cancel(id: string) { this.store.cancel(id); this.active.get(id)?.controller.abort(); this.tick(); }
+  cancel(id: string) {
+    const state = this.store.get(id)?.state;
+    if (state !== 'queued' && state !== 'running') return;
+    this.store.cancel(id); this.active.get(id)?.controller.abort(); this.events?.emit(id, 'cancelled'); this.tick();
+  }
   stop() { this.stopped = true;clearInterval(this.poll);if(this.wake)clearTimeout(this.wake); for (const x of this.active.values()) x.controller.abort(); }
 }
