@@ -2,6 +2,8 @@ import type { ServiceConfig } from './config.js';
 import { fastRoute } from './fast-router.js';
 import type { RouteDecision } from './router.js';
 import { UserError } from './types.js';
+import { openAIRuntime, openaiContext, ProviderError } from './openai.js';
+import { randomUUID } from 'node:crypto';
 export class ProviderBackoff extends UserError { constructor(readonly retryAt:number,readonly reason='provider-backoff'){super('stronger inference is temporarily queued; no weaker answer was substituted.');} }
 export class ProviderPayloadTooLarge extends UserError {constructor(){super('The inference request is too large (HTTP 413). Shorten or split the source before retrying.');}}
 export const providerHealth=new Map<string,{state:'healthy'|'rate-limited'|'unavailable'|'misconfigured';retryAt:number;requestsRemaining:string|null;tokensRemaining:string|null}>();
@@ -12,6 +14,8 @@ export interface ProviderConfig {
   backendKey: string;
   vision: boolean;
   nativeTools: boolean;
+  /** 'openai' dispatches to the official Responses API runtime; absent means OpenAI-compatible chat completions. */
+  kind?: 'openai';
 }
 
 export function validateProvider(provider: ProviderConfig, remote = false) {
@@ -42,6 +46,7 @@ export function selectProvider(config: ServiceConfig, prompt: string, route: Pic
 /** Surface transient failures to the durable queue; never downgrade difficult work to Phi. */
 export async function completeProvider(provider: ProviderConfig, body: Record<string, unknown>, signal: AbortSignal,
   complete: (url: string, init: RequestInit) => Promise<Response>): Promise<unknown> {
+  if (provider.kind === 'openai') return completeOpenAI(provider, body, signal);
   const healthKey=provider.backend+':'+provider.model;
   const health=providerHealth.get(healthKey);
   if(health && health.retryAt>Date.now())throw new ProviderBackoff(health.retryAt);
@@ -94,4 +99,41 @@ export async function completeProvider(provider: ProviderConfig, body: Record<st
     }
   }
   throw new UserError('the model is unavailable right now.');
+}
+
+/**
+ * Single chokepoint for OpenAI: every existing completeProvider call site (chat loop,
+ * clarification, synthesis, image analysis, announcement extraction/writing) reaches the
+ * budgeted Responses runtime with chat-shaped input and gets a chat-shaped body back.
+ * Transient failures become ProviderBackoff for the existing durable queues; no call
+ * ever switches to another provider here.
+ */
+async function completeOpenAI(provider: ProviderConfig, body: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
+  const runtime = openAIRuntime();
+  if (!runtime) throw new UserError('the model is unavailable right now. try again later.');
+  const healthKey = provider.backend + ':' + provider.model;
+  const ctx = openaiContext.getStore();
+  const requested = typeof body.max_tokens === 'number' && Number.isSafeInteger(body.max_tokens) ? body.max_tokens : 0;
+  try {
+    const result = await runtime.complete({
+      messages: body.messages as never, ...(Array.isArray(body.tools) ? {tools: body.tools as never} : {}),
+      role: 'luna', effort: ctx?.effort ?? runtime.config.lunaEffort,
+      // Reasoning tokens count against the cap, so small legacy max_tokens values are raised to Luna's cap.
+      maxOutputTokens: Math.max(runtime.config.maxOutputTokens.luna, requested),
+      purpose: ctx?.purpose ?? 'system',
+      job: ctx?.job ?? {id: `system:${randomUUID()}`, user: 'system'},
+      ...(body.response_format ? {responseFormat: body.response_format} : {}),
+    }, signal);
+    providerHealth.set(healthKey, {state: 'healthy', retryAt: 0, requestsRemaining: null, tokensRemaining: null});
+    return result;
+  } catch (error) {
+    if (error instanceof ProviderError && error.retryable && !signal.aborted) {
+      const retryAt = Date.now() + 30_000;
+      providerHealth.set(healthKey, {state: error.kind === 'rate_limit' ? 'rate-limited' : 'unavailable', retryAt, requestsRemaining: null, tokensRemaining: null});
+      throw new ProviderBackoff(retryAt, `openai-${error.kind}`);
+    }
+    if (error instanceof ProviderError && ['auth', 'permission', 'model_not_found', 'unsupported_parameter'].includes(error.kind))
+      providerHealth.set(healthKey, {state: 'misconfigured', retryAt: 0, requestsRemaining: null, tokensRemaining: null});
+    throw error;
+  }
 }

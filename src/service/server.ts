@@ -12,6 +12,8 @@ import { currentUser } from '../discord-context.js';
 import { UserError, type Submission, type JobKind } from './types.js';
 import { providerHealth } from './providers.js';
 import {imageAttachments} from './vision.js';
+import { UsageLedger } from './openai-budget.js';
+import { describeOpenAIConfig } from './openai-config.js';
 
 function text(value:unknown,name:string,max=100):string {
   if(typeof value!=='string'||!value.trim()||value.length>max)throw new UserError(`Invalid ${name}.`);return value;
@@ -29,7 +31,9 @@ export function createService(config:ServiceConfig, injected?:Runner) {
     try{
       const url=new URL(req.url??'/','http://localhost');
       if(req.method==='GET'&&url.pathname==='/discord-tools'){send(200,discord.take());return;}
-      if(req.method==='GET'&&url.pathname==='/health'){send(200,{ok:true,modelConfigured:!!(config.backend&&config.model),vision:!!config.visionProvider,sandbox:config.sandbox,externalConfigured:!!config.external?.backendKey,providers:[...providerHealth.values()]});return;}
+      if(req.method==='GET'&&url.pathname==='/health'){send(200,{ok:true,provider:config.openai?'openai':'legacy',modelConfigured:!!(config.backend&&config.model),vision:!!config.visionProvider,sandbox:config.sandbox,externalConfigured:!!config.external?.backendKey,providers:[...providerHealth.values()]});return;}
+      // Estimated spend only; the ledger stores no prompt or answer text.
+      if(req.method==='GET'&&url.pathname==='/usage'){send(200,config.openai?new UsageLedger(store.db,config.openai).summary():{provider:'legacy'});return;}
       if(req.method==='GET'&&url.pathname==='/pending'){
         const order=store.queued().map(x=>x.id);
         send(200,store.pending().map(job=>job.state==='queued'?{...job,status:`queued · priority position ${order.indexOf(job.id)+1}`} :job));return;
@@ -95,7 +99,7 @@ export function createService(config:ServiceConfig, injected?:Runner) {
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
     const config=serviceConfig();const service=createService(config);
-    service.server.listen(config.port,'127.0.0.1',()=>console.log(`AI service listening on 127.0.0.1:${config.port}; model ${config.model?'configured':'not configured'}.`));
+    service.server.listen(config.port,'127.0.0.1',()=>{console.log(`AI service listening on 127.0.0.1:${config.port}; model ${config.model?'configured':'not configured'}.`);if(config.openai)console.log('OpenAI provider enabled',describeOpenAIConfig(config.openai));});
     service.server.on('error',()=>{console.error('AI service could not listen. Check its port.');process.exitCode=1;});
     for(const signal of ['SIGINT','SIGTERM'] as const)process.once(signal,()=>void service.close());
   }catch(error){console.error(error instanceof Error?error.message:'AI service startup failed.');process.exitCode=1;}

@@ -34,14 +34,18 @@
     "aleph:generate": "bun src/scripts/aleph-dataset.ts generate",
     "aleph:validate": "bun src/scripts/aleph-dataset.ts validate",
     "aleph:split": "bun src/scripts/aleph-dataset.ts split",
-    "problems:simulate": "bun src/scripts/problems-simulate.ts"
+    "problems:simulate": "bun src/scripts/problems-simulate.ts",
+    "openai:smoke": "bun src/scripts/openai-smoke.ts",
+    "openai:usage": "bun src/scripts/openai-usage.ts"
   },
   "dependencies": {
     "@napi-rs/canvas": "1.0.9",
     "discord.js": "14.27.0",
     "dotenv": "17.4.2",
     "ipaddr.js": "2.2.0",
-    "pdfjs-dist": "6.3.289"
+    "openai": "7.57.0",
+    "pdfjs-dist": "6.3.289",
+    "re2js": "2.10.0"
   },
   "devDependencies": {
     "@types/bun": "^1.4.2",
