@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 import type { Client, MessageEditOptions } from 'discord.js';
 import { DeliveryManager, bindPrimary, deliveryChunks, discordPublisher, progressContent, queuedPayload, recoverPrimary, studyContent, type DeliveryJob } from '../src/delivery.js';
 import { formatDiscord, splitDiscordMessage } from '../src/discord-format.js';
 import { refusalText } from '../src/service/mpotd-guard.js';
+import { JobEvents } from '../src/service/events.js';
 
 const gid = '111111111111111111', uid = '222222222222222222', channelId = '333333333333333333', main = '444444444444444444';
 function job(update: Partial<DeliveryJob> = {}): DeliveryJob {
@@ -79,6 +81,26 @@ test('private sources suppress streamed words; labels cannot echo an injected st
   row.provenance = JSON.stringify({version:1,classification:'private-discord',discordSources:[],audienceUnknown:true});
   row.progress = {...row.progress!,phase:'tool_started',label:'injected private guild name',stream:'private draft'};
   assert.deepEqual(progressContent(row),{checked:false,content:'working through a tool call.'});
+});
+test('a tool phase replaces the displayed draft when the durable progress row retains its stream',async () => {
+  const db = new DatabaseSync(':memory:');
+  let now = 100;
+  const events = new JobEvents(db,()=>now);
+  const f = fixture(), row = job();
+  const manager = new DeliveryManager(discordPublisher(f.client,f.request),()=>now);
+  try {
+    events.stream(row.id,'the first step is checked.',true);
+    await manager.update([{...row,progress:events.progress(row.id)!}]);
+    assert.equal(f.contents.get(main)?.content,'the first step is checked.');
+
+    now += 1500;
+    events.emit(row.id,'tool_started',{label:'calculate'});
+    const working = events.progress(row.id)!;
+    assert.equal(working.stream,'the first step is checked.');
+    await manager.update([{...row,progress:working}]);
+    assert.equal(f.contents.get(main)?.content,'checking the arithmetic.');
+    assert.equal(f.control.checks,1);
+  } finally { db.close(); }
 });
 test('formatting cannot create a private outbound target or join an ID that was previously separated',() => {
   const privateJob = job({provenance:JSON.stringify({classification:'private-discord',discordSources:[{guildId:gid,channelId}],audienceUnknown:false})});

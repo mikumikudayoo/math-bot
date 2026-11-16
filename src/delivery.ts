@@ -66,7 +66,7 @@ export function progressContent(job: DeliveryJob): {content: string; checked: bo
   const p = job.progress;
   if (!p || job.state === 'queued' || p.phase === 'started' && job.status !== 'thinking')
     return {content:studyContent(job), checked:false};
-  if (p.stream && rowProvenance(job).classification === 'public' && !needsTextAttachment(p.stream)) {
+  if (p.phase === 'output_delta' && p.stream && rowProvenance(job).classification === 'public' && !needsTextAttachment(p.stream)) {
     return {content:deliveryChunks(job,p.stream)[0]!, checked:true};
   }
   const last = p.recent.at(-1);
