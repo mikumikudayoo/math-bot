@@ -35,8 +35,17 @@ test('authorized moderator sees estimates and legacy state without altering prov
   const db = new DatabaseSync(':memory:');
   try {
     const config = parseOpenAIConfig({AI_PROVIDER:'openai',OPENAI_API_KEY:'sk-test'+'x'.repeat(30)})!;
-    await showUsage(i, async () => new UsageLedger(db, config).summary());
+    const ledger = new UsageLedger(db, config);
+    await showUsage(i, async () => ledger.summary());
+    const entry = db.prepare("INSERT INTO openai_usage(job,user,day,created,model,effort,tier,status,cost_micros) VALUES('j','system',?,?,?,'low','system','ok',1)");
+    const today = ledger.summary().day;
+    for (let n=0;n<30;n++) entry.run(today,Date.now(),'historical-model-'+n);
+    await showUsage(i, async () => ledger.summary());
   } finally { db.close(); }
   assert.match(String(replies[1]),/estimated/);
   assert.match(String(replies[1]),/\$0\.0000/);
+  const long = replies[2] as {content:string;files:{name:string;attachment:Buffer}[]};
+  assert.ok(long.content.length <= 2000);
+  assert.equal(long.files[0]?.name,'usage.txt');
+  assert.match(long.files[0]!.attachment.toString(),/historical-model-29/);
 });

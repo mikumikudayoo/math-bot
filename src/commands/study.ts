@@ -49,7 +49,11 @@ export async function showUsage(i:ChatInputCommandInteraction, readUsage = () =>
     return;
   }
   const usage = await readUsage();
-  await i.editReply('day' in usage ? formatUsageSummary(usage).slice(0,1900) : 'The OpenAI provider is disabled.');
+  if (!('day' in usage)) { await i.editReply('The OpenAI provider is disabled.'); return; }
+  const summary = formatUsageSummary(usage);
+  if (summary.length <= 2000) { await i.editReply(summary); return; }
+  await i.editReply({content:summary.split('\n').slice(0,2).join('\n'),
+    files:[{name:'usage.txt',attachment:Buffer.from(summary,'utf8')}],allowedMentions:{parse:[]}});
 }
 
 export const ai:Command={

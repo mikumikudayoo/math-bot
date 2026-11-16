@@ -86,7 +86,7 @@ export function parseOpenAIConfig(env: Record<string, string | undefined>, inher
   // Settings from the retired user-facing routing must not silently keep doing something else.
   for (const retired of ['OPENAI_FALLBACK', 'OPENAI_FORCE_TIER', 'OPENAI_FORCE_EFFORT', 'OPENAI_ADVANCED_MODEL', 'OPENAI_LIGHT_MODEL', 'OPENAI_ROUTING']) {
     const value = env[retired]?.trim();
-    if (value && !(retired === 'OPENAI_FALLBACK' && value === 'none')) throw new ConfigError(`${retired} is no longer supported; remove it (see docs/aleph-v2.md).`);
+    if (value && !(retired === 'OPENAI_FALLBACK' && value === 'none')) throw new ConfigError(`${retired} is no longer supported; remove it (see docs/openai.md).`);
   }
 
   const pricing: Record<string, ModelSpec> = {...DEFAULT_MODELS};

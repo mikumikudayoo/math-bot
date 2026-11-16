@@ -172,6 +172,8 @@ export interface OpenAIRequest {
   job: {id: string; user: string};
   /** Chat-completions `response_format`, mapped to Responses `text.format`. */
   responseFormat?: unknown;
+  beforeAttempt?: (signal:AbortSignal)=>Promise<void>;
+  onReasoningSummary?: ()=>void;
   /** Enables real Responses streaming; called with each visible-text delta and the text so far. */
   onTextDelta?: (delta: string, soFar: string) => void;
   /** Called when streamed text must be discarded (a retry restarts the response). */
@@ -179,7 +181,12 @@ export interface OpenAIRequest {
 }
 
 /** Per-job context for calls reaching OpenAI through the shared completeProvider chokepoint. */
-export interface OpenAICallContext { job: {id: string; user: string}; effort?: ReasoningEffort; purpose?: string }
+export interface OpenAICallContext {
+  job: {id: string; user: string}; effort?: ReasoningEffort; purpose?: string; role?: ModelRole;
+  runtime?: OpenAIRuntime;
+  beforeAttempt?:OpenAIRequest['beforeAttempt']; onReasoningSummary?:OpenAIRequest['onReasoningSummary'];
+  onTextDelta?: OpenAIRequest['onTextDelta']; onStreamReset?: OpenAIRequest['onStreamReset'];
+}
 export const openaiContext = new AsyncLocalStorage<OpenAICallContext>();
 let installedRuntime: OpenAIRuntime | undefined;
 /** One runtime per process (AI service, announcement worker); they share the usage ledger database. */
@@ -214,6 +221,7 @@ export class OpenAIRuntime {
     for await (const event of stream) {
       const type = event?.type;
       if (type === 'response.output_text.delta' && typeof event.delta === 'string') { text += event.delta; request.onTextDelta?.(event.delta, text); }
+      else if (type === 'response.reasoning_summary_text.done' && typeof event.text==='string' && event.text.trim()) request.onReasoningSummary?.();
       else if (type === 'response.completed' || type === 'response.incomplete') final = event.response;
       else if (type === 'response.failed') throw new ProviderError('transient');
       else if (type === 'error') throw Object.assign(new Error('stream error'), {status: typeof event.status === 'number' ? event.status : undefined, code: event.code});
@@ -259,8 +267,9 @@ export class OpenAIRuntime {
 
     await this.semaphore.acquire(signal);
     try {
-      let droppedEffort = false;
       for (let attempt = 0; ; attempt++) {
+        signal.throwIfAborted();
+        await request.beforeAttempt?.(signal);
         signal.throwIfAborted();
         const reservation = this.ledger.reserve({job: request.job.id, user: request.job.user, model, effort: request.effort,
           tier: request.purpose, inputTokens, maxOutputTokens});
@@ -278,10 +287,6 @@ export class OpenAIRuntime {
             model, effort: request.effort, purpose: request.purpose, attempt: attempt + 1});
           if (failure.kind === 'cancelled') throw signal.aborted ? signal.reason ?? error : failure;
           request.onStreamReset?.();
-          // Never assume every model accepts every parameter: retry once with the model's default effort.
-          if (failure.kind === 'unsupported_parameter' && !droppedEffort && params.reasoning) {
-            droppedEffort = true; delete params.reasoning; attempt--; continue;
-          }
           if (failure.retryable && attempt < this.config.maxRetries) { await sleep(this.backoff(attempt), signal); continue; }
           throw failure;
         }

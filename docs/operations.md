@@ -1,5 +1,7 @@
 # Running the expanded bot
 
+The [Aleph-Zero v2 operations guide](openai.md) covers the study provider, optional announcement rollout, budgets, Discord publication checks, MPoTD embargo, Linux verification and rollback.
+
 ## Local WSL
 
 `bun run setup:local` generates a local service secret, copies it into the bot and AI environment files, and preserves Discord credentials. It never selects a model. This has already been run in this checkout.
@@ -69,7 +71,7 @@ Edit `.env.ai.development`: `INFERENCE_BASE_URL` is a trusted OpenAI-compatible 
 
 ## Optional Python sandbox
 
-Docker is not installed by this change. Build the local image with `docker build -t math-bot-python:local python`, then set `PYTHON_SANDBOX_ENABLED=true` only after validating the isolation on your host. The runtime denies network, host mounts and capabilities and uses a non-root UID, read-only filesystem, CPU/memory/process/output/time limits and a temporary filesystem. No unsandboxed fallback exists. The model tool list does not expose arbitrary Python; `/python` is explicit. The default image has only the Python standard library. Containers share the host kernel: use a separate hardened worker/VM for hostile public workloads. The production service template does not grant access to a Docker socket; provision a separately reviewed sandbox worker before enabling there.
+Docker is not installed by this change. Build the local image with `docker build -t math-bot-python:local python`, then set `PYTHON_SANDBOX_ENABLED=true` only after validating the isolation on your host. The runtime denies network, host mounts and capabilities and uses a non-root UID, read-only filesystem, CPU/memory/process/output/time limits and a temporary filesystem. No unsandboxed fallback exists. In v2, Luna can request the isolated Python tool when the sandbox is enabled. The legacy mode retains the explicit `/python` command. The default image has only the Python standard library. Containers share the host kernel: use a separate hardened worker/VM for hostile public workloads. The production service template does not grant access to a Docker socket; provision a separately reviewed sandbox worker before enabling there.
 
 ## Current legacy production: /opt/math-bot + PM2
 
