@@ -29,6 +29,8 @@ export const LONG_CONTEXT_TOKENS = 272_000;
 export interface OpenAIConfig {
   apiKey: string;
   lightModel: string; advancedModel: string;
+  /** All LLM inference (including Discord lookups) uses the light model; no other provider is ever used. */
+  exclusive: boolean;
   efforts: Record<Tier, ReasoningEffort>;
   maxOutputTokens: Record<Tier, number>;
   routing: boolean;
@@ -96,8 +98,13 @@ export function parseOpenAIConfig(env: Record<string, string | undefined>, inher
     if (!models[id]) throw new ConfigError(`${key} names a model with no pricing entry; add it to OPENAI_PRICING_JSON.`);
     return id;
   };
+  const exclusive = bool('OPENAI_EXCLUSIVE', false);
   const lightModel = modelId('OPENAI_LIGHT_MODEL', 'gpt-6-luna');
-  const advancedModel = modelId('OPENAI_ADVANCED_MODEL', 'gpt-6.1-sol');
+  // Exclusive mode: every tier uses the light model. A conflicting explicit setting is a
+  // startup error rather than something silently overridden.
+  if (exclusive && env.OPENAI_ADVANCED_MODEL?.trim() && env.OPENAI_ADVANCED_MODEL.trim() !== lightModel)
+    throw new ConfigError('OPENAI_EXCLUSIVE=true requires OPENAI_ADVANCED_MODEL to be empty or equal to OPENAI_LIGHT_MODEL.');
+  const advancedModel = exclusive ? lightModel : modelId('OPENAI_ADVANCED_MODEL', 'gpt-6.1-sol');
 
   const effort = (key: string, fallback: ReasoningEffort, model: string) => {
     const value = (env[key] ?? fallback).trim() as ReasoningEffort;
@@ -108,6 +115,7 @@ export function parseOpenAIConfig(env: Record<string, string | undefined>, inher
 
   const fallback = (env.OPENAI_FALLBACK ?? 'none').trim();
   if (fallback !== 'none' && fallback !== 'external') throw new ConfigError('OPENAI_FALLBACK must be "none" or "external".');
+  if (exclusive && fallback !== 'none') throw new ConfigError('OPENAI_EXCLUSIVE=true requires OPENAI_FALLBACK=none.');
 
   const forceTier = (env.OPENAI_FORCE_TIER ?? '').trim();
   if (forceTier && forceTier !== 'light' && forceTier !== 'advanced') throw new ConfigError('OPENAI_FORCE_TIER must be empty, "light" or "advanced".');
@@ -122,11 +130,11 @@ export function parseOpenAIConfig(env: Record<string, string | undefined>, inher
   const totalBudgetUsd = number('OPENAI_TOTAL_BUDGET_USD', 40, 0, 100_000, false);
 
   return {
-    apiKey, lightModel, advancedModel,
+    apiKey, lightModel, advancedModel, exclusive,
     efforts: {
       light: effort('OPENAI_LIGHT_EFFORT', 'medium', lightModel),
       advanced: effort('OPENAI_ADVANCED_EFFORT', 'high', advancedModel),
-      max: effort('OPENAI_MAX_EFFORT', 'xhigh', advancedModel),
+      max: effort('OPENAI_MAX_EFFORT', exclusive ? 'max' : 'xhigh', advancedModel),
     },
     maxOutputTokens: {
       light: number('OPENAI_MAX_OUTPUT_TOKENS', 4000, 256, 128_000),
@@ -151,6 +159,6 @@ export function parseOpenAIConfig(env: Record<string, string | undefined>, inher
 
 /** Safe-to-log summary (no key). */
 export function describeOpenAIConfig(c: OpenAIConfig) {
-  return {light: `${c.lightModel}/${c.efforts.light}`, advanced: `${c.advancedModel}/${c.efforts.advanced}`, max: `${c.advancedModel}/${c.efforts.max}`,
+  return {exclusive: c.exclusive, light: `${c.lightModel}/${c.efforts.light}`, advanced: `${c.advancedModel}/${c.efforts.advanced}`, max: `${c.advancedModel}/${c.efforts.max}`,
     routing: c.routing, fallback: c.fallback, dailyBudgetUsd: c.dailyBudgetUsd, totalBudgetUsd: c.totalBudgetUsd, concurrency: c.concurrency};
 }

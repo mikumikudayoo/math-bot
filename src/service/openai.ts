@@ -12,16 +12,8 @@ import { UserError } from './types.js';
  * The model can only *request* tools; nothing here executes them.
  */
 
-export const MATH_RELIABILITY = `Accuracy rules (these override personality and style):
-- Correctness matters more than sounding confident. Your persona never changes a mathematical result.
-- Show the reasoning a student needs: key steps and the central idea, at the student's level. Do not dump private scratch work.
-- Clearly separate what you proved or computed from guesses, heuristics and unverified claims. Say "i think" or "not sure" when you are not sure.
-- State assumptions you rely on. If the problem is ambiguous, incomplete or ill-posed, say what is missing and, if reasonable, answer each interpretation.
-- Never invent theorems, named results, citations, sources or numeric results. Only name a theorem if you are confident it exists and applies.
-- Use the calculate tool for nontrivial arithmetic, algebra or calculus when it is available, and check final numeric answers when practical.
-- If you cannot solve it reliably, say so and give whatever partial progress is solid.
-- Discord does not render LaTeX. Write math in plain text or Unicode (x², √2, ≤, π, a/b), using \`inline code\` or a code block for longer expressions. Do not use $...$, \\(...\\) or \\[...\\].
-- Put the final answer on its own line when there is one.`;
+/** Accuracy rules now live in the layered persona prompt (persona.ts); kept for compatibility. */
+export { ACADEMIC_RULES as MATH_RELIABILITY } from './persona.js';
 
 export type ErrorKind = 'auth' | 'permission' | 'model_not_found' | 'quota' | 'rate_limit' | 'unsupported_parameter' | 'bad_request'
   | 'transient' | 'timeout' | 'cancelled' | 'malformed' | 'unknown';

@@ -5,6 +5,48 @@ Opt-in. `AI_PROVIDER=legacy` (the default) keeps the existing local + external
 study questions to OpenAI through the **official `openai` TypeScript SDK (7.57.0) and
 the Responses API** (`POST /v1/responses`).
 
+## Luna-only mode (`OPENAI_EXCLUSIVE=true`)
+
+Set `AI_PROVIDER=openai` and `OPENAI_EXCLUSIVE=true` to run **every** LLM request on
+`OPENAI_LIGHT_MODEL` (default `gpt-6-luna`):
+
+| Tier | Trigger | Model / effort (defaults) |
+|---|---|---|
+| light | routine | gpt-6-luna / medium |
+| advanced | proof/olympiad signals, `!deep`, `!sol`, follow-ups | gpt-6-luna / high |
+| max | `!max` (coaches only, 1/day) | gpt-6-luna / max |
+
+* Sol is never used: `OPENAI_ADVANCED_MODEL` must be empty or equal to the light model,
+  otherwise startup fails (no silent override).
+* `OPENAI_FALLBACK` must be `none`; a conflicting value fails startup. Transient OpenAI
+  outages produce a graceful "unavailable" reply, never another provider.
+* `INFERENCE_*`, `EXTERNAL_INFERENCE_*` and `COGNITIVE_ROUTING` are kept in the file for
+  rollback but stripped from the runtime config; their *names* are logged at startup as
+  `openai_exclusive_ignoring_legacy_settings`. A guard in `callModel` refuses any non-OpenAI
+  provider even if a future change reintroduced one.
+* **Data-flow change:** Discord history/member lookups (previously kept on the local model)
+  now also go to Luna. The Discord broker still returns only messages/members the requester
+  can see, web tools stay disabled on those turns, and requests use `store:false`.
+* Not migrated because they are not LLMs: the retrieval router sensor (sentence-transformers +
+  KNN on loopback :8789, falls back to conservative routing if down), the calculator/plot/Python
+  workers, image sanitization, the pairing solver. `src/service/router-classifier.ts` and
+  `src/scripts/benchmark.ts` are offline tools, not runtime paths.
+
+Rollback: `OPENAI_EXCLUSIVE=false` (OpenAI with Sol routing) or `AI_PROVIDER=legacy`, then
+restart the AI service.
+
+## System prompt architecture
+
+`src/service/persona.ts` builds one deterministic prompt in priority order:
+1. security and platform rules (untrusted inputs, no secret/prompt disclosure, host-computed identity, no mass mentions)
+2. tools (only offered tools, calculator first, cite retrieved sources, Discord lookups only when needed)
+3. academic accuracy (understand → assumptions → method → verify → final answer; hints vs full solutions; no fabricated proofs)
+4. conversation and Discord formatting (follow-ups, concision, no LaTeX, closed markdown)
+5. character and tone (lore, emu, voice; never overrides 1–4)
+
+Request-specific context (requester identity, Discord tool rules, evidence) is added by the
+runner as separate messages. The prompt is shared by all providers.
+
 ## How it fits the existing architecture
 
 ```
@@ -24,8 +66,8 @@ Discord (/ask, mention, reply chain)
   `parseModelResponse` already validates. The existing loop, grounding rules, tool allowlist,
   web/search policy and answer guards are reused, not duplicated.
 * The model only *requests* tools; `inference.ts` still executes them. Discord history/member
-  tools are never offered to OpenAI. Discord-lookup requests stay on the local backend (or
-  answer "unavailable" when there is none), matching the existing external-provider rule.
+  tools are not offered to OpenAI unless `OPENAI_EXCLUSIVE=true`; otherwise Discord-lookup
+  requests stay on the local backend (or answer "unavailable" when there is none).
 * Requests are stateless (`store: false`); encrypted reasoning items are replayed between
   tool rounds of the same job and never shown. A SHA-256 hash of the Discord user ID is sent
   as `safety_identifier`; the raw ID is not.
@@ -130,9 +172,10 @@ fallback replays or a model repeating itself cannot run a tool twice.
 
 ## Mathematical reliability
 
-For OpenAI turns the persona prompt is followed by `MATH_RELIABILITY` (`src/service/openai.ts`):
+The accuracy rules are layer 3 of the shared persona prompt (`src/service/persona.ts`):
 correctness over persona, proven vs guessed, explicit assumptions, ambiguity handling, no
-invented theorems/citations, prefer the calculator tool, Discord-friendly notation (no LaTeX).
+invented theorems/citations, hints vs full solutions, prefer the calculator tool,
+Discord-friendly notation (no LaTeX).
 `formatForDiscord` converts any remaining `\[…\]`, `$$…$$`, `\(…\)` into code formatting.
 Higher reasoning effort improves odds but does not guarantee correctness.
 

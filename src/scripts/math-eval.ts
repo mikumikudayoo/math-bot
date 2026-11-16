@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { describeOpenAIConfig, parseOpenAIConfig, PRICING_SOURCE, type OpenAIConfig, type ReasoningEffort, type Tier } from '../service/openai-config.js';
 import { buildRoute, chooseOpenAIRoute, type OpenAIRoute } from '../service/openai-routing.js';
 import { BudgetError, costMicros, estimateInputTokens } from '../service/openai-budget.js';
-import { MATH_RELIABILITY, OpenAIRuntime, ProviderError, toResponsesInput } from '../service/openai.js';
+import { OpenAIRuntime, ProviderError, toResponsesInput } from '../service/openai.js';
 import { system } from '../service/inference.js';
 import { UserError } from '../service/types.js';
 import { grade, type Check } from './math-eval-grade.js';
@@ -87,7 +87,7 @@ export function evalConfig(env: Record<string, string | undefined>, apiKey: stri
 }
 
 export function evalMessages(prompt: string) {
-  return [{role: 'system', content: system + '\n\n' + MATH_RELIABILITY}, {role: 'user', content: prompt}];
+  return [{role: 'system', content: system}, {role: 'user', content: prompt}];
 }
 
 /** Mirrors OpenAIRuntime.complete's input estimate for a tool-less request. */
