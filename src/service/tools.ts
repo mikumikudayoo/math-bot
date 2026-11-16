@@ -45,7 +45,7 @@ export async function sandboxPython(config:ServiceConfig,code:string,signal:Abor
     await new Promise<void>(done=>{const cleanup=spawn(runtime,runtimeArgs(['rm','-f',name]),{stdio:'ignore',env:{PATH:process.env.PATH ?? '/usr/bin:/bin',...runtimeEnv}});const timer=setTimeout(()=>{cleanup.kill('SIGKILL');done();},5000);cleanup.on('error',()=>{clearTimeout(timer);done();});cleanup.on('close',()=>{clearTimeout(timer);done();});});
   }
 }
-export async function search(config:Pick<ServiceConfig,'searchKey'>,query:string,signal:AbortSignal,request:typeof fetch=fetch) {
+export async function search(config:Pick<ServiceConfig,'searchKey'>,query:string,signal:AbortSignal,request:typeof fetch=fetch,reportUsage?:(credits:number,requestId:string)=>void) {
   if(!config.searchKey)throw new UserError('Web search is not configured yet. You can supply a public HTTPS source URL.');
   const news=/\b(?:news|headlines)\b/i.test(query);
   const fresh=news||/\b(?:latest|today|current|currently|recent|weather|newest)\b/i.test(query);
@@ -55,7 +55,7 @@ export async function search(config:Pick<ServiceConfig,'searchKey'>,query:string
     method:'POST',signal:AbortSignal.any([signal,AbortSignal.timeout(15000)]),redirect:'error',
     headers:{'Content-Type':'application/json',Authorization:`Bearer ${config.searchKey}`},
     body:JSON.stringify({query:searchQuery,topic:news?'news':'general',...(fresh?{time_range:/\btoday\b/i.test(query)?'day':'week'}:{}),search_depth:'basic',auto_parameters:false,
-      max_results:5,include_answer:false,include_raw_content:false,include_images:false}),
+      max_results:5,include_answer:false,include_raw_content:false,include_images:false,...(reportUsage?{include_usage:true}:{})}),
   });
   if(!response.ok)throw new UserError('Web search provider is unavailable.');
   const reader=response.body?.getReader();if(!reader)throw new UserError('Empty search response.');
@@ -64,6 +64,12 @@ export async function search(config:Pick<ServiceConfig,'searchKey'>,query:string
   let body:unknown;
   try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new UserError('Invalid search response.');}
   if(!body||typeof body!=='object'||!('results' in body)||!Array.isArray(body.results))throw new UserError('Invalid search response.');
+  const receipt = body as {usage?:{credits?:unknown};request_id?:unknown};
+  const credits = receipt.usage?.credits;
+  if (typeof credits === 'number' && Number.isSafeInteger(credits) && credits >= 0) {
+    const requestId = typeof receipt.request_id === 'string' && /^[a-z\d-]{1,100}$/i.test(receipt.request_id) ? receipt.request_id : randomUUID();
+    reportUsage?.(credits, requestId);
+  }
   const results:{title:string;url:string;description:string;publishedAt?:string}[]=[];
   const seen=new Set<string>();
   for(const item of body.results){

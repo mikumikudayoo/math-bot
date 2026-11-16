@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 /**
  * Bounded, order-preserving, error-isolating executor for the tool calls of ONE model response,
- * plus a small guard for the surrounding model/tool loop. See docs/tools-v2.md.
+ * plus a small guard for the surrounding model/tool loop. See docs/openai.md.
  */
 export interface PoolCall { id: string; name: string; run: (signal: AbortSignal) => Promise<unknown> }
 export interface PoolOptions {

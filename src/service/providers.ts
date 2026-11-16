@@ -109,17 +109,22 @@ export async function completeProvider(provider: ProviderConfig, body: Record<st
  * ever switches to another provider here.
  */
 async function completeOpenAI(provider: ProviderConfig, body: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
-  const runtime = openAIRuntime();
+  const ctx = openaiContext.getStore();
+  const runtime = ctx?.runtime ?? openAIRuntime();
   if (!runtime) throw new UserError('the model is unavailable right now. try again later.');
   const healthKey = provider.backend + ':' + provider.model;
-  const ctx = openaiContext.getStore();
+  const role = ctx?.role ?? 'luna';
   const requested = typeof body.max_tokens === 'number' && Number.isSafeInteger(body.max_tokens) ? body.max_tokens : 0;
   try {
     const result = await runtime.complete({
       messages: body.messages as never, ...(Array.isArray(body.tools) ? {tools: body.tools as never} : {}),
-      role: 'luna', effort: ctx?.effort ?? runtime.config.lunaEffort,
+      role, effort: ctx?.effort ?? runtime.config.lunaEffort,
       // Reasoning tokens count against the cap, so small legacy max_tokens values are raised to Luna's cap.
-      maxOutputTokens: Math.max(runtime.config.maxOutputTokens.luna, requested),
+      maxOutputTokens: ctx?.runtime ? Math.min(runtime.config.maxOutputTokens[role], requested || runtime.config.maxOutputTokens[role]) : Math.max(runtime.config.maxOutputTokens.luna, requested),
+      ...(ctx?.beforeAttempt ? {beforeAttempt:ctx.beforeAttempt} : {}),
+      ...(ctx?.onReasoningSummary ? {onReasoningSummary:ctx.onReasoningSummary} : {}),
+      ...(ctx?.onTextDelta ? {onTextDelta: ctx.onTextDelta} : {}),
+      ...(ctx?.onStreamReset ? {onStreamReset: ctx.onStreamReset} : {}),
       purpose: ctx?.purpose ?? 'system',
       job: ctx?.job ?? {id: `system:${randomUUID()}`, user: 'system'},
       ...(body.response_format ? {responseFormat: body.response_format} : {}),

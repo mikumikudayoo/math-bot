@@ -41,7 +41,7 @@ test('every runner model call goes to gpt-6-luna at low effort through the budge
   const client:ResponsesClient={create:async params=>{seen.push(structuredClone(params));return reply('yo');}};
   const openai=new OpenAIRuntime(config.openai!,store.db,client,{backoffMs:()=>0});
   try{
-    const run=runner(config,store,{openai,route,complete:legacy});
+    const run=runner(config,store,{openai,route,complete:legacy,protectedProblems:()=>[],random:()=>1});
     const job=store.admit({id:'100000000000000001',guild:'123456789012345678',channel:'223456789012345678',user:'323456789012345678',coach:false,kind:'ask',prompt:'yo'},10);
     const result=await run(job,AbortSignal.timeout(10000),()=>{});
     assert.equal(result.answer,'yo');assert.ok(seen.length>=1);
@@ -57,7 +57,7 @@ test('budgets fail closed before any call: request ceiling, daily ceiling and ho
     const store=new Store(':memory:');let calls=0;
     const openai=new OpenAIRuntime(config.openai!,store.db,{create:async()=>{calls++;return reply('x');}},{backoffMs:()=>0});
     try{
-      const run=runner(config,store,{openai,route,complete:legacy});
+      const run=runner(config,store,{openai,route,complete:legacy,protectedProblems:()=>[],random:()=>1});
       const job=store.admit({id:'100000000000000002',guild:'123456789012345678',channel:'223456789012345678',user:'323456789012345678',coach:false,kind:'ask',prompt:'yo'},10);
       await assert.rejects(run(job,AbortSignal.timeout(10000),()=>{}),pattern);assert.equal(calls,0);
     }finally{installOpenAIRuntime(undefined);store.close();}

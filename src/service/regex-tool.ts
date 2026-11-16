@@ -3,7 +3,7 @@ import { UserError } from './types.js';
 
 /**
  * Safe regex tool backed by re2js (a pure-JS port of RE2): matching is linear in the input, so a
- * model-written pattern cannot trigger catastrophic backtracking. See docs/tools-v2.md.
+ * model-written pattern cannot trigger catastrophic backtracking. See docs/openai.md.
  * All lengths and indices are UTF-16 code units (JavaScript string positions).
  */
 export const REGEX_MAX_PATTERN_CHARS = 500;

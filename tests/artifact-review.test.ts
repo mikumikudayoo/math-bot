@@ -1,22 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCanvas } from '@napi-rs/canvas';
-import { crc32 } from 'node:zlib';
 import { inspectPlotPng, reviewArtifact } from '../src/service/artifact-review.js';
+import { fixturePlot as plot, fixturePlotArgs as args } from './fixtures/review-plot.js';
 
-const args={expression:'x^2',min:-2,max:2};
-function plot(blank=false, metadata:unknown={...args,finite:301,samples:[[-2,4],[0,0],[2,4]]}) {
-  const canvas=createCanvas(100,100),ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,100,100);
-  if (!blank) {
-    ctx.beginPath();ctx.moveTo(0,0);
-    for(let i=0;i<100;i++)ctx.lineTo(i,90-80*((i-50)/50)**2);
-    ctx.stroke();
-  }
-  const png=canvas.toBuffer('image/png');
-  const type=Buffer.from('tEXt'),value=Buffer.from('AlephPlot\0'+JSON.stringify(metadata)), chunk=Buffer.alloc(12+value.length);
-  chunk.writeUInt32BE(value.length);type.copy(chunk,4);value.copy(chunk,8);chunk.writeUInt32BE(crc32(Buffer.concat([type,value])),chunk.length-4);
-  return Buffer.concat([png.subarray(0,33),chunk,png.subarray(33)]).toString('base64');
-}
 function verdict(approved:boolean) {
   return {choices:[{finish_reason:'tool_calls',message:{role:'assistant',content:null,tool_calls:[
     {id:'r',type:'function',function:{name:'review_plot',arguments:JSON.stringify({approved,feedback:approved?'consistent':'the axis labels are missing'})}}]}}]};
