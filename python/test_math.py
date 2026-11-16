@@ -11,5 +11,17 @@ class MathTests(unittest.TestCase):
             with self.assertRaises((ValueError,SyntaxError,TypeError)):
                 expression(text)
     def test_plot(self):
-        self.assertTrue(main({'expression':'x^2','operation':'plot'})['artifact'].startswith('iVBOR'))
+        import base64
+        import io
+        import json
+        from PIL import Image
+
+        result = main({'expression':'x^2','operation':'plot','min':-2,'max':2})
+        with Image.open(io.BytesIO(base64.b64decode(result['artifact']))) as image:
+            self.assertEqual(image.format, 'PNG')
+            receipt = json.loads(image.info['AlephPlot'])
+            self.assertEqual(receipt, {'expression':'x^2','min':-2,'max':2,'finite':301,
+                                       'samples':[[-2,4],[0,0],[2,4]]})
+        with self.assertRaises(ValueError):
+            main({'expression':'sqrt(-1)','operation':'plot'})
 if __name__=='__main__': unittest.main()

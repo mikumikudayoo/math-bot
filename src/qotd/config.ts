@@ -1,7 +1,6 @@
 import { resolve } from 'node:path';
 import { config } from 'dotenv';
-export function qotdSettings() {
-  const mode=process.env.BOT_ENV??'development';
+export function qotdSettings(mode=process.env.BOT_ENV??'development') {
   if(!['development','production'].includes(mode))throw new Error('Invalid BOT_ENV.');
   const env:NodeJS.ProcessEnv={};config({path:`.env.${mode}`,processEnv:env,quiet:true});
   const role=env.QOTD_ROLE_ID??process.env.QOTD_ROLE_ID;

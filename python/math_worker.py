@@ -65,9 +65,17 @@ def main(data):
                 y=float(expr.subs(NAMES['x'],x).evalf())
                 ys.append(y if math.isfinite(y) and abs(y)<1e10 else float('nan'))
             except (TypeError,ValueError,OverflowError): ys.append(float('nan'))
+        finite = [i for i, y in enumerate(ys) if math.isfinite(y)]
+        if len(finite) < 2:
+            raise ValueError('Too few finite samples in that interval to produce a plot.')
+        # Record exactly the data passed to matplotlib. Reviewers bind this PNG to
+        # the requested expression and interval and can check visible sample points.
+        sample_indices = sorted({finite[0], finite[len(finite)//2], finite[-1]})
+        receipt = {'expression': data['expression'], 'min': lo, 'max': hi,
+                   'finite': len(finite), 'samples': [[xs[i], ys[i]] for i in sample_indices]}
         fig,ax=plt.subplots(figsize=(7,4),layout='constrained')
         ax.plot(xs,ys); ax.set(xlabel='x',ylabel='y',title=str(expr)[:100]); ax.grid(True,alpha=.3)
-        buf=io.BytesIO();fig.savefig(buf,format='png',dpi=120);plt.close(fig)
+        buf=io.BytesIO();fig.savefig(buf,format='png',dpi=120,metadata={'AlephPlot':json.dumps(receipt)});plt.close(fig)
         return {'answer':f'Plot of {expr} from {lo} to {hi}. Discontinuities and narrow features may be missed by sampling.', 'artifact':base64.b64encode(buf.getvalue()).decode()}
     if operation=='differentiate': result=s.diff(expr,NAMES['x'])
     elif operation=='integrate': result=s.integrate(expr,NAMES['x'])
