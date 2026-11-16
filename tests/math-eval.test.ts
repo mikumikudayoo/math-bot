@@ -172,4 +172,3 @@ test('separate jobs share a single live-run cap and interruption stops before an
   assert.equal(cancelled.stoppedReason, 'cancelled');
   assert.equal(cancelled.samples.length, 0);
 });
-

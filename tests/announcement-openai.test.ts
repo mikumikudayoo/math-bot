@@ -11,6 +11,7 @@ import { workerTick } from '../src/announcements/worker.js';
 import { AnnouncementStore } from '../src/announcements/store.js';
 import { recordSourceFailure, reconcileExtractionIncident, staffAlertContent } from '../src/announcements/alerts.js';
 import { documentTemplates } from '../src/announcements/model.js';
+import { announcementSmokeCli, runAnnouncementSmoke } from '../src/scripts/announcement-openai-smoke.js';
 import type { ResponsesClient } from '../src/service/openai.js';
 import type { GmailClient } from '../src/announcements/gmail.js';
 import type { AutomationConfig } from '../src/announcements/config.js';
@@ -36,13 +37,36 @@ const modelOutput = {disposition: 'public', dispositionReason: null, correction:
 const response = (value: unknown, status = 'completed') => ({status,
   output: [{type: 'message', content: [{type: 'output_text', text: JSON.stringify(value)}]}],
   usage: {input_tokens: 500, output_tokens: 200, output_tokens_details: {reasoning_tokens: 70}}});
-const noLegacy = (async () => { throw new Error('unexpected legacy fetch'); }) as typeof fetch;
+const noLegacy: typeof fetch = Object.assign(async () => { throw new Error('unexpected legacy fetch'); }, {preconnect:fetch.preconnect});
 
 test('the announcement provider switch is explicit and never carries the Groq key into OpenAI', () => {
   assert.equal(announcementProvider({}).backend, 'https://api.groq.com/openai/v1');
   assert.equal(provider.kind, 'openai');
   assert.equal(provider.backendKey, '');
   assert.throws(() => announcementProvider({AI_PROVIDER: 'other'}));
+});
+
+test('synthetic smoke invokes both exact production schemas and verifies locked public rendering under one cap', async () => {
+  const db=new DatabaseSync(':memory:'), formats:string[]=[];
+  const template='{{program}} session {{slot}} runs on {{date}} from {{timeRange}}.';
+  try {
+    assert.equal(await announcementSmokeCli([], 'development', ()=>{}),2);
+    const report=await runAnnouncementSmoke(settings,db,{create:async p=>{
+      const format=(p.text as {format:{name:string;strict:boolean;schema:{additionalProperties:boolean}}}).format;
+      assert.ok(format.strict); assert.equal(format.schema.additionalProperties,false); formats.push(format.name);
+      return response(formats.length===1?modelOutput:{text:template});
+    }});
+    assert.deepEqual(formats,['mathematics_schedule','announcement_draft']); assert.equal(report.capUsd,0.01);
+    assert.ok(report.estimatedUsd>0 && report.estimatedUsd<=report.capUsd);
+    assert.equal(report.estimatedUsd,report.extractionUsd+report.draftUsd);
+    assert.equal(db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name='announcement_jobs'").get()?.n,0);
+    for (const bad of [{text:'{{program}} only.'},{text:template,autoSend:true},{text:'January 2 {{timeRange}}'}]) {
+      let calls=0;
+      await assert.rejects(runAnnouncementSmoke(settings,db,{create:async()=>response(++calls===1?modelOutput:bad)}),
+        /rendering checks|draft schema|must remain locked/);
+      assert.equal(calls,2);
+    }
+  } finally { db.close(); }
 });
 
 test('worker extracts only a pending candidate through Responses, recording the system call in the shared service database', async () => {
@@ -95,6 +119,21 @@ test('worker extracts only a pending candidate through Responses, recording the 
     assert.equal(sent.length, 2);
     assert.equal(serviceDb.prepare("SELECT COUNT(*) AS n FROM openai_usage WHERE tier='announcement-draft'").get()!.n, 1);
   } finally {store.close(); close(); serviceDb.close(); rmSync(dir, {recursive: true, force: true});}
+});
+
+test('synthetic drafting cannot reserve a fresh cent after the extractor has spent part of it',async()=>{
+  const db=new DatabaseSync(':memory:'); let calls=0;
+  const largerReply={...settings,maxOutputTokens:{...settings.maxOutputTokens,luna:12_000}};
+  try {
+    await assert.rejects(runAnnouncementSmoke(largerReply,db,{create:async()=>{
+      calls++;
+      return {...response(modelOutput),usage:{input_tokens:500,output_tokens:10_000,output_tokens_details:{reasoning_tokens:9700}}};
+    }}),/spending limit/);
+    assert.equal(calls,1);
+    const rows=db.prepare('SELECT tier,cost_micros FROM openai_usage').all();
+    assert.equal(rows.length,1); assert.equal(rows[0]!.tier,'announcement-extract');
+    assert.ok(Number(rows[0]!.cost_micros)>4000 && Number(rows[0]!.cost_micros)<10_000);
+  } finally {db.close();}
 });
 
 test('extraction enforces private-source, review, system budget, incomplete, and malformed-output boundaries', async () => {
