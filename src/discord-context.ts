@@ -1,19 +1,48 @@
 export const CREATOR_ID='821682594830614578';
-export interface DiscordContext {userId:string;guildId:string;isCreator:boolean;creatorName:'emu';username:string|null;displayName:string|null;nickname:string|null;globalName:string|null;channelId:string|null}
+/** U+2063 INVISIBLE SEPARATOR. A request-shape trigger only; it never authenticates anyone. */
+export const SEVEN_AGENT_TRIGGER='⁣';
+export const MAX_CONTEXT_ROLES=8;
+export interface DiscordContext {userId:string;guildId:string;isCreator:boolean;creatorName:'emu';username:string|null;displayName:string|null;nickname:string|null;globalName:string|null;channelId:string|null;
+  /** Host fact computed by the bot from live Discord permissions, never from message or profile text. */
+  isModerator:boolean;
+  /** Up to MAX_CONTEXT_ROLES role names, highest first. Server-controlled labels, never authorization. */
+  roles:string[];
+  /** Host-detected leading U+2063 on the original message. A trigger only: the service must also require isModerator. */
+  sevenAgentTrigger:boolean}
 const label=(value:unknown)=>typeof value==='string'?value.slice(0,100):null;
 /** IDs come from the authenticated bot submission; labels remain user-controlled data. */
 export function currentUser(userId:string,guildId:string,metadata:unknown={}):DiscordContext {
   const data=metadata&&typeof metadata==='object'?metadata as Record<string,unknown>:{};
-  return {userId,guildId,isCreator:userId===CREATOR_ID,creatorName:'emu',username:label(data.username),displayName:label(data.displayName),nickname:label(data.nickname),globalName:label(data.globalName),channelId:label(data.channelId)};
+  // isCreator depends on the authenticated ID alone. The moderator/trigger booleans are strict
+  // `=== true` host facts carried by the bot's authenticated submission; no label can set them.
+  const roles=Array.isArray(data.roles)?data.roles.filter((r):r is string=>typeof r==='string'&&r.length>0).slice(0,MAX_CONTEXT_ROLES).map(r=>r.slice(0,80)):[];
+  return {userId,guildId,isCreator:userId===CREATOR_ID,creatorName:'emu',username:label(data.username),displayName:label(data.displayName),nickname:label(data.nickname),globalName:label(data.globalName),channelId:label(data.channelId),
+    isModerator:data.isModerator===true,roles,sevenAgentTrigger:data.sevenAgentTrigger===true};
 }
-export function discordIdentity(user:{id:string;username?:string;globalName?:string|null},guildId:string,member:unknown) {
+/** Facts the bot derives from Discord itself (live permissions, role list, raw-content trigger). */
+export interface HostFacts {isModerator?:boolean;roles?:readonly string[];sevenAgentTrigger?:boolean}
+export function discordIdentity(user:{id:string;username?:string;globalName?:string|null},guildId:string,member:unknown,host:HostFacts={}) {
   const m=member&&typeof member==='object'?member as {displayName?:string;nickname?:string|null;nick?:string|null}:{};
-  return currentUser(user.id,guildId,{username:user.username,globalName:user.globalName,displayName:m.displayName??m.nickname??m.nick??user.globalName??user.username,nickname:m.nickname??m.nick});
+  return currentUser(user.id,guildId,{username:user.username,globalName:user.globalName,displayName:m.displayName??m.nickname??m.nick??user.globalName??user.username,nickname:m.nickname??m.nick,
+    isModerator:host.isModerator===true,roles:host.roles?[...host.roles]:[],sevenAgentTrigger:host.sevenAgentTrigger===true});
 }
-export interface SpeakerFacts {type:'TRUSTED_SPEAKER_FACTS';speakerIsCreator:boolean;creatorName:'emu';speakerName:'emu'|null;speakerLabel:string|null}
+/** Splits ORIGINAL, untrimmed message content into the leading-mention flag, the prompt and the
+ * seven-agent trigger. The trigger is one U+2063 at index 0 of the content, or immediately after the
+ * leading bot mention (whitespace allowed in between). Exactly that one character is removed; a
+ * U+2063 anywhere else is ordinary prompt text. Detection is not authorization.
+ */
+export function parseTrigger(content:string,botId:string|null|undefined):{mention:boolean;prompt:string;sevenAgentTrigger:boolean} {
+  let rest=typeof content==='string'?content:'',sevenAgentTrigger=false;
+  if(rest.startsWith(SEVEN_AGENT_TRIGGER)){sevenAgentTrigger=true;rest=rest.slice(1);}
+  const mention=botId&&/^\d{1,20}$/.test(botId)?rest.match(new RegExp(`^\\s*<@!?${botId}>\\s*([\\s\\S]*)$`)):null;
+  let body=mention?mention[1]??'':rest;
+  if(mention&&!sevenAgentTrigger&&body.startsWith(SEVEN_AGENT_TRIGGER)){sevenAgentTrigger=true;body=body.slice(1);}
+  return {mention:Boolean(mention),prompt:body.trim(),sevenAgentTrigger};
+}
+export interface SpeakerFacts {type:'TRUSTED_SPEAKER_FACTS';speakerIsCreator:boolean;speakerIsModerator:boolean;creatorName:'emu';speakerName:'emu'|null;speakerLabel:string|null}
 export function speakerFacts(context:DiscordContext):SpeakerFacts {
   const speakerLabel=context.displayName??context.nickname??context.globalName??context.username;
-  return {type:'TRUSTED_SPEAKER_FACTS',speakerIsCreator:context.isCreator,creatorName:'emu',speakerName:context.isCreator?'emu':null,speakerLabel:context.isCreator?null:speakerLabel};
+  return {type:'TRUSTED_SPEAKER_FACTS',speakerIsCreator:context.isCreator,speakerIsModerator:context.isModerator===true,creatorName:'emu',speakerName:context.isCreator?'emu':null,speakerLabel:context.isCreator?null:speakerLabel};
 }
 /** Deictic Discord scope only. Topic words such as MPoTD/QOTD do not belong here. */
 export function serverScope(prompt:string):boolean {
