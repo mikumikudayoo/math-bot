@@ -32,6 +32,40 @@ export async function canDisclose(source:GuildBasedChannel,destination:GuildBase
 }
 const unavailable={error:'Discord information unavailable for this request.'};
 
+/**
+ * Competition-integrity screening, NOT disclosure. The service may send an already-posted
+ * MPoTD statement (never its answer or solution) to an isolated classifier whose only output
+ * is unrelated/related/uncertain, so the requester's own access and the destination audience
+ * are irrelevant here: nothing from the reference reaches the requester. What must hold is that
+ * the reference really is published competition material:
+ *  - the recorded channel is a non-NSFW text/announcement channel of this guild that the bot reads;
+ *  - the recorded message still exists there and was posted by this bot (a real MPoTD post,
+ *    not a draft or someone else's content);
+ *  - the channel is the guild's operator-configured MPoTD schedule channel (`official`, read by the
+ *    service from the authoritative competition database), or otherwise positively public.
+ * A manual post into any other restricted channel stays local and screening fails closed.
+ * Returns a non-sensitive reason code on denial; never message content, names or counts.
+ */
+export type ScreeningDenial='channel-unavailable'|'channel-type'|'bot-cannot-read'|'message-missing'|'not-bot-post'|'source-restricted';
+export async function screeningReferenceDenial(guild:Guild,bot:GuildMember,ref:{channel:string;message:string;official:boolean},signal?:AbortSignal):Promise<ScreeningDenial|undefined>{
+  const source=await guild.channels.fetch(ref.channel,{force:true}).catch(()=>null);
+  signal?.throwIfAborted();
+  if(!source||source.guildId!==guild.id)return 'channel-unavailable';
+  if(source.isThread()||(source.type!==ChannelType.GuildText&&source.type!==ChannelType.GuildAnnouncement)||('nsfw' in source&&source.nsfw))return 'channel-type';
+  if(!await canRead(source,bot)||!source.isTextBased())return 'bot-cannot-read';
+  const post=await source.messages.fetch({message:ref.message,force:true,cache:false}).catch(()=>null);
+  signal?.throwIfAborted();
+  if(!post||post.channelId!==source.id)return 'message-missing';
+  if(post.author?.id!==bot.id)return 'not-bot-post';
+  if(!ref.official&&!await publicSource(source))return 'source-restricted';
+  return undefined;
+}
+const validReference=(value:unknown):value is {channel:string;message:string;official:boolean}=>{
+  const v=value as Record<string,unknown>;
+  return Boolean(v)&&typeof v==='object'&&Object.keys(v).every(k=>['channel','message','official'].includes(k))&&
+    snowflake(v.channel)&&snowflake(v.message)&&typeof v.official==='boolean';
+};
+
 export async function authorizeEvidence(source:GuildBasedChannel,destination:GuildBasedChannel,requester:GuildMember,bot:GuildMember,
   evidence:DiscordEvidence[],signal?:AbortSignal):Promise<boolean>{
   if(!await canDisclose(source,destination,requester,bot)||!await verifyEvidence(source,evidence,signal))return false;
@@ -202,6 +236,16 @@ export async function executeDiscordTool(client:Client,task:DiscordTask,messageC
     const bot=await guild.members.fetchMe({force:true});
     const origin=await guild.channels.fetch(task.channel,{force:true});
     if(requester.id!==task.user||!origin||origin.id!==task.channel||origin.guildId!==task.guild||!await canRead(origin,requester)||!await canRead(origin,bot))return unavailable;
+    if(task.tool==='competition_reference'){
+      // Separate from discord_audience on purpose: this must never authorize disclosure.
+      const references=task.args.references;
+      if(Object.keys(task.args).some(k=>k!=='references')||!Array.isArray(references)||!references.length||references.length>20||!references.every(validReference))return unavailable;
+      for(const ref of references){
+        const reason=await screeningReferenceDenial(guild,bot,ref,timeout);
+        if(reason)return {type:'COMPETITION_REFERENCE_DATA',allowed:false,reason};
+      }
+      return {type:'COMPETITION_REFERENCE_DATA',allowed:true};
+    }
     if(task.tool==='discord_audience'){
       const sources=task.args.sourceChannels;
       if(Object.keys(task.args).some(k=>k!=='sourceChannels'&&k!=='evidence')||!Array.isArray(sources)||!sources.length||sources.length>100||!sources.every(snowflake))return unavailable;

@@ -54,8 +54,10 @@ export function serverScope(prompt:string):boolean {
     || /\b(?:server|guild|discord)\s+(?:mods?|moderators?|members?|roles?|messages?|history|activity)\b/i.test(q)
     || /\b(?:mods?|moderators?|members?|roles?|messages?|history|activity)\s+(?:of|in|on)\s+(?:this|our|the current)\s+(?:(?:[a-z0-9_-]+\s+){0,3})?(?:discord\s+)?(?:server|guild|community)\b/i.test(q);
 }
-// discord_audience is host-only and is never advertised to the model.
-export type DiscordTool='discord_search'|'discord_member'|'discord_audience';
+// discord_audience and competition_reference are host-only and are never advertised to the model.
+// discord_audience authorizes user-visible reuse of Discord content in the destination channel.
+// competition_reference authorizes only isolated MPoTD screening; it returns a yes/no, never content.
+export type DiscordTool='discord_search'|'discord_member'|'discord_audience'|'competition_reference';
 export interface DiscordTask {id:string;job:string;user:string;guild:string;channel:string;sourceMessageId?:string;tool:DiscordTool;args:Record<string,unknown>}
 /** Discord supplies the creation instant in the anchor snowflake. A fetch only
  * returns the latest revision, so exclude messages edited after that instant. */

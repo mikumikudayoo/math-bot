@@ -58,7 +58,10 @@ test('a tool-capable profile lookup still requires verified Discord evidence',as
   if(offered(params,'classify_competition_request'))return decision('unrelated');
   answers++;assert.ok(offered(params,'discord_member'));
   return response(answer('fabricated-profile-claim'));
- },{discord:async(_job,tool)=>{assert.equal(tool,'discord_audience');return {type:'DISCORD_AUDIENCE_DATA',allowed:true}}});
+ },{discord:async(_job,tool)=>{
+  // Screening uses its own host-only authorization; user-visible reuse keeps discord_audience.
+  if(tool==='competition_reference')return {type:'COMPETITION_REFERENCE_DATA',allowed:true};
+  assert.equal(tool,'discord_audience');return {type:'DISCORD_AUDIENCE_DATA',allowed:true}}});
  try{const result=await f.run();assert.match(result.answer,/couldn't verify/);assert.ok(!result.answer.includes('fabricated-profile-claim'));assert.equal(answers,2);}finally{f.close();}
 });
 test('absent conversation recall clarifies without fabricated history or protected references',async()=>{
@@ -91,7 +94,7 @@ for(const mode of ['related','uncertain','transport-failure','malformed'])test('
   if(offered(params,'classify_request_scope')){scopes++;return scopeDecision('problem_or_uncertain');}
   if(offered(params,'classify_competition_request')){comparisons++;if(mode==='transport-failure')throw Error('offline');return mode==='malformed'?response(answer('unrelated')):decision(mode);}
   answers++;throw Error('must not solve');
- },{discord:async()=>({type:'DISCORD_AUDIENCE_DATA',allowed:true})});
+ },{discord:async(_job,tool)=>tool==='competition_reference'?{type:'COMPETITION_REFERENCE_DATA',allowed:true}:{type:'DISCORD_AUDIENCE_DATA',allowed:true}});
  try{await assert.rejects(f.run(),ProtectedContentError);assert.equal(scopes,1);assert.ok(comparisons>0);assert.equal(answers,0);}finally{f.close();}
 });
 for(const mode of ['transport-failure','malformed','extra-field'])test('scope failure never falls back to answering: '+mode,async()=>{

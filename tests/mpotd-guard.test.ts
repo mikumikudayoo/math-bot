@@ -96,7 +96,7 @@ test('classified diagrams require a current source audience, the actual posted c
   const root=mkdtempSync(join(tmpdir(),'aleph-guard-asset-'));
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aA60AAAAASUVORK5CYII=','base64');
   const image={path:join(root,'question.png'),sha256:createHash('sha256').update(png).digest('hex')};
-  const ref={...problem,sourceChannel:'source',visualReference:{root,images:[image]}};
+  const ref={...problem,sourceChannel:'398457510082256788',visualReference:{root,images:[image]}};
   const prompt='is the vertical line important?';
   const response={choices:[{finish_reason:'tool_calls',message:{role:'assistant',content:null,
     tool_calls:[{id:'t',type:'function',function:{name:'classify_competition_request',arguments:'{"assessment":"unrelated"}'}}]}}]};
@@ -108,7 +108,8 @@ test('classified diagrams require a current source audience, the actual posted c
     await assert.rejects(guardSemanticRequest([ref],prompt,complete),ProtectedContentError);
     await assert.rejects(guardSemanticRequest([ref],prompt,complete,async()=>{throw new Error('denied')}),ProtectedContentError);
     assert.equal(calls,0);
-    const allow=async(channels:string[])=>assert.deepEqual(channels,['source']);
+    const allow=async(references:{channel:string;message:string;official:boolean}[])=>
+      assert.deepEqual(references,[{channel:'398457510082256788',message:problem.message,official:false}]);
     await guardSemanticRequest([ref],prompt,complete,allow);assert.equal(calls,1);
     writeFileSync(image.path,Buffer.concat([png,Buffer.from('x')]));
     await assert.rejects(guardSemanticRequest([ref],prompt,complete,allow),ProtectedContentError);assert.equal(calls,1);
