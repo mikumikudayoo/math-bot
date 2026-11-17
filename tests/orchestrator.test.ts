@@ -298,7 +298,7 @@ test('a tool result with different wording must pass a fresh isolated classifier
     }
     ordinary++;return response(call('lookup','search',{query:'observations'}));
   },{protectedProblems:()=>[protectedProblem],search:async()=>[{url:'https://example.org/article',title:'observations',description:'new unseen phrasing'}]});
-  try{await assert.rejects(f.execute(f.job('hello')),/embargo/);assert.equal(ordinary,1);assert.ok(screens>=2);}finally{f.store.close();}
+  try{await assert.rejects(f.execute(f.job('look up observations')),/embargo/);assert.equal(ordinary,1);assert.ok(screens>=2);}finally{f.store.close();}
 });
 test('direct commands guard their operation before execution and use the ordinary job class for model checks',async()=>{
   let tools=0,paid=0;

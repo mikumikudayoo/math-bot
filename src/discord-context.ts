@@ -83,6 +83,13 @@ export function requesterIdentityQuestion(prompt:string):boolean{
 export function personaIntent(prompt:string):boolean{
   return /^(?:who are you|what are you|introduce yourself|tell me about yourself|what(?:['’]s| is) your (?:name|dream|story|backstory)|who (?:made|created|trapped) you)[?.!]*$/i.test(prompt.trim());
 }
+/** Whole, self-contained social/persona utterances only. No prefix matching: a
+ * greeting plus a problem, a deictic follow-up or an attachment still needs screening.
+ * Format characters do not change intent or confer an authorization bypass. */
+export function unrelatedConversation(prompt:string):boolean {
+  const text=prompt.normalize('NFKC').replace(/[\u200b-\u200f\u2060-\u206f\ufeff]/g,'').replace(/\s+/g,' ').trim();
+  return personaIntent(text)||/^(?:hi|hello|hey|yo|thanks|thank you|ty|thx|good (?:morning|afternoon|evening|night)|how are you(?: doing)?|what(?:['’]s| is) up|what can you do|how can you help me)[?!.]*$/i.test(text);
+}
 /** Routing classification only; all conversation is generated with trusted context. */
 export function conversationIntent(prompt:string):boolean{
   return requesterIdentityQuestion(prompt)||personaIntent(prompt)||/^(?:(?:hi|hello|hey|yo)(?:[, !]*(?:emu|fyuc) (?:here|speaking)(?:[ !,.]*(?:haha|lol|hehe))?)?|thanks|thank you|ty|thx|it['’]?s me|guess who|can you imagine)[!.?]*$/i.test(prompt.trim());

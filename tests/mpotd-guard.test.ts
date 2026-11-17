@@ -115,3 +115,13 @@ test('classified diagrams require a current source audience, the actual posted c
     await assert.rejects(guardSemanticRequest([{...ref,visualReference:{root:join(root,'absent'),images:[image]}}],prompt,complete,allow),ProtectedContentError);
   } finally {rmSync(root,{recursive:true,force:true});}
 });
+
+test('publication screens context text and references without matching timestamps or witness metadata',()=>{
+ const p={...problem,question:'2026 11 17 04 39 38',answer:'a secret answer',solution:'a secret solution'};
+ const anchor='900000000000000001',channel='700000000000000001';
+ const context={version:1,anchorMessageId:anchor,channelId:channel,capturedAt:1794890378808,audience:'0543fda5ac3b3f4aec6b11cef7e7a3a8c0f28892656d54025dde89442e44a729',chain:[],recent:[{id:'800000000000000001',author:{id:'600000000000000001',name:'ordinary account',bot:false,relation:'other'},content:'hello there',timestamp:'2026-11-17T04:39:38Z',images:[],digest:'6540b979e93d04d283e540a0320dd04757ea8a39e9b9d7063ce1cba2dddafb93'}]};
+ const job={prompt:'who are you',answer:"i'm aleph-zero",channel,sourceMessageId:anchor,context:JSON.stringify(context)};
+ assert.throws(()=>guardRequest([p],job.context),ProtectedContentError);
+ assert.doesNotThrow(()=>guardPublication([p],job,protectionVersion([p])));
+ for(const changed of [{...context,recent:[{...context.recent[0],content:p.question}]},{...context,recent:[{...context.recent[0],id:p.message}]},{...context,channelId:'600000000000000001'}])assert.throws(()=>guardPublication([p],{...job,context:JSON.stringify(changed)},protectionVersion([p])),ProtectedContentError);
+});

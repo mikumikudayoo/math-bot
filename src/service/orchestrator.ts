@@ -342,9 +342,9 @@ export async function orchestrate(turn:Turn):Promise<Result> {
     const outcomes=await runToolCalls(calls.map(call=>{
       const {name,arguments:rawArgs}=call.function;
       return {id:call.id,name,run:async(s:AbortSignal)=>{
-        if(!allowed.has(name))throw new UserError('that tool is unavailable.');
         const args=toolArguments(rawArgs),key=digestToolOutput([name,args]);
         protect(args);
+        if(!allowed.has(name))throw new UserError('that tool is unavailable.');
         if(name==='prepare_final'){
           if(calls.length!==1||typeof args.answer!=='string'||!args.answer.trim()||args.answer.length>5500||missingEvidence()
               ||missingConclusions(args.answer).length)

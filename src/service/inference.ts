@@ -11,7 +11,7 @@ import { groundedDiscordAnswer,discordPassages,type DiscordHit } from './discord
 import { retrievalPolicy, establishesEntities, expressesUncertainty, groundedAnswer, unverified, evidencePassages,namedEntities,type Evidence } from './retrieval-policy.js';
 import { solvePairingPrompt } from './pairing.js';
 import { routePrompt } from './route-prompt.js';
-import { currentUser,discordIntent,requesterIdentityQuestion,conversationIntent,personaIntent,speakerFacts,serverScope,CREATOR_ID,type DiscordTool } from '../discord-context.js';
+import { currentUser,unrelatedConversation,discordIntent,requesterIdentityQuestion,conversationIntent,personaIntent,speakerFacts,serverScope,CREATOR_ID,type DiscordTool } from '../discord-context.js';
 import {discordQuery} from '../discord-query.js';
 import {imageAttachments,prepareImage} from './vision.js';
 import { completeProvider,ProviderBackoff,type ProviderConfig } from './providers.js';
@@ -22,7 +22,7 @@ import { parseModelResponse,parseEnvelope,toolArguments,extractFinalAnswer,type 
 
 import { digestToolOutput } from './tool-pool.js';
 import { completeTurn, orchestrate } from './orchestrator.js';
-import { guardImages, guardRequest, guardSemanticRequest, guardOutput, loadProtectedProblems, protectedDatabasePath, protectionVersion, ProtectedContentError, type ProtectedProblem } from './mpotd-guard.js';
+import { guardImages, guardContext, guardRequest, guardSemanticRequest, guardOutput, loadProtectedProblems, protectedDatabasePath, protectionVersion, ProtectedContentError, type ProtectedProblem } from './mpotd-guard.js';
 import { reviewArtifact } from './artifact-review.js';
 import { contextSnapshot, renderContext, snapshotImages, snapshotProvenance } from './context-snapshot.js';
 import type { JobEvents } from './events.js';
@@ -72,6 +72,12 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
   return async (job:Job,signal:AbortSignal,status:(s:string)=>void):Promise<Result> => {
     const webBoundary=new TurnWebBoundary(job.prompt);
     const discordLinks=new Set<string>();
+    let hostMetadata:unknown={};try{hostMetadata=JSON.parse(job.discordContext??'{}');}catch{}
+    // This scope has no problem-bearing context, attachments, profile labels or
+    // tools. Never use it for a reply, private provenance or a seven-agent request.
+    const simpleConversation=!!openai&&job.kind==='ask'&&unrelatedConversation(job.prompt)&&
+      !job.parent&&!job.context&&!job.image&&(!job.images||job.images==='[]')&&
+      rowProvenance(job).classification==='public'&&!currentUser(job.user,job.guild,hostMetadata).sevenAgentTrigger;
     webBoundary.observeProvenance(rowProvenance(store.get(job.id)??job));
     const rememberPrivacy=()=>{if(webBoundary.private)store.markProvenance(job.id,webBoundary.provenance);};
     const authorizePrivateHistory=async(provenance:Provenance,authorizationSignal=signal)=>{
@@ -129,6 +135,7 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
     const screened=new Map<string,Promise<void>>();
     const screen=(value:unknown,s:AbortSignal=signal):Promise<void>=>{
       checkBank();s.throwIfAborted();
+      if(simpleConversation){protect(value);return Promise.resolve();}
       if(!protectedProblems.length)return Promise.resolve();
       const text=typeof value==='string'?value:JSON.stringify(value,(k,v)=>
         /^(?:id|job|timestamp|at|channelId|guildId|userId|authorId|messageId|nextCursor|image_url|url)$/.test(k)?undefined:v);
@@ -159,8 +166,9 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
     }
     if(job.kind==='python'){status('running sandboxed Python');const result=await sandboxPython(config,job.prompt,signal);status('preparing answer');return result;}
     let history=store.history(job);
-    let metadata:unknown={};try{metadata=JSON.parse(job.discordContext??'{}');}catch{}
+    const metadata=hostMetadata;
     const requester=currentUser(job.user,job.guild,metadata);
+    if(simpleConversation){requester.roles=[];requester.displayName=null;requester.nickname=null;requester.globalName=null;requester.username=null;}
     const usernameQuestion=/\b(?:username|discord\s+(?:name|username)|account\s+(?:name|username))\b/i.test(job.prompt);
     const speaker=speakerFacts(requester);
     const speakerInstruction='TRUSTED_SPEAKER_FACTS\n'+JSON.stringify(speaker)
@@ -191,7 +199,7 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
       const snapshot=job.context?contextSnapshot(JSON.parse(job.context),job):undefined;
       const provenance=mergeProvenance(webBoundary.provenance,...history.map(rowProvenance));
       await authorizePrivateHistory(provenance); webBoundary.observeProvenance(provenance); rememberPrivacy();
-      if(snapshot){protect(renderContext(snapshot));protect(snapshot.reply?.id);}
+      if(snapshot)guardContext(protectedProblems,snapshot);
       for(const row of history){protect(row.prompt);protect(row.answer);}
       const relatedText=[
         ...history.flatMap(row=>[row.prompt,row.answer]),
@@ -215,7 +223,7 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
       if(snapshot)messages.push({role:'user',content:renderContext(snapshot)});
       if(allowLatex)messages.push({role:'system',content:'The user explicitly requested TeX source. Put literal source in a code block.'});
       messages.push({role:'user',content:parts.length?[{type:'text',text:modelPrompt},...parts]:modelPrompt});
-      return orchestrate({config,runtime:openai,io,job,requester,messages,images:parts,boundary:webBoundary,signal,
+      return orchestrate({config,runtime:openai,io:simpleConversation?{...io,toolAllowlist:[],random:()=>1}:io,job,requester,messages,images:parts,boundary:webBoundary,signal,
         baseTools:tools,rememberPrivacy,rememberDiscordLinks,status,
         claim:digest=>store.claimToolAttempt(job.id,digest),screen,verifyPlotPixels:async(artifact,reviewSignal)=>{
           await guardImages(protectedProblems,[{type:'image_url',image_url:{url:'data:image/png;base64,'+artifact}}],

@@ -231,3 +231,13 @@ test('resume beyond six channels and continue older pages without repeating hits
   const hits=[...next.results,...last.results];assert.equal(hits.length,11);assert.equal(new Set(hits.map(r=>r.url)).size,11);
   assert.ok(hits.some(r=>r.content==='geometry beyond six'));assert.equal(last.nextCursor,undefined);
 });
+
+test('standalone greetings and identity questions omit incidental history but retain explicit replies and attachments',async()=>{
+ for(const prompt of ['hi','who are you','w\u2060ho ar\u2060e you','how are you?','what can you do?']){
+  const f=fixture();f.message(7,'who are you, hi, how are you? what can you do?');
+  const a={...anchor,reference:null,prompt};
+  const result=await captureDiscordState(f.guild,a,true);assert.equal(result.context,undefined);assert.equal(f.reads.length,0);assert.deepEqual(result.host.roles,['role label']);
+  const reply=await captureDiscordState(f.guild,{...a,reference:ref(id(7))},true);assert.equal(reply.context?.reply?.id,id(7));
+  const before=f.reads.length;await captureDiscordState(f.guild,{...a,hasAttachments:true},true);assert.ok(f.reads.length>before);
+ }
+});

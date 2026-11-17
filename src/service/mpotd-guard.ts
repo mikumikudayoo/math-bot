@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { open, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, sep } from 'node:path';
+import {contextSnapshot,type ContextSnapshot} from './context-snapshot.js';
+import { unrelatedConversation } from '../discord-context.js';
 import { qotdSettings } from '../qotd/config.js';
 import { parseModelResponse } from './model-protocol.js';
 import type { ChatMessage, ChatTool } from './openai.js';
@@ -173,7 +175,7 @@ async function referenceContent(problems: readonly ProtectedProblem[], authorize
 /** Use before tools/shortcuts so translations and paraphrases need not share literals or numbers. */
 export async function guardSemanticRequest(problems: readonly ProtectedProblem[], text: string, complete: GuardCompletion, authorize?: AuthorizeReferences) {
   guardRequest(problems,text);
-  if (!problems.length || !text.trim() || socialOnly.test(text.trim()) || policyOnly.test(text.trim())) return;
+  if (!problems.length || !text.trim() || unrelatedConversation(text) || socialOnly.test(text.trim()) || policyOnly.test(text.trim())) return;
   const tool: ChatTool = {type:'function',function:{name:'classify_competition_request',parameters:{type:'object',additionalProperties:false,
     properties:{assessment:{type:'string',enum:decisionValues}},required:['assessment']}}};
   try {
@@ -215,12 +217,26 @@ export async function guardImages(problems: readonly ProtectedProblem[], images:
   }
 }
 
+/** Screen actual context and source references, never timestamp/digest transport
+ * fields whose unrelated numbers can resemble a mathematical problem. */
+export function guardContext(problems:readonly ProtectedProblem[],snapshot:ContextSnapshot) {
+  const rows=[snapshot.reply,...snapshot.chain,...snapshot.recent].filter(row=>row!==undefined);
+  guardRequest(problems,[snapshot.anchorMessageId,snapshot.channelId,...rows.flatMap(row=>[row.id,row.replyTo,row.author.id])]);
+  guardRequest(problems,rows.flatMap(row=>[row.author.name,row.content]).join('\n'));
+}
+
 export function guardPublication(problems: readonly ProtectedProblem[], job: {
   prompt: string; answer: string; artifact?: string; images?: string; image?: string; context?: string; sourceMessageId?: string; channel: string;
 }, reviewedVersion?: string) {
   if (!problems.length) return;
   guardRequest(problems,[job.prompt,job.channel,job.sourceMessageId]);
-  if (job.context) guardRequest(problems,job.context);
+  if (job.context) {
+    try {
+      const snapshot=contextSnapshot(JSON.parse(job.context),job);
+      if(!snapshot)throw new ProtectedContentError(unavailable);
+      guardContext(problems,snapshot);
+    } catch(error) {if(error instanceof ProtectedContentError)throw error;throw new ProtectedContentError(unavailable);}
+  }
   guardOutput(problems,job.answer);
   // A completed answer or old stream may be an indirect solution to a later
   // problem even if it passes today's fast lexical check.

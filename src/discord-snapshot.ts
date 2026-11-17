@@ -1,5 +1,5 @@
 import { PermissionFlagsBits, type Guild, type GuildMember, type Message, type MessageReference } from 'discord.js';
-import { CREATOR_ID, MAX_CONTEXT_ROLES, discordIntent,serverScope,visibleAtAnchor,type HostFacts } from './discord-context.js';
+import { CREATOR_ID, MAX_CONTEXT_ROLES, discordIntent,serverScope,unrelatedConversation,visibleAtAnchor,type HostFacts } from './discord-context.js';
 import { canRead } from './discord-tools.js';
 import { historyVisibleToViewers } from './discord-audience.js';
 import { CONTEXT_LIMITS, contextSnapshot, type ContextMessage, type ContextSnapshot } from './service/context-snapshot.js';
@@ -92,7 +92,7 @@ export async function captureDiscordState(guild: Guild | null, anchor: SnapshotA
   try {
     const initial = await access();
     if (!initial) return {host:{}};
-    if (!includeContext || standaloneWeb(anchor)) return {host:moderatorFacts(initial.requester)};
+    if (!includeContext || standaloneWeb(anchor) || (!anchor.reference&&!anchor.hasAttachments&&unrelatedConversation(anchor.prompt))) return {host:moderatorFacts(initial.requester)};
     const {channel, bot} = initial;
     if(!await historyVisibleToViewers(channel))return {host:moderatorFacts(initial.requester)};
     const audience=await audienceDigest(channel);
