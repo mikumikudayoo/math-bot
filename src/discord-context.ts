@@ -70,6 +70,14 @@ export function discordIntent(prompt:string):DiscordTool|null {
   if(/\b(?:(?:my|your|their|his|her) (?:discord )?(?:profile|nickname|roles|user id)|(?:discord|server|member) (?:profile|nickname|roles))\b/i.test(prompt))return 'discord_member';
   return null;
 }
+/** Select history by an actual request for prior/channel material, never by word
+ * overlap with arbitrary recent messages. Replies/attachments are handled separately. */
+export function discordHistoryIntent(prompt:string):boolean {
+  const text=prompt.normalize('NFKC').replace(/[\u200b-\u200f\u2060-\u206f\ufeff]/g,'');
+  return discordIntent(text)==='discord_search'||serverScope(text)||
+    /\b(?:above|earlier|previous|last message|just said|we (?:were|discussed|said|talked)|were we|our (?:chat|discussion)|continue (?:the|our)|(?:this|that|these|those) (?:messages?|posts?|discussions?|threads?|problems?|diagrams?|arguments?|ideas?))\b/i.test(text)||
+    /^(?:explain|summarize|clarify|expand on|tell me more about)\s+(?:this|that|these|those)[?.!]*$/i.test(text.trim());
+}
 /** Exact requester identity questions use authenticated event metadata, never prompt claims. */
 export function requesterIdentityQuestion(prompt:string):boolean{
   let p=prompt.trim().replace(/[’]/g,"'").replace(/\byk\b/gi,'you know').replace(/\bu\b/gi,'you').replace(/\byou'?re\b/gi,'you are');

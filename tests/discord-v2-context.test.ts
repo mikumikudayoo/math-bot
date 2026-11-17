@@ -66,7 +66,7 @@ test('reply and earlier chain links precede scoped recent discussion; IDs and si
 });
 test('concurrent anchors retain independent messages and permission failures discard content',async()=>{
   const f=fixture();f.message(5,'geometry one');f.message(9,'geometry two');f.message(11,'geometry three');
-  const early={...anchor,id:id(6),reference:null},late={...anchor,id:id(12),reference:null};
+  const early={...anchor,id:id(6),reference:null,prompt:'explain the earlier geometry'},late={...anchor,id:id(12),reference:null,prompt:'explain the earlier geometry'};
   const [first,second]=await Promise.all([captureDiscordState(f.guild,early,true),captureDiscordState(f.guild,late,true)]);
   assert.deepEqual(first.context?.recent.map(m=>m.id),[id(5)]);assert.deepEqual(second.context?.recent.map(m=>m.id),[id(5),id(9),id(11)]);
   const fetch=f.main.messages.fetch;
@@ -233,11 +233,18 @@ test('resume beyond six channels and continue older pages without repeating hits
 });
 
 test('standalone greetings and identity questions omit incidental history but retain explicit replies and attachments',async()=>{
- for(const prompt of ['hi','who are you','w\u2060ho ar\u2060e you','how are you?','what can you do?']){
+ for(const prompt of ['hi','who are you','w\u2060ho ar\u2060e you','do you know who am i','who am i?','do you know me?','do you recognize me?','remember who i am?',"what's my name?",'who created you?','tell me about yourself.','how are you?','can we talk?','what can you do?','what is a polygon?','explain photosynthesis']){
   const f=fixture();f.message(7,'who are you, hi, how are you? what can you do?');
   const a={...anchor,reference:null,prompt};
   const result=await captureDiscordState(f.guild,a,true);assert.equal(result.context,undefined);assert.equal(f.reads.length,0);assert.deepEqual(result.host.roles,['role label']);
   const reply=await captureDiscordState(f.guild,{...a,reference:ref(id(7))},true);assert.equal(reply.context?.reply?.id,id(7));
   const before=f.reads.length;await captureDiscordState(f.guild,{...a,hasAttachments:true},true);assert.ok(f.reads.length>before);
  }
+});
+
+for(const prompt of ['what were we discussing?','summarize our earlier chat','what did we say earlier?'])test('explicit discussion recall retains scoped history: '+prompt,async()=>{
+ const f=fixture();f.message(7,'an ordinary discussion about lunch');
+ const a={...anchor,reference:null,prompt};const result=await captureDiscordState(f.guild,a,true);
+ assert.equal(result.context?.recent.length,1);assert.ok(f.reads.length>0);
+ f.main.readable=false;assert.equal((await captureDiscordState(f.guild,a,true)).context,undefined);
 });

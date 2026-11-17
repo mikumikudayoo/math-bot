@@ -171,7 +171,7 @@ test('private Discord and web in either order never race; broker facts and check
 test('a protected tool argument blocks the whole turn before execution or publication',async()=>{
   let calc=0,rounds=0;
   const active={id:1,posted:true,question:'arrange 37 amethyst pebbles into 9 triangular rings',answer:'',solution:'',message:'',thread:''};
-  const f=fixture(async()=>{rounds++;return response(call('a','calculate',{expression:active.question}));},
+  const f=fixture(async p=>{if(((p.tools??[]) as {name:string}[]).some(t=>t.name==='classify_request_scope'))return response(call('scope','classify_request_scope',{scope:'conversation'}));rounds++;return response(call('a','calculate',{expression:active.question}));},
     {protectedProblems:()=>[active],mathTool:async()=>{calc++;return {answer:'unexpected'};}});
   try{const j=f.job('hello');await assert.rejects(f.execute(j),/embargo/);
     assert.equal(calc,0);assert.equal(rounds,1);assert.equal(f.events.progress(j.id)?.stream,'');}finally{f.store.close();}
@@ -291,6 +291,7 @@ test('a tool result with different wording must pass a fresh isolated classifier
   const protectedProblem={id:1,posted:true,question:'arrange amethyst pebbles in triangular rings',answer:'secret key',solution:'confidential',message:'',thread:''};
   const f=fixture(async p=>{
     const tools=p.tools as {name:string}[];
+    if(tools.some(t=>t.name==='classify_request_scope'))return response(call('scope','classify_request_scope',{scope:'problem_or_uncertain'}));
     if(tools.some(t=>t.name==='classify_competition_request')){
       screens++;const input=JSON.stringify(p.input);assert.ok(!input.includes('secret key')&&!input.includes('confidential'));
       const related=input.includes('new unseen phrasing');
@@ -339,6 +340,7 @@ test('direct and orchestrated generated plots screen the validated pixels before
   let screened=0, ordinaryReviews=0;
   const f=fixture(async p=>{
     const names=(p.tools as {name:string}[]).map(t=>t.name);
+    if(names.includes('classify_request_scope'))return response(call('scope','classify_request_scope',{scope:'problem_or_uncertain'}));
     if(names.includes('classify_competition_request'))return response(call('guard','classify_competition_request',{assessment:'unrelated'}));
     if(names.includes('record_transcription')){
       screened++;assert.ok(JSON.stringify(p.input).includes(png));

@@ -1,5 +1,5 @@
 import { PermissionFlagsBits, type Guild, type GuildMember, type Message, type MessageReference } from 'discord.js';
-import { CREATOR_ID, MAX_CONTEXT_ROLES, discordIntent,serverScope,unrelatedConversation,visibleAtAnchor,type HostFacts } from './discord-context.js';
+import { CREATOR_ID, MAX_CONTEXT_ROLES, discordIntent,discordHistoryIntent,serverScope,visibleAtAnchor,type HostFacts } from './discord-context.js';
 import { canRead } from './discord-tools.js';
 import { historyVisibleToViewers } from './discord-audience.js';
 import { CONTEXT_LIMITS, contextSnapshot, type ContextMessage, type ContextSnapshot } from './service/context-snapshot.js';
@@ -54,7 +54,7 @@ function captureMessage(message: Message, anchor: SnapshotAnchor, botId: string)
   };
 }
 
-const contextWords = /\b(?:this|that|these|those|they|above|earlier|here|chat|discussion|last message|just said)\b/i;
+const contextWords = /\b(?:this|that|these|those|they|above|earlier|here|chat|discussion|discussing|last message|just said)\b/i;
 const stopWords = new Set('what which where when would could should does have with about from help explain please some tell just give want need'.split(' '));
 function relevant(prompt: string, message: ContextMessage) {
   if (contextWords.test(prompt)) return true;
@@ -92,7 +92,7 @@ export async function captureDiscordState(guild: Guild | null, anchor: SnapshotA
   try {
     const initial = await access();
     if (!initial) return {host:{}};
-    if (!includeContext || standaloneWeb(anchor) || (!anchor.reference&&!anchor.hasAttachments&&unrelatedConversation(anchor.prompt))) return {host:moderatorFacts(initial.requester)};
+    if (!includeContext || standaloneWeb(anchor) || (!anchor.reference&&!anchor.hasAttachments&&!discordHistoryIntent(anchor.prompt))) return {host:moderatorFacts(initial.requester)};
     const {channel, bot} = initial;
     if(!await historyVisibleToViewers(channel))return {host:moderatorFacts(initial.requester)};
     const audience=await audienceDigest(channel);
