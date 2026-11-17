@@ -136,6 +136,9 @@ export async function orchestrate(turn:Turn):Promise<Result> {
     return !boundary.private||!['search','fetch'].includes(name);
   });
   const missingEvidence=()=>{
+    // A host-classified standalone turn has no retrieval capability or supplied
+    // private facts. Incidental profile words must not demand a forbidden tool.
+    if(io.toolAllowlist?.length===0)return undefined;
     const needed=discordIntent(job.prompt);
     if(needed&&!successful.has(needed))return needed;
     if(/\b(?:search (?:the )?web|search online|look (?:it|this) up online|browse the web)\b/i.test(job.prompt)&&!successful.has('search')&&!successful.has('fetch'))return 'search';

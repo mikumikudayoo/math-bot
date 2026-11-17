@@ -25,7 +25,8 @@ const ordinaryCases:{prompt:string;scope:RequestScope}[]=[
  ...['hi','who are you','w\u2060ho ar\u2060e you','do you know who am i','who am i?',
  'do you know me?','do you recognize me?','remember who i am?',"what's my name?",'who created you?',
  'tell me about yourself.','how are you?','can we talk?','what can you do?',
- 'Would you happen to remember me?','hey there, how have you been?'].map(prompt=>({prompt,scope:'conversation' as const})),
+ 'Would you happen to remember me?','hey there, how have you been?',
+ 'Would you still recognize the person messaging you if their nickname changed?'].map(prompt=>({prompt,scope:'conversation' as const})),
  ...['what is a polygon?','Why does water boil?','Explain photosynthesis in simple terms.',
  'What distinguishes an adjective from an adverb?','What is the role of a mitochondrion?'].map(prompt=>({prompt,scope:'general_knowledge' as const})),
 ];
@@ -39,6 +40,26 @@ for(const {prompt,scope} of ordinaryCases)test('standalone scope needs no protec
   answers++;assert.ok(!(params.tools as unknown[]|undefined)?.length);assert.ok(input.includes('\\"speakerIsCreator\\":true'));return response(answer(text));
  },{discord:async()=>{audiences++;return {type:'DISCORD_AUDIENCE_DATA',allowed:false}}});
  try{const result=await f.run();assert.equal(result.answer,text);assert.equal(scopeCalls,1);assert.equal(answers,1);assert.equal(audiences,0);assert.doesNotThrow(()=>guardPublication([problem],{...f.job,answer:result.answer},protectionVersion([problem])));}finally{f.close();}
+});
+test('a tool-free profile question may abstain without being forced into a Discord lookup',async()=>{
+ let audiences=0,answers=0;const text="i don't have your current nickname here.";
+ const f=fixture("what's my nickname?",async params=>{
+  if(offered(params,'classify_request_scope'))return scopeDecision('conversation');
+  answers++;assert.ok(!(params.tools as unknown[]|undefined)?.length);
+  const input=JSON.stringify(params.input);assert.ok(!input.includes('private-nickname-label'));
+  assert.ok(input.includes('Do not invent memories, a name, or identity'));
+  return response(answer(text));
+ },{discord:async()=>{audiences++;throw Error('must not retrieve')}},{user:'700000000000000001',metadata:{nickname:'private-nickname-label',displayName:'private-nickname-label'}});
+ try{assert.equal((await f.run()).answer,text);assert.equal(answers,1);assert.equal(audiences,0);}finally{f.close();}
+});
+test('a tool-capable profile lookup still requires verified Discord evidence',async()=>{
+ let answers=0;const f=fixture('Look up my Discord profile',async params=>{
+  if(offered(params,'classify_request_scope'))return scopeDecision('problem_or_uncertain');
+  if(offered(params,'classify_competition_request'))return decision('unrelated');
+  answers++;assert.ok(offered(params,'discord_member'));
+  return response(answer('fabricated-profile-claim'));
+ },{discord:async(_job,tool)=>{assert.equal(tool,'discord_audience');return {type:'DISCORD_AUDIENCE_DATA',allowed:true}}});
+ try{const result=await f.run();assert.match(result.answer,/couldn't verify/);assert.ok(!result.answer.includes('fabricated-profile-claim'));assert.equal(answers,2);}finally{f.close();}
 });
 test('absent conversation recall clarifies without fabricated history or protected references',async()=>{
  let scopes=0,answers=0,audiences=0;const f=fixture('what were we discussing?',async params=>{
