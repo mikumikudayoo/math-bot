@@ -10,7 +10,10 @@ function attachmentPath(url:string) { try { const u=new URL(url);return u.origin
 export function messageDigest(m:Message):string {
   // Discord may refresh signed CDN query parameters between requests.
   const attachments=[...(m.attachments?.values()??[])].map(a=>[a.id,a.size,a.contentType,attachmentPath(a.url)]);
-  return digest([m.guildId,m.channelId,m.id,m.author.id,m.author.username,m.author.globalName,m.member?.displayName,
+  // Message.member is resolved from the process-local guild cache. It may be
+  // absent after reconnecting even though the REST message and its author are
+  // unchanged. Bind evidence to REST message fields, not cached profile labels.
+  return digest([m.guildId,m.channelId,m.id,m.author.id,m.author.username,m.author.globalName,
     m.content,m.editedTimestamp??null,attachments]);
 }
 

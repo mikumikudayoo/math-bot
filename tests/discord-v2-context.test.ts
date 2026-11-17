@@ -135,6 +135,27 @@ test('witnesses retain verified content only: edits, deletions, permission widen
   const e=p.discordEvidence![0]!;
   assert.equal(mergeProvenance(p,{...p,discordEvidence:[{...e,digest:'a'.repeat(64)}]}).audienceUnknown,true);
 });
+test('member cache eviction and refill preserve unchanged evidence while edits and permission loss still withdraw it',async()=>{
+  for(const initiallyCached of [true,false]){
+    const f=fixture();f.main.publicAudience=false;
+    const source=f.message(8,'geometry from the same unchanged message');
+    if(!initiallyCached)Object.assign(source,{member:undefined});
+    const state=await captureDiscordState(f.guild,anchor,true);assert.ok(state.context);
+    const provenance=JSON.stringify(snapshotProvenance(state.context,gid));
+    const job={guild:gid,channel:cid,user,state:'completed',provenance} as Job;
+    assert.equal((await studyDeliveryPayload(f.client,job,'checked summary')).denied,undefined);
+    Object.assign(source,{member:initiallyCached?undefined:{displayName:'member label'}});
+    assert.equal((await studyDeliveryPayload(f.client,job,'checked summary')).denied,undefined);
+    source.content='the source text was edited';
+    assert.equal((await studyDeliveryPayload(f.client,job,'checked summary')).denied,true);
+    source.content='geometry from the same unchanged message';
+    source.author.username='a changed account name';
+    assert.equal((await studyDeliveryPayload(f.client,job,'checked summary')).denied,true);
+    source.author.username='account handle';f.main.readable=false;
+    assert.equal((await studyDeliveryPayload(f.client,job,'checked summary')).denied,true);
+  }
+});
+
 test('private thread roster changes withdraw earlier snapshots and parent history denies prevent re-publication',async()=>{
   const f=fixture(),parent=f.main,thread=f.channel('711111111111111111');
   const joined=new Set([bot,user,...Array.from({length:101},(_,i)=>String(900111111111111100n+BigInt(i)))]);
