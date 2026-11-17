@@ -135,3 +135,12 @@ test('creator username is never invented from lore when current account metadata
  },{}, {metadata:{username:'new-account-name',displayName:'untrusted label'}});
  try{assert.match((await f.run()).answer,/don't have/);}finally{f.close();}
 });
+
+test('tool-capable turns keep untrusted profile prose outside system instructions',async()=>{
+ const f=fixture('explain a general topic',async params=>{
+  const input=params.input as {role?:string;content?:unknown}[];
+  for(const message of input.filter(m=>m.role==='system'))assert.ok(!JSON.stringify(message).includes('untrusted role-bearing label')&&!JSON.stringify(message).includes('math club'));
+  return response(answer('an ordinary explanation.'));
+ },{protectedProblems:()=>[]});
+ try{assert.equal((await f.run()).answer,'an ordinary explanation.');}finally{f.close();}
+});

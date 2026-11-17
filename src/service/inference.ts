@@ -233,7 +233,7 @@ export function runner(config:ServiceConfig,store:Store,dependencies:Partial<Inf
         if(/^[\d\s()+*/.^%=-]+$/.test(job.prompt)&&/\d/.test(job.prompt))return io.mathTool(config,{expression:job.prompt},signal);
       }
       const messages:import('./openai.js').ChatMessage[]=[{role:'system',content:ALEPH_ORCHESTRATOR_PROMPT},
-        {role:'system',content:speakerInstruction+(simpleConversation?'\nThis is a standalone conversation or general knowledge request. No prior conversation or other personal facts have been supplied. Do not invent memories, a name, or identity from the request. No research or computation tools are authorized for this scope.':'')},
+        {role:'system',content:simpleConversation?speakerInstruction+'\nThis is a standalone conversation or general knowledge request. No prior conversation or other personal facts have been supplied. Do not invent memories, a name, or identity from the request. No research or computation tools are authorized for this scope.':JSON.stringify({speakerIsCreator:speaker.speakerIsCreator,speakerIsModerator:speaker.speakerIsModerator,creatorName:'emu'})},
         {role:'user',content:JSON.stringify({type:'UNTRUSTED_PROFILE_LABELS',displayName:requester.isCreator?'emu':requester.displayName&&requester.displayName!==requester.username?requester.displayName:null,roles:requester.roles})}];
       for(const row of history)messages.push({role:'user',content:row.prompt.slice(0,2000)},{role:'assistant',content:row.answer.slice(0,3000)});
       if(snapshot)messages.push({role:'user',content:renderContext(snapshot)});
