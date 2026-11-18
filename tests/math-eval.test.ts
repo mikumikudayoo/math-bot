@@ -89,7 +89,7 @@ test('problems.json schema', () => {
 
 const mockEnv = {OPENAI_API_KEY: 'sk-test' + 'x'.repeat(32)};
 const simple = {...loadProblems()[0]!, prompt: 'Find the positive solution and explain your reasoning. Three times a number plus seven equals twenty-five.'};
-const response = (output: unknown[]) => ({status: 'completed', output, usage: {input_tokens: 120, output_tokens: 30, output_tokens_details: {reasoning_tokens: 11}}});
+const response = (output: unknown[]) => ({status: 'completed', service_tier:'default', output, usage: {input_tokens: 120, output_tokens: 30, output_tokens_details: {reasoning_tokens: 11}}});
 const reply = (text: string) => response([{type: 'message', content: [{type: 'output_text', text}]}]);
 
 test('live evaluation requires an explicit small cap and key; invalid filters fail before inference', async () => {
@@ -144,7 +144,7 @@ test('consultation success reflects a usable conclusion independently of token m
     create: async params => {
       if (params.model === 'gpt-6.1-terra') return reply('I was unable to conclude.');
       if (params.model === 'gpt-6.2-sol') {
-        return {status: 'completed', output: reply('FINAL: 6').output};
+        return {status: 'completed', service_tier:'default', output: reply('FINAL: 6').output};
       }
       const input = params.input as {type?: string}[];
       if (input.some(item => item.type === 'function_call_output')) return reply('answer: 6');

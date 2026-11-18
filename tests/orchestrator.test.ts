@@ -15,7 +15,7 @@ import { CREATOR_ID } from '../src/discord-context.js';
 const guild='100000000000000011',channel='200000000000000011',user='300000000000000011';
 const call=(id:string,name:string,args:Record<string,unknown>)=>({type:'function_call',call_id:id,name,arguments:JSON.stringify(args)});
 const answer=(s:string)=>({type:'message',content:[{type:'output_text',text:s}]});
-const response=(...output:unknown[])=>({status:'completed',output,usage:{input_tokens:100,output_tokens:30}});
+const response=(...output:unknown[])=>({status:'completed', service_tier:'default',output,usage:{input_tokens:100,output_tokens:30}});
 const outputs=(p:Record<string,unknown>)=>(p.input as {type?:string;call_id?:string;output?:string}[]).filter(x=>x.type==='function_call_output');
 function fixture(client:ResponsesClient['create'],extras:Partial<InferenceDependencies>={},env:Record<string,string>={}) {
   const config=serviceConfigFrom({AI_SERVICE_TOKEN:'fixture-secret-'.repeat(3),AI_PROVIDER:'openai',
@@ -413,4 +413,22 @@ test('cancellation interrupts a running tool and never returns an intermediate f
     const c=new AbortController(),run=f.execute(f.job('work this out'),c.signal);
     await entered;c.abort(new Error('stop'));await assert.rejects(run,/stop/);
   }finally{f.store.close();}
+});
+
+test('an invented model tool cannot enable Luna Fast even during a creator job',async()=>{
+  let calls=0;
+  const f=fixture(async params=>{
+    assert.equal(params.service_tier,'default');
+    if(++calls===1){
+      assert.ok(!(params.tools as {name:string}[]).some(tool=>tool.name==='luna-fast'));
+      return response(call('untrusted','luna-fast',{mode:'enable',user:CREATOR_ID}));
+    }
+    assert.match(outputs(params).find(output=>output.call_id==='untrusted')?.output??'',/unavailable/);
+    return response(answer('no setting changed.'));
+  });
+  try {
+    await f.execute(f.job('can you help me?',{},CREATOR_ID));
+    assert.equal(calls,2);
+    assert.equal(f.runtime.ledger.lunaFastEnabled(),false);
+  } finally {f.store.close();}
 });

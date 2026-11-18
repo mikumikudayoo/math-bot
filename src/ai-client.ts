@@ -1,11 +1,11 @@
 import { loadConfig } from './config.js';
 import {publicReply} from './public-reply.js';
 export class ServiceError extends Error {constructor(message:string){super(publicReply(message));}}
-export async function service<T>(path:string,body?:unknown):Promise<T> {
+export async function service<T>(path:string,body?:unknown,controlToken?:string):Promise<T> {
   const config=loadConfig();
   if(!config.serviceToken)throw new ServiceError('AI service is not set up yet. Run bun run setup:local.');
   let response:Response;
-  try{response=await fetch(`${config.serviceURL}${path}`,{method:body===undefined?'GET':'POST',headers:{Authorization:`Bearer ${config.serviceToken}`,'Content-Type':'application/json'},
+  try{response=await fetch(`${config.serviceURL}${path}`,{method:body===undefined?'GET':'POST',headers:{Authorization:`Bearer ${config.serviceToken}`,'Content-Type':'application/json',...(controlToken?{'X-Luna-Fast-Token':controlToken}:{})},
     ...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(10000),redirect:'error'});}
   catch{throw new ServiceError('The study service is offline. Please try again shortly.');}
   const result=await response.json() as T & {error?:string};

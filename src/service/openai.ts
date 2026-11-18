@@ -284,12 +284,13 @@ export class OpenAIRuntime {
         signal.throwIfAborted();
         await request.beforeAttempt?.(signal);
         signal.throwIfAborted();
+        const serviceTier = request.role === 'luna' && model === 'gpt-6-luna' && this.ledger.lunaFastEnabled() ? 'fast' : 'default';
         const reservation = this.ledger.reserve({job: request.job.id, user: request.job.user, model, effort: request.effort,
-          tier: request.purpose, inputTokens, maxOutputTokens});
+          tier: request.purpose, serviceTier, inputTokens, maxOutputTokens});
         const started = Date.now();
         let raw: unknown;
         try {
-          raw = await this.client.create(params, {signal, timeout: this.config.timeoutMs});
+          raw = await this.client.create({...params, service_tier:serviceTier}, {signal, timeout: this.config.timeoutMs});
           if (isStream(raw)) raw = await this.consume(raw, request);
         } catch (error) {
           const failure = classifyOpenAIError(error, signal);
@@ -304,7 +305,12 @@ export class OpenAIRuntime {
           throw failure;
         }
         const usage = extractUsage(raw);
-        this.ledger.settle(reservation.id, {usage, status: usage ? 'ok' : 'unmetered', latencyMs: Date.now() - started});
+        const observed = (raw as {service_tier?: unknown})?.service_tier;
+        const actualServiceTier = observed === 'priority' || observed === 'fast' ? 'fast' : observed === 'default' ? 'default' : undefined;
+        this.ledger.settle(reservation.id, {usage, actualServiceTier, status: usage ? 'ok' : 'unmetered', latencyMs: Date.now() - started});
+        if (actualServiceTier !== serviceTier) console.warn('openai_service_tier_mismatch', {
+          model, purpose:request.purpose, requested:serviceTier, actual:actualServiceTier ?? 'unknown',
+        });
         // GPT-6.2+ drops replayed reasoning items on prefix, end-user or model mismatch and says so
         // here. Log only the fixed reason codes, so silent reasoning loss is visible to operators.
         const transforms = (raw as {input_transformations?: unknown})?.input_transformations;

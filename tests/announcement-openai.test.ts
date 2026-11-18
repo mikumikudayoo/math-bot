@@ -34,7 +34,7 @@ const modelOutput = {disposition: 'public', dispositionReason: null, correction:
     type: 'training-session', slot: '1', start, end, deadline: null, timezone: 'Asia/Manila', timezoneAssumed: false, url: null,
     detailLabel: null, dateHint: null, status: 'active', availability: null, temporal: {start: time(start), end: time(end), deadline: null}, logistics: null},
     confidence: 'high', issues: [], evidenceIds: ['body'], correctionPatch: null, fieldEvidence: null}], issues: []};
-const response = (value: unknown, status = 'completed') => ({status,
+const response = (value: unknown, status = 'completed') => ({status, service_tier:'default',
   output: [{type: 'message', content: [{type: 'output_text', text: JSON.stringify(value)}]}],
   usage: {input_tokens: 500, output_tokens: 200, output_tokens_details: {reasoning_tokens: 70}}});
 const noLegacy: typeof fetch = Object.assign(async () => { throw new Error('unexpected legacy fetch'); }, {preconnect:fetch.preconnect});

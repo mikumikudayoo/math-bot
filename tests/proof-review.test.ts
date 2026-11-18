@@ -86,7 +86,7 @@ test('review parsing is strict: malformed or contradictory output is never a pas
 // ---------------------------------------------------------------------------
 // Orchestrator integration with a mocked provider.
 // ---------------------------------------------------------------------------
-const response=(...output:unknown[])=>({status:'completed',output,usage:{input_tokens:200,output_tokens:60}});
+const response=(...output:unknown[])=>({status:'completed', service_tier:'default',output,usage:{input_tokens:200,output_tokens:60}});
 const text=(value:string)=>({type:'message',content:[{type:'output_text',text:value}]});
 const call=(name:string,args:unknown)=>({type:'function_call',call_id:'c-'+name,name,arguments:JSON.stringify(args)});
 const offered=(params:Record<string,unknown>,name:string)=>(params.tools as {name:string}[]|undefined)?.some(t=>t.name===name)??false;

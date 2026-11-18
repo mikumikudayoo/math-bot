@@ -131,12 +131,12 @@ test('invisible characters no longer hide a proof request or a model demand',()=
 // ---------------------------------------------------------------------------
 // 5. runner level (OpenAI path): routing, screening calls, and the time layer end to end
 // ---------------------------------------------------------------------------
-const response=(...output:unknown[])=>({status:'completed',output,usage:{input_tokens:100,output_tokens:30}});
+const response=(...output:unknown[])=>({status:'completed', service_tier:'default',output,usage:{input_tokens:100,output_tokens:30}});
 const text=(value:string)=>({type:'message',content:[{type:'output_text',text:value}]});
 const call=(name:string,args:unknown,id='c1')=>({type:'function_call',call_id:id,name,arguments:JSON.stringify(args)});
 const offered=(params:Record<string,unknown>,name:string)=>(params.tools as {name:string}[]|undefined)?.some(t=>t.name===name)??false;
 interface Seen {scope:number;screens:number;luna:string[];screenInputs:string[];searches:string[]}
-function standalone(prompt:string,opts:{scope?:string;verdict?:string;luna?:(i:number)=>unknown;problems?:ProtectedProblem[];now?:()=>number}={}){
+function standalone(prompt:string,opts:{scope?:string;verdict?:string;luna?:(i:number)=>unknown; mathTool?:InferenceDependencies['mathTool']; problems?:ProtectedProblem[];now?:()=>number}={}){
   const seen:Seen={scope:0,screens:0,luna:[],screenInputs:[],searches:[]};
   const create:ResponsesClient['create']=async params=>{
     const input=JSON.stringify(params);
@@ -151,6 +151,7 @@ function standalone(prompt:string,opts:{scope?:string;verdict?:string;luna?:(i:n
   const deps:Partial<InferenceDependencies>={openai:new OpenAIRuntime(config.openai!,store.db,{create},{backoffMs:()=>0}),
     protectedProblems:()=>opts.problems??[mpotd],random:()=>1,screeningLog:e=>events.push(e),
     discord:async(_j,tool)=>tool==='competition_reference'?{type:'COMPETITION_REFERENCE_DATA',allowed:true}:{type:'DISCORD_AUDIENCE_DATA',allowed:false},
+    ...(opts.mathTool?{mathTool:opts.mathTool}:{}),
     search:async(_c,q)=>{seen.searches.push(q);return GTA_RESULTS as never;},now:opts.now??(()=>Date.parse('2026-11-18T05:11:50Z'))};
   const run=runner(config,store,deps);
   return {seen,events,run:()=>run(job,AbortSignal.timeout(5000),()=>{}),close:()=>{installOpenAIRuntime(undefined);store.close();}};
@@ -206,7 +207,7 @@ test('a near-identical substitute is refused in character before Luna runs',asyn
   try{
     await assert.rejects(h.run(),(e:unknown)=>e instanceof ScreeningFailure&&e.category==='classifier_near_identical'&&(confirmedRefusals as readonly string[]).includes(e.message));
     assert.equal(h.seen.luna.length,0);assert.equal(h.seen.scope,0,'obvious exercise: no scope call');
-    assert.deepEqual(h.events.map(e=>[e.stage,e.category]),[['semantic','classifier_near_identical']]);
+    assert.deepEqual(h.events.map(e=>[e.stage,e.category]),[['semantic-context','classifier_near_identical']]);
   }finally{h.close();}
 });
 test('same-topic material is answered; uncertain stays a neutral fail-closed refusal',async()=>{
@@ -228,4 +229,29 @@ test('a disguised exact request routed as general knowledge is still caught by t
 test('embargo state: with no active problem there is no scope call and no screening',async()=>{
   const h=standalone('how many days until gta 6',{problems:[],luna:gtaLuna});
   try{await h.run();assert.equal(h.seen.scope,0);assert.equal(h.seen.screens,0);assert.equal(h.seen.searches.length,1);}finally{h.close();}
+});
+
+test('Manila calendar arithmetic keeps its meaning across request and derived screens',async()=>{
+  const prompt="what's the exact date and weekday in manila right now, and what date will it be 100 days from today? show how you handled leap years.";
+  const h=standalone(prompt,{scope:'problem_or_uncertain',mathTool:async()=>({answer:'100'}),luna:i=>i===1?response(call('calculate',{expression:'12 + 31 + 31 + 26'})):response(text('Wednesday, November 18, 2026 in Manila. Add 12 + 31 + 31 + 26 = 100 days to reach Friday, February 26, 2027. The interval never reaches the last day of February.'))});
+  try {
+    const result=await h.run();
+    assert.match(result.answer,/February 26, 2027/);
+    assert.equal(h.seen.luna.length,2);
+    assert.ok(h.seen.screens>=3);
+    assert.ok(h.seen.screenInputs.some(s=>s.includes('originalRequest')&&s.includes('100 days from today')&&s.includes('February 26')));
+    assert.ok(h.seen.screenInputs.every(s=>s.includes('structure-preserving correspondence')));
+    assert.deepEqual(h.events,[]);
+  } finally {h.close();}
+});
+
+test('an unrelated calendar request cannot authorize protected calculator output',async()=>{
+  const h=standalone('what date will it be 100 days from now?',{
+    scope:'problem_or_uncertain',mathTool:async()=>({answer:mpotd.question}),
+    luna:()=>response(call('calculate',{expression:'40 + 60'}))
+  });
+  try {
+    await assert.rejects(h.run(),(e:unknown)=>e instanceof ScreeningFailure&&e.category==='lexical_match');
+    assert.equal(h.seen.luna.length,1,'protected content never enters the answer continuation');
+  } finally {h.close();}
 });

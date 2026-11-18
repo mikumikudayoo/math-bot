@@ -51,7 +51,7 @@ export function serviceConfigFrom(env:NodeJS.ProcessEnv,mode:string,inherited:No
   }
   const sandboxRuntime=(env.PYTHON_SANDBOX_RUNTIME ?? 'docker') as 'docker'|'podman';
   if(!['docker','podman'].includes(sandboxRuntime))throw new Error('PYTHON_SANDBOX_RUNTIME must be docker or podman.');
-  const resolved={ ...(visionProvider?{visionProvider:visionProvider as ProviderConfig}:{}),...(external?{external}:{}),...(openai?{openai}:{}),...(exclusive?{kind:'openai' as const}:{}),...(!exclusive&&env.COGNITIVE_ROUTING==='true'?{cognitiveRouting:true}:{}),mode, secret, port:integer('AI_PORT',8787,1024,65535), database:env.AI_DATABASE ?? `data/${mode}.sqlite`,
+  const resolved={ ...(visionProvider?{visionProvider:visionProvider as ProviderConfig}:{}),...(external?{external}:{}),...(openai?{openai}:{}),...(exclusive?{kind:'openai' as const}:{}),...(!exclusive&&env.COGNITIVE_ROUTING==='true'?{cognitiveRouting:true}:{}),mode, secret, lunaFastToken: env.AI_LUNA_FAST_TOKEN?.trim() || '', port:integer('AI_PORT',8787,1024,65535), database:env.AI_DATABASE ?? `data/${mode}.sqlite`,
     concurrency:integer('AI_CONCURRENCY',openai?3:1,1,16),reserved:integer('COACH_RESERVED_SLOTS',0,0,15),borrow:env.COACH_BORROW_RESERVED === 'true',
     timeoutMs:integer('AI_TIMEOUT_SECONDS',600,10,3600)*1000,maxQueue:integer('AI_MAX_QUEUE',50,1,500),
     backend,model:exclusive?openai!.models.luna:env.INFERENCE_MODEL ?? '',backendKey:exclusive?'':env.INFERENCE_API_KEY ?? '',vision:exclusive||env.INFERENCE_VISION === 'true',
@@ -64,4 +64,4 @@ export function serviceConfigFrom(env:NodeJS.ProcessEnv,mode:string,inherited:No
   return resolved as typeof resolved & {visionProvider?:ProviderConfig};
 }
 type ResolvedServiceConfig = ReturnType<typeof serviceConfigFrom>;
-export type ServiceConfig = Omit<ResolvedServiceConfig,'sandboxRuntime'> & {sandboxRuntime?:'docker'|'podman'};
+export type ServiceConfig = Omit<ResolvedServiceConfig,'sandboxRuntime'|'lunaFastToken'> & {sandboxRuntime?:'docker'|'podman'; lunaFastToken?:string};

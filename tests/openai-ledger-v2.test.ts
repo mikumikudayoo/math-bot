@@ -61,7 +61,7 @@ test('provider receipts settle cache writes by their reported retention and reta
   let breakdown: typeof ttl | undefined = ttl;
   try {
     const runtime = new OpenAIRuntime(settings, db, {create: async () => ({
-      status: 'completed', output: [], usage: {input_tokens: 100, output_tokens: 10,
+      status: 'completed', service_tier:'default', output: [], usage: {input_tokens: 100, output_tokens: 10,
         input_tokens_details: {cached_tokens: 10, cache_write_tokens: 28, cache_write_tokens_details: breakdown},
         output_tokens_details: {reasoning_tokens: 9}},
     })});
@@ -87,7 +87,7 @@ test('the input limit counts textual data URLs and output schemas while images r
   try {
     const runtime = new OpenAIRuntime({...settings,maxInputChars:1000}, db, {create:async () => {
       calls++;
-      return {status:'completed',output:[],usage:{input_tokens:1,output_tokens:1}};
+      return {status:'completed', service_tier:'default',output:[],usage:{input_tokens:1,output_tokens:1}};
     }});
     const request: OpenAIRequest = {messages:[{role:'user',content:url}],role:'luna',effort:'low',purpose:'test',
       job:{id:'input-limit',user:'system'},maxOutputTokens:10};

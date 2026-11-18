@@ -9,7 +9,7 @@ import {parseOpenAIConfig} from '../src/service/openai-config.js';
 const key='sk-test'+'x'.repeat(30);
 const env={AI_SERVICE_TOKEN:'x'.repeat(40),AI_PROVIDER:'openai',OPENAI_API_KEY:key,AI_DATABASE:':memory:',
   INFERENCE_BASE_URL:'http://localhost:9999/v1',INFERENCE_MODEL:'phi',EXTERNAL_INFERENCE_PROVIDER:'groq',GROQ_API_KEY:'gsk-legacy',COGNITIVE_ROUTING:'true'};
-const reply=(text:string)=>({status:'completed',output:[{type:'message',content:[{type:'output_text',text}]}],usage:{input_tokens:100,output_tokens:10,output_tokens_details:{reasoning_tokens:4}}});
+const reply=(text:string)=>({status:'completed', service_tier:'default',output:[{type:'message',content:[{type:'output_text',text}]}],usage:{input_tokens:100,output_tokens:10,output_tokens_details:{reasoning_tokens:4}}});
 const route=async()=>({reasoning:'fast',knowledge:'internal',tool:'none'}) as never;
 const legacy=async():Promise<Response>=>{throw new Error('legacy provider must not be called');};
 

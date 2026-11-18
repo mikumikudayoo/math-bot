@@ -12,7 +12,7 @@ const key='sk-test-'+'x'.repeat(30);
 const cases=JSON.parse(readFileSync('evals/verity/cases.json','utf8')) as {question:string;expected:string|null;normalAnswerIncludes?:string[]}[];
 const usage={input_tokens:120,output_tokens:29,output_tokens_details:{reasoning_tokens:9}};
 const message=(text:string)=>({type:'message',content:[{type:'output_text',text}]});
-const response=(...output:unknown[])=>({status:'completed',output,usage});
+const response=(...output:unknown[])=>({status:'completed', service_tier:'default',output,usage});
 const start=Date.UTC(2030,0,2);
 const temporal=(ms:number)=>({precision:'exact',expression:new Date(ms).toISOString(),sourceTime:null});
 const extraction={disposition:'public',dispositionReason:null,correction:false,

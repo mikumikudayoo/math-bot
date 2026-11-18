@@ -24,6 +24,7 @@ export function parseConfig(env: NodeJS.ProcessEnv, mode: string) {
     guildId: mode === 'development' ? snowflake('DISCORD_GUILD_ID') : undefined,
     serviceURL: env.AI_SERVICE_URL?.trim() || 'http://127.0.0.1:8787',
     serviceToken: env.AI_SERVICE_TOKEN?.trim() || '',
+    lunaFastToken: env.AI_LUNA_FAST_TOKEN?.trim() || '',
     messageFeatures: env.MESSAGE_FEATURES_ENABLED === 'true',
     aiTesterUserIds,
     coachRoles: (env.COACH_ROLE_IDS ?? '').split(',').map(x=>x.trim()).filter(Boolean),

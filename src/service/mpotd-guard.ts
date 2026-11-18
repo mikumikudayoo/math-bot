@@ -246,6 +246,7 @@ near_identical: a substitute with the same structure and method but changed numb
 same_topic: shares only a general area, concept or technique (a definition, a different problem type, a textbook exercise that would not materially help solve a reference).
 unrelated: no mathematical relationship to any reference, including ordinary questions that merely contain numbers, dates, titles, versions or prices.
 uncertain: the relationship cannot be verified (unreadable, too vague, deictic, or a reference depends on a missing figure or choices).
+Before selecting exact, identify the same defining relation, constraints, and objective in the candidate, or a fragment that specifically identifies the posted problem. A task unrelated to a reference can still involve numbers and precise arithmetic. Calendar offsets, weekday calculations, elapsed durations, timestamps and leap-year rules do not match a numerical reference merely because its integers or divisibility terms occur in the candidate. Apply the same principle to prices, version numbers, units, and generic arithmetic. For equivalent or near_identical, require a structure-preserving correspondence; sharing a numeric token, operation, formula fragment or broad technique is insufficient. For a derived candidate, use the original request to disambiguate what its numbers and operations mean, but always check the candidate itself for protected content. If a match cannot be verified and a plausible specific correspondence remains, use uncertain.
 Do not solve anything, explain, or reproduce a reference. Return only the requested tool call.`;
 /** Isolated classifier output. The HOST maps each value to allow/deny (verdictOutcome); the model never decides. */
 const decisionValues = ['exact','equivalent','near_identical','same_topic','unrelated','uncertain'];
@@ -328,8 +329,10 @@ async function classify(complete: GuardCompletion, messages: ChatMessage[], tool
   try { return parseModelResponse(raw); }
   catch { throw blocked('classifier_response_malformed'); }
 }
+export type SemanticStage = 'semantic-context' | 'semantic-tool-arguments' | 'semantic-tool-result' | 'semantic-review' | 'semantic-final';
+
 /** Use before tools/shortcuts so translations and paraphrases need not share literals or numbers. */
-export async function guardSemanticRequest(problems: readonly ProtectedProblem[], text: string, complete: GuardCompletion, authorize?: AuthorizeReferences) {
+export async function guardSemanticRequest(problems: readonly ProtectedProblem[], text: string, complete: GuardCompletion, authorize?: AuthorizeReferences, originalRequest?: string) {
   guardRequest(problems,text);
   if (!problems.length || !text.trim() || unrelatedConversation(text) || socialOnly.test(text.trim()) || policyOnly.test(text.trim())) return;
   const tool: ChatTool = {type:'function',function:{name:'classify_competition_request',parameters:{type:'object',additionalProperties:false,
@@ -337,7 +340,7 @@ export async function guardSemanticRequest(problems: readonly ProtectedProblem[]
   const references = await referenceContent(problems,authorize);
   const reply = await classify(complete,[{role:'system',content:compareInstruction},
     {role:'user',content:[{type:'text',text:'Already-posted reference problems:'},...references]},
-    {role:'user',content:JSON.stringify({request:text})}],tool);
+    {role:'user',content:JSON.stringify(originalRequest === undefined ? {request:text} : {request:text,originalRequest})}],tool);
   const calls = reply.tool_calls ?? [];
   if (calls.length !== 1 || calls[0]!.function.name !== tool.function.name) throw blocked('classifier_response_malformed');
   let assessment: unknown;

@@ -18,6 +18,7 @@ import { JobEvents } from './events.js';
 import { rowProvenance } from './provenance.js';
 import { contextSnapshot } from './context-snapshot.js';
 import { loadProtectedProblems, protectedDatabasePath, guardPublication, isRefusal, type ProtectedProblem } from './mpotd-guard.js';
+import { canControlLunaFast, lunaFastMode } from '../luna-fast-control.js';
 import { stripInvisible } from './invisible.js';
 
 function text(value:unknown,name:string,max=100):string {
@@ -78,6 +79,22 @@ export function createService(config:ServiceConfig, injected?:Runner, protectedP
       const chunks:Buffer[]=[];let bytes=0;for await(const chunk of req){bytes+=chunk.length;if(bytes>maxBytes)throw new UserError('Request too large.');chunks.push(chunk);}
       const body=JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string,unknown>;
       switch(url.pathname){
+        case '/luna-fast': {
+          const capability = req.headers['x-luna-fast-token'];
+          const token = config.lunaFastToken ?? '';
+          if (token === config.secret || typeof capability !== 'string' || !canControlLunaFast(token, capability)) {
+            send(403, {error:'Creator control authorization required.'});
+            break;
+          }
+          if (!ledger || config.openai?.models.luna !== 'gpt-6-luna') {
+            send(409, {error:'GPT-6 Luna is not configured.'});
+            break;
+          }
+          if (!lunaFastMode(body.mode)) throw new UserError('Invalid Luna Fast mode.');
+          if (body.mode !== 'status') ledger.setLunaFast(body.mode === 'enable');
+          send(200, {enabled:ledger.lunaFastEnabled()});
+          break;
+        }
         case '/discord-tools':send(200,{ok:discord.finish(text(body.id,'id'),body.result)});break;
         case '/jobs':{
           const kind=text(body.kind,'kind') as JobKind;

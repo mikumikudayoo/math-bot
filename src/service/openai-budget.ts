@@ -1,3 +1,4 @@
+import type { ServiceTier } from '../luna-fast-control.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { LONG_CONTEXT_TOKENS, PRICING_SOURCE, type ModelSpec, type OpenAIConfig, type ReasoningEffort, type RequestClass } from './openai-config.js';
 import { UserError } from './types.js';
@@ -21,7 +22,7 @@ function validUsage(u: Usage): boolean {
   return [u.inputTokens,u.outputTokens,u.cachedTokens,u.reasoningTokens,short,long].every(n=>Number.isSafeInteger(n)&&n>=0)
     && u.cachedTokens+short+long<=u.inputTokens && u.reasoningTokens<=u.outputTokens;
 }
-export function costMicros(spec: ModelSpec, usage: Usage): number {
+export function costMicros(spec: ModelSpec, usage: Usage, multiplier = 1): number {
   if (!validUsage(usage)) throw new BudgetError('Invalid provider usage.', 'pricing');
   const long = usage.inputTokens > LONG_CONTEXT_TOKENS;
   const cached = Math.min(usage.cachedTokens, usage.inputTokens);
@@ -29,13 +30,16 @@ export function costMicros(spec: ModelSpec, usage: Usage): number {
   const fresh = usage.inputTokens - cached - shortWrites - longWrites;
   const inputCost = (fresh + shortWrites * 1.25 + longWrites * 2.5) * spec.input + cached * spec.cachedInput;
   // Prices are USD per million tokens, hence tokens * price gives microdollars.
-  return Math.ceil(inputCost * (long ? 2 : 1) + usage.outputTokens * spec.output * (long ? 1.5 : 1));
+  return Math.ceil((inputCost * (long ? 2 : 1) + usage.outputTokens * spec.output * (long ? 1.5 : 1)) * multiplier);
 }
 
 /** Estimate text and image inputs before the provider returns its measured usage. */
 export function estimateInputTokens(chars: number, images: number) {
   return Math.ceil(chars / 3) + images * 1600;
 }
+
+// https://developers.openai.com/api/docs/models/gpt-6-luna
+const tierMultiplier = (model: string, tier: ServiceTier) => model === 'gpt-6-luna' && tier === 'fast' ? 2 : 1;
 
 const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const CLASS_RANK: RequestClass[] = ['system', 'ordinary', 'terra', 'sol', 'both', 'seven'];
@@ -52,13 +56,22 @@ export class UsageLedger {
         reasoning_tokens INTEGER NOT NULL DEFAULT 0, cost_micros INTEGER NOT NULL, latency_ms INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '');
       CREATE INDEX IF NOT EXISTS openai_usage_day ON openai_usage(day);
       CREATE INDEX IF NOT EXISTS openai_usage_job ON openai_usage(job);
+      CREATE TABLE IF NOT EXISTS luna_runtime(id INTEGER PRIMARY KEY CHECK(id=1), fast INTEGER NOT NULL CHECK(fast IN (0,1)));
       CREATE TABLE IF NOT EXISTS search_usage(request TEXT PRIMARY KEY, job TEXT NOT NULL, day TEXT NOT NULL, credits INTEGER NOT NULL);`);
     this.transaction(() => {
       const columns = new Set(db.prepare('PRAGMA table_info(openai_usage)').all().map(row => String(row.name)));
-      for (const field of ['write_30m_tokens', 'write_12h_tokens']) {
-        if (!columns.has(field)) db.exec(`ALTER TABLE openai_usage ADD COLUMN ${field} INTEGER NOT NULL DEFAULT 0`);
+      for (const field of ['write_30m_tokens', 'write_12h_tokens', 'requested_service_tier', 'actual_service_tier']) {
+        if (!columns.has(field)) db.exec(`ALTER TABLE openai_usage ADD COLUMN ${field} ${field.endsWith('_tier') ? 'TEXT' : 'INTEGER NOT NULL DEFAULT 0'}`);
       }
     });
+  }
+
+  lunaFastEnabled(): boolean {
+    return this.db.prepare('SELECT fast FROM luna_runtime WHERE id=1').get()?.fast === 1;
+  }
+
+  setLunaFast(enabled: boolean) {
+    this.db.prepare('INSERT INTO luna_runtime(id,fast) VALUES (1,?) ON CONFLICT(id) DO UPDATE SET fast=excluded.fast').run(enabled ? 1 : 0);
   }
 
   private transaction<T>(fn: () => T): T {
@@ -120,7 +133,7 @@ export class UsageLedger {
   jobRemainingUsd(job: string) { return Math.max(0, this.config.requestBudgetUsd[this.requestClass(job)] - this.jobSpentMicros(job) / MICROS); }
 
   /** Atomically reserves the worst-case cost of one API call against request, daily and total ceilings. */
-  reserve(input: {job: string; user: string; model: string; effort: ReasoningEffort; tier: string; inputTokens: number; maxOutputTokens: number}): {id: number; worst: number} {
+  reserve(input: {job: string; user: string; model: string; effort: ReasoningEffort; tier: string; serviceTier?: ServiceTier; inputTokens: number; maxOutputTokens: number}): {id: number; worst: number} {
     const spec = this.config.pricing[input.model];
     if (!spec) throw new BudgetError("i'm paused: that model has no configured pricing.", 'pricing');
     if (![input.inputTokens, input.maxOutputTokens].every(n => Number.isSafeInteger(n) && n >= 0))
@@ -128,7 +141,7 @@ export class UsageLedger {
     // The reservation covers every input token at the more expensive of a 12h write and a cache read.
     const expensiveReads = spec.cachedInput > 2.5 * spec.input;
     const worst = costMicros(spec, {inputTokens: input.inputTokens, cachedTokens: expensiveReads ? input.inputTokens : 0,
-      write12hTokens: expensiveReads ? 0 : input.inputTokens, outputTokens: input.maxOutputTokens, reasoningTokens: 0});
+      write12hTokens: expensiveReads ? 0 : input.inputTokens, outputTokens: input.maxOutputTokens, reasoningTokens: 0}, tierMultiplier(input.model,input.serviceTier ?? 'default'));
     return this.transaction(() => {
       const now = this.now(), day = utcDay(now);
       const owner = this.db.prepare('SELECT class,user FROM ai_requests WHERE job=?').get(input.job);
@@ -141,8 +154,8 @@ export class UsageLedger {
         throw new BudgetError("today's budget for my brain is used up. try again tomorrow (UTC).", 'daily');
       if (this.spent() + worst > Math.floor(this.config.totalBudgetUsd * MICROS))
         throw new BudgetError('my budget is used up. emu or a moderator needs to raise it.', 'total');
-      const result = this.db.prepare(`INSERT INTO openai_usage(job,user,day,created,model,effort,tier,status,cost_micros)
-        VALUES(?,?,?,?,?,?,?,'reserved',?)`).run(input.job, input.user, day, now, input.model, input.effort, input.tier, worst);
+      const result = this.db.prepare(`INSERT INTO openai_usage(job,user,day,created,model,effort,tier,status,cost_micros,requested_service_tier)
+        VALUES(?,?,?,?,?,?,?,'reserved',?,?)`).run(input.job, input.user, day, now, input.model, input.effort, input.tier, worst, input.serviceTier ?? null);
       return {id: Number(result.lastInsertRowid), worst};
     });
   }
@@ -152,21 +165,25 @@ export class UsageLedger {
    * (an HTTP error response) releases it; anything uncertain (timeout, abort,
    * connection loss) keeps the worst-case estimate.
    */
-  settle(id: number, outcome: {usage?: Usage | undefined; status: string; latencyMs: number; error?: string; billed?: boolean | undefined}) {
-    const row = this.db.prepare("SELECT model FROM openai_usage WHERE id=? AND status='reserved'").get(id) as {model: string} | undefined;
+  settle(id: number, outcome: {usage?: Usage | undefined; actualServiceTier?: ServiceTier | undefined; status: string; latencyMs: number; error?: string; billed?: boolean | undefined}) {
+    const row = this.db.prepare("SELECT model,requested_service_tier FROM openai_usage WHERE id=? AND status='reserved'").get(id) as {model: string; requested_service_tier: ServiceTier | null} | undefined;
     if (!row) return;
     const u = outcome.usage;
+    if (u && row.requested_service_tier && !outcome.actualServiceTier) {
+      this.db.prepare("UPDATE openai_usage SET status='unmetered',error='missing_service_tier',latency_ms=? WHERE id=? AND status='reserved'").run(outcome.latencyMs,id);
+      return;
+    }
     if (u && !validUsage(u)) {
       this.db.prepare("UPDATE openai_usage SET status='unmetered',error='invalid_usage',latency_ms=? WHERE id=? AND status='reserved'").run(outcome.latencyMs,id);
       return;
     }
     if (u) {
-      const cost = costMicros(this.config.pricing[row.model]!, u);
-      this.db.prepare(`UPDATE openai_usage SET status=?,input_tokens=?,cached_tokens=?,output_tokens=?,reasoning_tokens=?,write_30m_tokens=?,write_12h_tokens=?,cost_micros=?,latency_ms=?,error=? WHERE id=? AND status='reserved'`)
-        .run(outcome.status, u.inputTokens, u.cachedTokens, u.outputTokens, u.reasoningTokens, u.write30mTokens ?? 0, u.write12hTokens ?? 0, cost, outcome.latencyMs, outcome.error ?? '', id);
+      const cost = costMicros(this.config.pricing[row.model]!, u, tierMultiplier(row.model, outcome.actualServiceTier ?? 'default'));
+      this.db.prepare(`UPDATE openai_usage SET status=?,input_tokens=?,cached_tokens=?,output_tokens=?,reasoning_tokens=?,write_30m_tokens=?,write_12h_tokens=?,cost_micros=?,latency_ms=?,error=?,actual_service_tier=? WHERE id=? AND status='reserved'`)
+        .run(outcome.status, u.inputTokens, u.cachedTokens, u.outputTokens, u.reasoningTokens, u.write30mTokens ?? 0, u.write12hTokens ?? 0, cost, outcome.latencyMs, outcome.error ?? '', outcome.actualServiceTier ?? null, id);
     } else {
-      this.db.prepare(`UPDATE openai_usage SET status=?,latency_ms=?,error=?${outcome.billed === false ? ',cost_micros=0' : ''} WHERE id=? AND status='reserved'`)
-        .run(outcome.status, outcome.latencyMs, outcome.error ?? '', id);
+      this.db.prepare(`UPDATE openai_usage SET status=?,latency_ms=?,error=?,actual_service_tier=?${outcome.billed === false ? ',cost_micros=0' : ''} WHERE id=? AND status='reserved'`)
+        .run(outcome.status, outcome.latencyMs, outcome.error ?? '', outcome.actualServiceTier ?? null, id);
     }
   }
 

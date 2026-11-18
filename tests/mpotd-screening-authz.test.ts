@@ -29,7 +29,7 @@ const problem:ProtectedProblem={id:66,posted:true,official:true,sourceChannel:MP
   solution:'Complementary counting excludes the incident diagonals of the four vertices.'};
 const CHESS_EXPLANATION='chess is a two-player board game. each side has sixteen pieces and you win by checkmating the king.';
 const CHESS_REPLY="fine, i'll be white. e4. your move.";
-const response=(...output:unknown[])=>({status:'completed',output,usage:{input_tokens:100,output_tokens:30}});
+const response=(...output:unknown[])=>({status:'completed', service_tier:'default',output,usage:{input_tokens:100,output_tokens:30}});
 const text=(value:string)=>({type:'message',content:[{type:'output_text',text:value}]});
 const call=(name:string,args:unknown,id='c1')=>({type:'function_call',call_id:id,name,arguments:JSON.stringify(args)});
 const verdict=(assessment:string)=>response(call('classify_competition_request',{assessment},'screen'));
@@ -111,7 +111,7 @@ test('the pre-fix coupling is gone: a denied publication audience no longer bloc
   try{
     await assert.rejects(h.run(),(e:unknown)=>e instanceof ProtectedContentError&&e.message===unavailableText);
     assert.equal(m.seen.screens,0,'no reference leaves the host without screening authorization');assert.equal(m.seen.answers,0);
-    assert.deepEqual(h.events.map(e=>[e.stage,e.category,e.reason]),[['semantic','reference_authorization_denied','source-restricted']]);
+    assert.deepEqual(h.events.map(e=>[e.stage,e.category,e.reason]),[['semantic-context','reference_authorization_denied','source-restricted']]);
     noProtectedText(h.events);
   }finally{h.close();}
 });
@@ -169,7 +169,7 @@ for(const [name,fail,category,message] of providerFailures)test('screening failu
   try{
     await assert.rejects(h.run(),(e:unknown)=>e instanceof ProtectedContentError&&e.message===message);
     assert.equal(m.seen.answers,0);
-    assert.deepEqual(h.events.map(e=>[e.stage,e.category]),[['semantic',category]]);noProtectedText(h.events);
+    assert.deepEqual(h.events.map(e=>[e.stage,e.category]),[['semantic-context',category]]);noProtectedText(h.events);
   }finally{h.close();}
 });
 

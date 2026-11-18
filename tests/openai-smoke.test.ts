@@ -18,7 +18,7 @@ function fixture(extra = '') {
 }
 const env = {OPENAI_API_KEY:'sk-fixture'+'x'.repeat(32)};
 function reply(text:string,status='completed',metered=true) {
-  return {status,output:[{type:'message',content:[{type:'output_text',text}]}],
+  return {status, service_tier:'default',output:[{type:'message',content:[{type:'output_text',text}]}],
     ...(metered ? {usage:{input_tokens:80,output_tokens:16,output_tokens_details:{reasoning_tokens:10}}} : {})};
 }
 
