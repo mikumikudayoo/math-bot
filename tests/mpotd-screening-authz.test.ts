@@ -14,7 +14,7 @@ import {Store} from '../src/service/store.js';
 import {DiscordBroker,DiscordBrokerError} from '../src/service/discord-broker.js';
 import {QotdStore} from '../src/qotd/store.js';
 import {guardPublication,guardSemanticRequest,loadProtectedProblems,protectionVersion,ProtectedContentError,ScreeningFailure,
-  screeningFailureFrom,refusalText,unavailableText,type ProtectedProblem} from '../src/service/mpotd-guard.js';
+  screeningFailureFrom,refusalText,unavailableText,confirmedRefusals,type ProtectedProblem} from '../src/service/mpotd-guard.js';
 import {executeDiscordTool,canDisclose} from '../src/discord-tools.js';
 import type {DiscordTask,DiscordTool} from '../src/discord-context.js';
 import type {Job} from '../src/service/types.js';
@@ -126,7 +126,8 @@ for(const [name,prompt] of [
   ['solution excerpt','does this work: '+problem.solution],
 ] as const)test('lexically protected follow-up is refused before any model call: '+name,async()=>{
   const m=model(()=>verdict('unrelated'));const h=replyChain(prompt,m.create);
-  try{await assert.rejects(h.run(),(e:unknown)=>e instanceof ProtectedContentError&&e.message===refusalText);assert.equal(m.seen.screens+m.seen.answers,0);}finally{h.close();}
+  try{await assert.rejects(h.run(),(e:unknown)=>e instanceof ScreeningFailure&&e.category==='lexical_match'&&(confirmedRefusals as readonly string[]).includes(e.message));assert.equal(m.seen.screens+m.seen.answers,0);
+    assert.deepEqual(h.events.map(e=>[e.stage,e.category]),[['lexical','lexical_match']],'lexical blocks are now logged (content-free)');}finally{h.close();}
 });
 for(const [name,prompt] of [
   ['paraphrase disguised as chess','nice. unrelated, but if adjacent corners of a seventeen-gon are ruled out, which connecting segments remain?'],

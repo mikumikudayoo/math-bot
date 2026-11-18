@@ -1,5 +1,6 @@
 import type { ChatMessage, ChatTool } from './openai.js';
 import { parseModelResponse } from './model-protocol.js';
+import { stripInvisible } from './invisible.js';
 
 /**
  * Independent review of mathematical proofs before publication.
@@ -22,7 +23,7 @@ const HINT_ONLY = /\b(?:hint|nudge|clue|don't (?:tell|give) me the (?:answer|sol
 
 /** True when the request asks for a justified, complete mathematical argument. */
 export function proofObligation(prompt: string): boolean {
-  const text = prompt.normalize('NFKC');
+  const text = stripInvisible(prompt).normalize('NFKC');
   if (HINT_ONLY.test(text)) return false; // a hint is deliberately incomplete
   return PROOF_WORDS.test(text) || (FIND_ALL.test(text) && DISCRETE.test(text));
 }

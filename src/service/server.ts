@@ -17,7 +17,8 @@ import { describeOpenAIConfig } from './openai-config.js';
 import { JobEvents } from './events.js';
 import { rowProvenance } from './provenance.js';
 import { contextSnapshot } from './context-snapshot.js';
-import { loadProtectedProblems, protectedDatabasePath, guardPublication, refusalText, type ProtectedProblem } from './mpotd-guard.js';
+import { loadProtectedProblems, protectedDatabasePath, guardPublication, isRefusal, type ProtectedProblem } from './mpotd-guard.js';
+import { stripInvisible } from './invisible.js';
 
 function text(value:unknown,name:string,max=100):string {
   if(typeof value!=='string'||!value.trim()||value.length>max)throw new UserError(`Invalid ${name}.`);return value;
@@ -84,7 +85,7 @@ export function createService(config:ServiceConfig, injected?:Runner, protectedP
           if(kind==='ask'&&(!config.backend||!config.model)&&!injected)throw new UserError('No AI model is connected yet. /calculate and /plot can still work.');
           if(kind==='python'&&!config.sandbox)throw new UserError('Sandboxed Python is not enabled.');
           const input:Submission={id:id(body.id,'id'),guild:id(body.guild,'guild'),channel:id(body.channel,'channel'),user:id(body.user,'user'),
-            coach:body.coach===true,kind,prompt:text(body.prompt,'prompt',8000),
+            coach:body.coach===true,kind,prompt:text(typeof body.prompt==='string'?stripInvisible(body.prompt):body.prompt,'prompt',8000),
             ...(body.parent?{parent:id(body.parent,'parent')}:{}),...(body.image?{image:text(body.image,'image',2000)}:{})};
           input.discordContext=JSON.stringify({...currentUser(input.user,input.guild,body.discordContext),channelId:input.channel});
           if(body.sourceMessageId)input.sourceMessageId=id(body.sourceMessageId,'sourceMessageId');
@@ -109,7 +110,7 @@ export function createService(config:ServiceConfig, injected?:Runner, protectedP
               send(200,{allowed:false});break;
             }
           }
-          if(job?.state==='failed' && !job.artifact && job.answer===refusalText && content===refusalText) allowed=true;
+          if(job?.state==='failed' && !job.artifact && isRefusal(job.answer) && content===job.answer) allowed=true;
           else if(job){
             try {
               const problems=protectedProblems(job.guild);

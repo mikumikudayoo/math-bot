@@ -208,3 +208,200 @@ pm2 save
 - Not done in this pass: live end-to-end evaluation, a live conversational personality check, a
   deep audit of image-input edge cases and announcement code (out of scope), and production
   deployment.
+- Sections 15–16: the semantic classifier's accuracy on the new six labels is tested only with mocks.
+  The live model's labels (especially `near_identical` vs `same_topic`) need a sample of real
+  #ai-test requests after the next authorized deploy.
+- No per-user timezone setting exists yet. The hook (`InferenceDependencies.timeZone`) accepts one,
+  but until an authorized setting is built, everyone gets Asia/Manila.
+
+## 15. Live verification of `a0b8054` (owner's #ai-test messages, 2026-11-18 13:02–13:05 +08:00)
+
+This section is read-only: the production SQLite database was opened with `mode=ro`, and the PM2 logs were read.
+
+| request | job | what ran | cost | verdict |
+|---|---|---|---|---|
+| explain chess | `1572476985827922003` | request-scope, Luna low | $0.00065 | ok |
+| reply "lets play chess" | `1572477032733089813` | 2 semantic screens (unrelated), Luna | — | ok: the reply-chain fix holds |
+| n² + 2ⁿ proof | `1572477227793129583` | Luna low → `think_harder` (high) → **`consult_sol` on `gpt-6.2-sol`, high** (592 reasoning tokens, $0.0098, 12.2 s) → Luna high final | $0.0123 | answer correct and complete; **no proof review ran** |
+| exact MPoTD hint | `1572477590470533121` | lexical refusal, 0 model calls | $0 | correct |
+| `7x ≡ 3 (mod 19)` variant | `1572477795978973195` | first screen passed; Luna ran `calculate`; the second screen returned `related` | — | refused. Defensible as a near-identical substitute, but the two screens disagreed |
+
+- **Proof review was skipped.** Every test prompt contained U+2060 WORD JOINER inside words
+  (`pr⁠ov⁠e`; 1–14 per prompt), which the Discord client inserted. `proofObligation` normalized
+  only NFKC, so "prove" never matched. The `modelDemand` check had the same blind spot.
+  **Fixed:** `stripInvisible` (`src/service/invisible.ts`) now runs at `/jobs` intake and again
+  inside `proofObligation` and `modelDemand`. It strips U+00AD, U+200B, U+2060–U+2064 and U+FEFF,
+  and keeps ZWJ/ZWNJ. The seven-agent U+2063 trigger is parsed bot-side before submission, so it
+  is unaffected.
+- No `openai_request_failure` and no `input_transformations` were logged. The day's total was $0.014265.
+- The `**draw**` in the chess screenshot is a client-side rendering artifact: `formatDiscord`
+  output is correct.
+- Style note: the proof answer was mostly capitalized, which is weak lowercase voice. No change was made.
+
+## 16. MPoTD false positive, semantic screening and trusted date/time
+
+### 16.1 Incident: "how many days until gta 6" was refused (job `1572479421045280869`, 05:11:50Z)
+
+**Trigger vs refusal source.** The request-scope digit rule (`/[\d=+*/^<>]/`) sent the prompt to
+`problem_or_uncertain`, with no model call. That rule only routed the prompt: it chose the
+tool-capable path, which was needed for web search anyway. It did not refuse anything.
+
+The first semantic screen passed, and Luna called `search`. The refusal came from the **lexical**
+`protect(results)` check on the search results in `orchestrator.ts`. The old `similar()` treated
+the whole results JSON as one bag of words and blocked on any 2 numbers plus 2 concept words.
+Dates, scores, URLs, "GTA 5", "Series X", "12 months" and similar text matched today's MPoTD
+(12x ≡ 5 (mod 17), minimum 4-digit even x). The lexical error was not a `ScreeningFailure`, so it
+left **no log record**. That is why the cause first looked like a classifier refusal. The
+incident was reproduced locally against the same MPoTD statement.
+
+**Fix (general, no title whitelisting):**
+- Overlap must be **local**: it is counted in windows of max(24, 3×reference terms) instead of
+  across the whole document.
+- Overlap must be **distinctive**: single letters and bare operators don't count, and the
+  thresholds need several shared numbers and concepts together.
+- `contentOnly()` drops metadata before the overlap test. That covers keys (url, date,
+  published_date, score, ids…), URLs, ISO dates, clock times and snowflakes.
+- Exact references still use the raw text: message/thread ids, explicit MPoTD mentions, verbatim
+  statements and formulas.
+- A hyphenated word ("4-digit", "gpt-6") no longer counts as a formula.
+- Every lexical block is now a `ScreeningFailure('lexical_match', …, kind)`. It is logged as
+  `{job, stage:'lexical', category, reason}` with no content.
+
+**Digit routing (also changed).** Digits alone are no longer an exercise signal. `OBVIOUS_PROBLEM`
+keeps the free fast path for operators, `≡`, digit arithmetic, variable terms, code, URLs and
+mathematical vocabulary. Everything else goes to the isolated scope classifier. That classifier
+has a new **`current_information`** scope (countdowns, release dates, news, versions), which keeps
+the tool-capable, fully screened path. The old `general_knowledge` scope disables tools, so it
+could never answer a countdown. A digit-bearing request routed to a tool-less scope
+(conversation/general_knowledge) still gets **one** semantic comparison, because the scope model
+never sees references. Plain chat ("who you bruh") gets none.
+
+### 16.2 Structured semantic screening (host decides)
+
+The isolated `classify_competition_request` call now returns one of six labels:
+`exact`, `equivalent` (paraphrase/translation/encoding), `near_identical` (a substitute whose worked
+solution would materially transfer), `same_topic`, `unrelated` or `uncertain`.
+
+`verdictOutcome()` is the host's decision table:
+- **pass:** `unrelated` and `same_topic`.
+- **confirmed refusal:** `exact`, `equivalent` and `near_identical`.
+- **neutral fail-closed refusal:** `uncertain`, the legacy `related` label, and anything malformed.
+
+The classifier still receives only already-posted statements or verified crops, through the
+`competition_reference` authorization from `9ab6b3d`. It never receives answers, solutions,
+unposted problems or moderation content. A lexical match on the user's own prompt also counts as
+confirmed. The near-identical policy is unchanged: substitutes whose worked solution would help
+with the active problem are still refused.
+
+### 16.3 In-character refusals
+
+For confirmed cases the host picks one of five host-authored lines, stable per request text, for
+example "wait a fucking minute. isn't this today's mpotd? nice try." No model writes them and none
+carries reference content. Only one line contains profanity. The wording never affects the decision.
+
+Uncertain verdicts, tool-result matches and infrastructure failures keep the neutral texts.
+`/publish` accepts any host refusal (`isRefusal`). Ordinary answers carry no competition warnings;
+the persona has none.
+
+### 16.4 Trusted date and time (`src/service/runtime-time.ts`)
+
+- **Source:** the server clock (`io.now`, which tests inject), never the request.
+- **What Luna gets:** each turn includes a `TRUSTED_RUNTIME_CONTEXT` system message with the UTC
+  instant, IANA zone, local date, weekday, 24h time, the UTC offset in effect, and local ISO time.
+- **Zone:** Asia/Manila by default. An authorized per-user zone can override it (hook only, see
+  §13); invalid zones fall back. The VPS timezone is never used. Offsets come from `Intl`, so
+  daylight saving is handled (tested with America/New_York).
+- **Placement:** the message goes right before the user's request. It is not part of the static,
+  cached system prompt.
+- **Within a turn:** `TurnClock.refresh` **appends** a `TRUSTED_RUNTIME_CONTEXT_UPDATE` after a
+  local midnight or after 10 minutes. It never edits earlier messages, so the cached prefix and
+  GPT-6.2 reasoning items stay valid.
+- **Specialists:** Terra/Sol consultations get a fresh snapshot.
+- **Instructions in the message:**
+  - it overrides dates claimed in user text, tool results or training data;
+  - Discord timestamps are posting times, not "now";
+  - event dates must be verified with an authorized current source and computed in the stated
+    zone;
+  - unverified dates must be labeled as such.
+
+  Text in user messages that claims to be this context is untrusted. A spoofing test asserts that
+  the real server time is still the one supplied.
+- **Search freshness:** the "as of" date appended to search queries now uses the Manila date
+  instead of the UTC date.
+- **No hardcoding:** no game or event date is hardcoded. "how many days until gta 6" is answered
+  from the trusted date plus web search results.
+
+### 16.5 False positives and negatives (local, against today's MPoTD statement)
+
+- **Ordinary requests now passing the lexical guard (20):**
+  - game titles, versions and model ids: gta 6, python 3.12, gpt-6.2-sol, iphone 17, windows 12,
+    ps5/xbox series x;
+  - dates and simple arithmetic: "12 times 17", "17 squared", "5 mod 17", "is 1004 even";
+  - "smallest 4-digit prime";
+  - chess, "who you bruh", and the n² + 2ⁿ proof;
+  - realistic GTA 6 search results with dates, scores and URLs.
+
+  Before the fix, the GTA search results and "smallest 4-digit prime" were blocked.
+- **Still blocked (14):**
+  - the verbatim statement, including with U+2060;
+  - three paraphrases, a Spanish translation, and the bare formula `12x≡5 (mod 17)`;
+  - "solve 12x ≡ 5 (mod 17)";
+  - an answer check, a hint request, and a proposed-answer check;
+  - a solution-step paraphrase;
+  - a search result quoting the problem, and a message-id reference.
+- **Documented conservative near-miss:** a contrived result that reuses 12, 17, 4, 5, "minimum",
+  "even" and "mods" together still blocks.
+- **Semantic path (mocked verdicts):**
+  - a near-identical substitute (7x ≡ 3 (mod 19)) gets a confirmed refusal before Luna runs;
+  - same-topic material (3x ≡ 2 (mod 7)) is answered;
+  - uncertain gets the neutral refusal;
+  - a disguised exact request that the scope model misroutes as general knowledge is still caught
+    by the digit-triggered screen;
+  - with no active problem there are no scope or screen calls.
+
+### 16.6 Measured overhead (production `openai_usage`, all recorded rows, read-only)
+
+| call | n | avg cost | avg latency |
+|---|---|---|---|
+| request-scope (Luna) | 18 | $0.000047 | 1.9 s |
+| competition-screen (Luna) | 22 | $0.000070 | 2.1 s |
+| orchestrator (Luna) | 34 | $0.000298 | 3.1 s |
+
+- The scope and screening calls only happen while a problem is active.
+- **Digit-bearing current-information requests** (e.g. the GTA countdown) now add one scope call
+  (+$0.00005, about +2 s). They then follow the same screened tool path as before.
+- **Digit-bearing tool-less requests** now cost one scope call plus one screen, where they used to
+  take the full path with screens on the prompt and the answer.
+- **Plain chat** is unchanged: one scope call.
+- **Time context:** about 930 characters (about 230 input tokens) per Luna call, about $0.00002
+  uncached.
+
+### 16.7 Tests
+
+- **New file:** `tests/semantic-screening-time.test.ts` (65 tests). It covers:
+  - the incident;
+  - ordinary and adversarial lexical cases;
+  - the verdict table and the refusals;
+  - scope routing;
+  - Manila date/time, the midnight boundary, DST and invalid zones;
+  - append-only refresh;
+  - invisible characters;
+  - runner-level paths: GTA search with the trusted date, context placement, date-spoofing
+    injection, a midnight crossing during a turn, near-identical / same-topic / uncertain verdicts,
+    the digit screen, a misrouted disguised request, the no-embargo state, and that no answer,
+    solution or reference reaches Luna.
+- **Updated tests:**
+  - `mpotd-guard`: the request guard now ignores timestamp metadata, the way the publication guard
+    already did;
+  - `mpotd-screening-authz`: confirmed refusals, plus the lexical log event;
+  - `request-scope-v2`: the new scope, and digits alone no longer take the fast path.
+- **Result:** full suite **1197 pass, 0 fail** (was 1131); both typechecks clean; build OK.
+
+**Leak boundaries (unchanged, re-checked):**
+- **Streaming:** public streaming is disabled while any problem is active (`publicStreamAllowed`).
+- **Specialists:** Terra/Sol output is semantically screened before use. Specialist inputs are
+  built from Luna's task text, which never contains a reference.
+- **Discord privacy:** the private/public Discord boundaries (`discord-web-privacy`,
+  `private-history-audience`) and the `competition_reference` authorization still pass unchanged.
+
+**Not deployed.** Production still runs `a0b8054`. Deploying this needs the owner's authorization.

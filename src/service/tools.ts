@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import type { ServiceConfig } from './config.js';
 import { UserError, type Result } from './types.js';
 import { fetchText,publicURL } from './network.js';
+import { timeContext } from './runtime-time.js';
 
 export function subprocess(executable:string,args:string[],input:string,signal:AbortSignal,timeoutMs=30000,envOverrides:NodeJS.ProcessEnv={}):Promise<string> {
   return new Promise((resolvePromise,reject)=>{
@@ -50,7 +51,7 @@ export async function search(config:Pick<ServiceConfig,'searchKey'>,query:string
   const news=/\b(?:news|headlines)\b/i.test(query);
   const fresh=news||/\b(?:latest|today|current|currently|recent|weather|newest)\b/i.test(query);
   const clean=query.replace(/^(?:please\s+)?(?:give|show|tell|find|provide)\s+(?:me\s+)?(?:the\s+)?/i,'').replace(/^thoughts on\s+(?:the\s+)?/i,'').replace(/\btop one\b/gi,'top 1').replace(/\bphilippine news\b/i,'Philippines news');
-  const searchQuery=(fresh?`${clean} as of ${new Date().toISOString().slice(0,10)}`:query).slice(0,500);
+  const searchQuery=(fresh?`${clean} as of ${timeContext(Date.now()).date}`:query).slice(0,500); // community-local date, not UTC
   const response=await request('https://api.tavily.com/search',{
     method:'POST',signal:AbortSignal.any([signal,AbortSignal.timeout(15000)]),redirect:'error',
     headers:{'Content-Type':'application/json',Authorization:`Bearer ${config.searchKey}`},

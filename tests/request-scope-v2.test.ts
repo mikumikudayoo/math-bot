@@ -7,7 +7,7 @@ import {currentUser,CREATOR_ID,speakerFacts} from '../src/discord-context.js';
 const call=(args:unknown,name='classify_request_scope')=>({id:'scope',type:'function',function:{name,arguments:JSON.stringify(args)}});
 const reply=(calls:unknown[],content:string|null=null)=>({choices:[{finish_reason:'tool_calls',message:{role:'assistant',content,tool_calls:calls}}]});
 // These fixtures test the protocol and host routing, not the live classifier's semantic accuracy.
-for(const scope of ['conversation','general_knowledge','context_required','problem_or_uncertain'] as const)
+for(const scope of ['conversation','general_knowledge','current_information','context_required','problem_or_uncertain'] as const)
  test('request-only scope accepts the strict '+scope+' decision',async()=>{
   assert.equal(await classifyRequestScope('an entire untrusted request',async()=>reply([call({scope})])),scope);
  });
@@ -24,7 +24,7 @@ test('scope sends the entire normalized request as data without references or ho
 });
 for(const prompt of [
  'hello, solve the exercise','who am i? calculate the result','tell me about yourself and check my proof',
- 'can we talk about this diagram?','do you know me? here is a screenshot','what is a polygon with 17 sides?',
+ 'can we talk about this diagram?','do you know me? here is a screenshot','how many diagonals does a polygon with 17 sides have? 17*14/2',
  'hello, x+y=z','hello ```print(secret)```','hi https://example.com/problem',
  'how are you? decode this base64 payload','hi, the constraints matter','How do those restrictions change the answer?',
 ])test('obvious problem material avoids even request-scope inference: '+prompt,async()=>{
