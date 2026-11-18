@@ -404,4 +404,44 @@ the persona has none.
 - **Discord privacy:** the private/public Discord boundaries (`discord-web-privacy`,
   `private-history-audience`) and the `competition_reference` authorization still pass unchanged.
 
-**Not deployed.** Production still runs `a0b8054`. Deploying this needs the owner's authorization.
+Deployed to production on 2026-11-18; see §17.
+
+## 17. Deployment record: `8fbcd96` (2026-11-18 05:49Z, authorized by the owner)
+
+- **Release directory:** `/opt/math-bot/.cache/aleph-v2-qualification/8fbcd96d8e2a39b8045ffdef449e02e2671847bd`.
+  It was cloned from the `a0b8054` release and checked out detached at `8fbcd96`, with 0 dirty files.
+  `.venv` links to the `9ab6b3d` release's venv.
+- **Server-side checks** (run before the env files or the data link existed):
+  - both typechecks clean;
+  - `bun test` **1197 pass, 0 fail**;
+  - Python OK;
+  - build OK.
+- **Backup:** `/opt/math-bot/backups/aleph-rc-8fbcd96-20261118T054910Z/` holds:
+  - an online SQLite backup of `production.sqlite` (integrity ok);
+  - `dump.pm2`;
+  - `RELEASE.txt`.
+- **Configuration:** env files copied from `a0b8054`. The `OPENAI_SOL_MODEL="gpt-6.2-sol"` pin was
+  verified (exactly one line). `data` links to `/opt/math-bot/data`.
+- **Smoke test:** luna, terra and sol (`gpt-6.2-sol`) passed, about $0.00013 in total.
+- **Cutover:**
+  - 0 running jobs at the switch;
+  - `aleph-zero-ai` health: ok, provider openai, vision and sandbox enabled;
+  - startup models: luna `gpt-6-luna/low..high`, terra `gpt-6.1-terra/medium..xhigh`,
+    sol `gpt-6.2-sol/medium..xhigh`;
+  - `aleph-zero-bot` logged in (production), then `pm2 save`;
+  - `aleph-zero-automation` was not touched.
+- **After 20 s:** all three processes online with 0 restarts. The deployed `dist/service/runtime-time.js`
+  reports `2026-11-18 13:49:55 +08:00 Asia/Manila` on a host whose system zone is UTC.
+- **Not verified live:**
+  - GTA countdown, date questions, a confirmed in-character refusal, and a proof review with
+    U+2060 in the prompt (all need #ai-test messages);
+  - the live classifier's six-label accuracy.
+
+Rollback to `a0b8054` (as `mathbot`):
+```sh
+D=/opt/math-bot/.cache/aleph-v2-qualification/a0b80549c608f1cbc2616077c839044b4869169c
+pm2 delete aleph-zero-ai aleph-zero-bot
+cd $D && BOT_ENV=production pm2 start /usr/local/bin/bun --name aleph-zero-ai --cwd $D --interpreter none -- $D/dist/service/server.js
+cd $D && BOT_ENV=production pm2 start $D/dist/index.js --name aleph-zero-bot --cwd $D --interpreter /usr/local/bin/bun
+pm2 save
+```
