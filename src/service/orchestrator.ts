@@ -62,11 +62,18 @@ function essentialConclusion(finding:string) {
   const value=box[1]!.trim().match(/^(?:[a-z](?:_(?:\{[a-z\d]+\}|[a-z\d]+))?\s*=\s*)?([+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?)$/i)?.[1];
   return value??finding;
 }
+const singleNumber=(finding:string)=>{const n=finding.replace(/−/g,'-');return n.match(/[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?/gi)?.[0]===n;};
+/** A single number or an explicitly boxed result can be checked mechanically, so an answer that omits it is withheld.
+ * A prose conclusion (a proof's claim, a characterization) is advisory: its wording and notation legitimately differ
+ * in a correct answer (a² vs a^2, k vs the quotient), so substring matching cannot judge it; proof review does. */
+export function enforceableConclusion(finding:string) { return singleNumber(finding)||/\\boxed\s*\{/.test(finding); }
+export const RECONCILE_INSTRUCTION='Reconcile your answer with the following specialist conclusions. Reply with the complete corrected final answer, '+
+  'not only a note about what changed. Preserve mathematical essentials, or explicitly identify an error if you disagree.';
 // Preserve a specialist's numeric conclusion as a whole token (12 is distinct from -12, 112 and 12.5).
-function mentionsConclusion(answer:string, finding:string) {
+export function mentionsConclusion(answer:string, finding:string) {
   const number = /[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?/gi;
   const normalized = finding.replace(/−/g,'-');
-  if(normalized.match(number)?.[0] !== normalized)return answer.includes(finding);
+  if(!singleNumber(finding))return answer.includes(finding);
   const tokens = answer.replace(/−/g,'-').match(number) ?? [];
   return tokens.some(token=>token.replace(/^\+/,'') === normalized.replace(/^\+/,''));
 }
@@ -106,6 +113,8 @@ export async function orchestrate(turn:Turn):Promise<Result> {
   const knownIds=new Set([job.user,job.guild,job.channel,CREATOR_ID,job.sourceMessageId??'']);
   const proofs=new Map<string,string>(), specialistFinals=new Set<string>();
   const missingConclusions=(answer:string)=>[...specialistFinals].filter(finding=>!mentionsConclusion(answer,finding));
+  /** Omitted conclusions that withhold the answer after the one reconciliation round (see enforceableConclusion). */
+  const blocking=(omitted:string[])=>omitted.filter(enforceableConclusion);
   const computed:string[]=[],successful=new Set<string>();
   const callKeys=new Map<string,string>(), cache=new Map<string,Promise<unknown>>();
   const byTool=new Map<string,number>();
@@ -369,9 +378,10 @@ export async function orchestrate(turn:Turn):Promise<Result> {
       }
       const omitted=missingConclusions(answer);
       if(omitted.length&&!reconciled){
-        reconciled=true; messages.push({role:'assistant',content:answer},{role:'system',content:'Reconcile your answer with the following specialist conclusions. Preserve mathematical essentials, or explicitly identify an error if you disagree.'},{role:'user',content:JSON.stringify(omitted)});continue;
+        reconciled=true; messages.push({role:'assistant',content:answer},{role:'system',content:RECONCILE_INSTRUCTION},{role:'user',content:JSON.stringify(omitted)});continue;
       }
-      if(omitted.length)return partial("i couldn't reconcile the specialist findings into a verified final answer.");
+      // Advisory (prose) conclusions were reconsidered once; proof review below judges the mathematics.
+      if(blocking(omitted).length)return partial("i couldn't reconcile the specialist findings into a verified final answer.");
       if(proofTask){
         const review=await reviewProof(answer,signal);
         if(review.kind==='repair'){messages.push({role:'assistant',content:answer},review.message);continue;}
@@ -390,9 +400,14 @@ export async function orchestrate(turn:Turn):Promise<Result> {
         protect(args);
         if(!allowed.has(name))throw new UserError('that tool is unavailable.');
         if(name==='prepare_final'){
+          const omitted=typeof args.answer==='string'?missingConclusions(args.answer):[];
           if(calls.length!==1||typeof args.answer!=='string'||!args.answer.trim()||args.answer.length>5500||missingEvidence()
-              ||missingConclusions(args.answer).length)
+              ||blocking(omitted).length)
             throw new UserError('finish verifying the answer before delivery.');
+          if(omitted.length&&!reconciled){
+            reconciled=true;
+            return {approved:false,specialistConclusions:omitted,instruction:RECONCILE_INSTRUCTION+' Then submit the complete answer with prepare_final again.'};
+          }
           let text=args.answer.trim();
           if(proofTask){
             const review=await reviewProof(text,s);

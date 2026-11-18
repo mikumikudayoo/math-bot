@@ -11,6 +11,7 @@ import { fixturePlot, fixturePlotArgs } from './fixtures/review-plot.js';
 import { createService } from '../src/service/server.js';
 import { once } from 'node:events';
 import { CREATOR_ID } from '../src/discord-context.js';
+import { enforceableConclusion, mentionsConclusion } from '../src/service/orchestrator.js';
 
 const guild='100000000000000011',channel='200000000000000011',user='300000000000000011';
 const call=(id:string,name:string,args:Record<string,unknown>)=>({type:'function_call',call_id:id,name,arguments:JSON.stringify(args)});
@@ -154,6 +155,92 @@ test('multiple findings from one specialist must survive synthesis as whole nume
   try{
     assert.equal((await f.execute(f.job('check the two roots'))).answer,'the two values are 12 and −37.');
     assert.equal(rounds,5);
+  }finally{f.store.close();}
+});
+// Production job 1572580800740855980 (IMO 1988/6, 2026-11-18): Sol succeeded, but Luna's proof did not repeat Sol's
+// prose FINAL verbatim, so the host withheld it as "couldn't reconcile" before proof review ever ran.
+const offered=(p:Record<string,unknown>,name:string)=>(p.tools as {name:string}[]|undefined)?.some(t=>t.name===name)??false;
+const IMO='let a and b be positive integers such that ab + 1 divides a^2 + b^2. prove that (a^2 + b^2)/(ab + 1) is a perfect square. provide a rigorous, complete proof.';
+const SOL_PROSE='descent argument checked\nFINAL: (a²+b²)/(ab+1) = gcd(a,b)², which is a perfect square';
+test('enforceable specialist conclusions are single numbers or boxed results; prose conclusions are advisory',()=>{
+  for(const f of ['12','-37','−4','2.5','\\boxed{265} if n=6','\\boxed{12}, \\boxed{-37}'])assert.equal(enforceableConclusion(f),true,f);
+  for(const f of ['(a²+b²)/(ab+1) = gcd(a,b)², which is a perfect square','k is a perfect square','x = 12 and y = -37 are the only solutions'])
+    assert.equal(enforceableConclusion(f),false,f);
+  assert.equal(mentionsConclusion('so k = (a^2+b^2)/(ab+1) is a square','(a²+b²)/(ab+1) = gcd(a,b)², which is a perfect square'),false);
+});
+test('a proof whose notation differs from a prose specialist conclusion is reconciled once, reviewed and delivered',async()=>{
+  const DRAFT='Let k = (a^2+b^2)/(ab+1) and take a minimal pair; Vieta jumping gives a smaller pair unless b = 0, so k = a^2 is a perfect square.';
+  const PROOF=DRAFT+' (This agrees with the specialist: the quotient equals gcd(a,b)^2.)';
+  let rounds=0,reviews=0;const reviewed:string[]=[];const lunaInputs:string[]=[];
+  const f=fixture(async p=>{
+    if(offered(p,'record_proof_review')){reviews++;reviewed.push(JSON.stringify(p.input));
+      return response(call('r','record_proof_review',{verdict:'valid',answerCorrect:'yes',issues:[]}));}
+    if(p.model!=='gpt-6-luna')return response(answer(SOL_PROSE));
+    rounds++;lunaInputs.push(JSON.stringify(p.input));
+    if(rounds===1)return response(call('s','consult_sol',{task:'check the descent',reason:'independent verification'}));
+    return response(answer(rounds===2?DRAFT:PROOF));
+  });
+  try{
+    const result=await f.execute(f.job(IMO));
+    assert.equal(result.answer,PROOF);
+    assert.doesNotMatch(result.answer,/couldn't reconcile/);
+    assert.equal(rounds,3,'one consultation round, one draft, one reconciliation round');
+    assert.ok(lunaInputs[2]!.includes('complete corrected final answer'),'the reconciliation round asks for the whole answer, not a note');
+    assert.equal(reviews,1,'proof review judges the reconciled proof');
+    assert.ok(reviewed[0]!.includes('gcd(a,b)^2'));
+  }finally{f.store.close();}
+});
+test('a prose conclusion never withholds a proof, but proof review can still reject it',async()=>{
+  const DRAFT='k is a perfect square because a^2+b^2 is a sum of squares.';
+  let rounds=0;
+  const f=fixture(async p=>{
+    if(offered(p,'record_proof_review'))return response(call('r','record_proof_review',{verdict:'invalid',answerCorrect:'unknown',
+      issues:[{category:'invalid_implication',step:'sum of squares',explanation:'does not imply the quotient is a square'}]}));
+    if(p.model!=='gpt-6-luna')return response(answer(SOL_PROSE));
+    if(++rounds===1)return response(call('s','consult_sol',{task:'check the descent',reason:'independent verification'}));
+    return response(answer(DRAFT));
+  },{},{OPENAI_PROOF_REVIEWS:'1'});
+  try{
+    const result=await f.execute(f.job(IMO));
+    assert.ok(result.answer.startsWith(DRAFT));
+    assert.ok(result.answer.length>DRAFT.length,'the unresolved review is disclosed as a caveat');
+    assert.doesNotMatch(result.answer,/couldn't reconcile/);
+  }finally{f.store.close();}
+});
+test('a numeric specialist conclusion still withholds an answer that contradicts it after reconciliation',async()=>{
+  let rounds=0,reviews=0;
+  const f=fixture(async p=>{
+    if(offered(p,'record_proof_review')){reviews++;return response(call('r','record_proof_review',{verdict:'valid',answerCorrect:'yes',issues:[]}));}
+    if(p.model!=='gpt-6-luna')return response(answer('checked\nFINAL: 12'));
+    if(++rounds===1)return response(call('s','consult_sol',{task:'check the count',reason:'independent verification'}));
+    return response(answer('therefore the count is 13.'));
+  });
+  try{
+    assert.match((await f.execute(f.job('prove that the number of such arrangements is 12'))).answer,/couldn't reconcile/);
+    assert.equal(rounds,3);assert.equal(reviews,0);
+  }finally{f.store.close();}
+});
+test('prepare_final asks once to reconcile a prose conclusion instead of returning a tool error',async()=>{
+  const FIRST='aₙ₊₁ − aₙ > 0 for all n, so it increases.';
+  const SECOND='since aₙ₊₁ − aₙ = 1/((n+1)(n+2)) > 0 for every n ≥ 1, the sequence increases strictly.';
+  let rounds=0;
+  const f=fixture(async p=>{
+    if(p.model!=='gpt-6-luna')return response(answer('FINAL: the sequence is strictly increasing for every n ≥ 1'));
+    rounds++;
+    if(rounds===1)return response(call('s','consult_sol',{task:'check monotonicity',reason:'independent verification'}));
+    if(rounds===2)return response(call('d1','prepare_final',{answer:FIRST}));
+    if(rounds===3){
+      const out=outputs(p).at(-1)!.output!;assert.doesNotMatch(out,/finish verifying|"error"\s*:/);
+      const data=JSON.parse(out);assert.equal(data.approved,false);
+      assert.deepEqual(data.specialistConclusions,['the sequence is strictly increasing for every n ≥ 1']);
+      return response(call('d2','prepare_final',{answer:SECOND}));
+    }
+    assert.equal(JSON.parse(outputs(p).at(-1)!.output!).approved,true);
+    return response(answer(SECOND));
+  });
+  try{
+    assert.equal((await f.execute(f.job('is a_n = n/(n+1) increasing?'))).answer,SECOND);
+    assert.equal(rounds,4);
   }finally{f.store.close();}
 });
 test('private Discord and web in either order never race; broker facts and checked links are scoped',async()=>{
