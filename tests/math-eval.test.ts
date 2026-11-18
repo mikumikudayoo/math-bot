@@ -123,7 +123,7 @@ test('all four eval profiles run through the normal orchestrator and report actu
   });
   assert.equal(report.stoppedReason, '');
   assert.deepEqual(observedTools,[[],['consult_terra'],['consult_sol'],['calculate','plot','regex']]);
-  assert.deepEqual(specialistModels,['gpt-6.1-terra','gpt-6.1-sol']);
+  assert.deepEqual(specialistModels,['gpt-6.1-terra','gpt-6.2-sol']);
   assert.deepEqual(report.samples.map(x => x.passed),[true,true,true,true]);
   assert.deepEqual(report.summary.map(x => x.actuallyConsulted),[0,1,1,0]);
   assert.deepEqual(report.samples.map(x=>x.calls.length),[1,3,3,2]);
@@ -139,7 +139,7 @@ test('consultation success reflects a usable conclusion independently of token m
   const report = await evaluate(options, [simple], mockEnv, AbortSignal.timeout(15000), {
     create: async params => {
       if (params.model === 'gpt-6.1-terra') return reply('I was unable to conclude.');
-      if (params.model === 'gpt-6.1-sol') {
+      if (params.model === 'gpt-6.2-sol') {
         return {status: 'completed', output: reply('FINAL: 6').output};
       }
       const input = params.input as {type?: string}[];

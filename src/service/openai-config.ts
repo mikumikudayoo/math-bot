@@ -20,14 +20,20 @@ export interface ModelSpec {
 }
 
 /**
- * Verified 2026-11-16 against https://developers.openai.com/api/docs/pricing and the model
- * pages for gpt-6-luna, gpt-6.1-terra and gpt-6.1-sol. Prices change: override with
+ * Luna and Terra verified 2026-11-16; gpt-6.2-sol verified 2026-11-18 against
+ * https://developers.openai.com/api/docs/models/gpt-6.2-sol (introduced 2026-11-17) and a
+ * bounded live check on the configured organization: low|medium|high|xhigh|max accepted,
+ * none rejected with HTTP 400 unsupported_value. Prices change: override with
  * OPENAI_PRICING_JSON rather than editing silently.
  */
-export const PRICING_SOURCE = 'developers.openai.com/api/docs/pricing (verified 2026-11-16)';
+export const PRICING_SOURCE = 'developers.openai.com/api/docs/pricing (luna/terra 2026-11-16, gpt-6.2-sol 2026-11-18)';
+/** The active Sol specialist. gpt-6.1-sol stays priced only for an explicit, documented rollback. */
+export const DEFAULT_SOL_MODEL = 'gpt-6.2-sol';
 export const DEFAULT_MODELS: Record<string, ModelSpec> = {
   'gpt-6-luna': {input: 0.10, cachedInput: 0.01, output: 0.50, efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max']},
   'gpt-6.1-terra': {input: 1.00, cachedInput: 0.05, output: 5.00, efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max']},
+  'gpt-6.2-sol': {input: 2.00, cachedInput: 0.10, output: 10.00, efforts: ['low', 'medium', 'high', 'xhigh', 'max']},
+  // Rollback only: selected solely by an explicit OPENAI_SOL_MODEL=gpt-6.1-sol (see docs/openai.md).
   'gpt-6.1-sol': {input: 2.00, cachedInput: 0.10, output: 10.00, efforts: ['low', 'medium', 'high', 'xhigh', 'max']},
 };
 /** Above this many input tokens OpenAI bills 2x input/cache and 1.5x output for the whole request. */
@@ -114,7 +120,7 @@ export function parseOpenAIConfig(env: Record<string, string | undefined>, inher
   const models: Record<ModelRole, string> = {
     luna: modelId('OPENAI_LUNA_MODEL', 'gpt-6-luna'),
     terra: modelId('OPENAI_TERRA_MODEL', 'gpt-6.1-terra'),
-    sol: modelId('OPENAI_SOL_MODEL', 'gpt-6.1-sol'),
+    sol: modelId('OPENAI_SOL_MODEL', DEFAULT_SOL_MODEL),
   };
   const allowedList = (env.OPENAI_ALLOWED_MODELS ?? 'luna,terra,sol').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
   if (allowedList.some(name => !['luna', 'terra', 'sol'].includes(name))) throw new ConfigError('OPENAI_ALLOWED_MODELS may only list luna, terra and sol.');

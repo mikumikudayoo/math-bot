@@ -57,7 +57,7 @@ test('format tables and math, preserve program indentation and neutralize mass m
     '<b>proof</b> @everyone','```python','if True:','    print("$x$")','```'].join('\n');
   const out = formatDiscord(studyContent(job({state:'completed',answer:source})));
   assert.ok(out.includes('- **x** 1 · **y** 4'));
-  assert.ok(out.includes('(1)/(√(4)) ≤ π')); assert.ok(out.includes('proof @\u200beveryone'));
+  assert.ok(out.includes('1/√4 ≤ π')); assert.ok(out.includes('proof @\u200beveryone'));
   assert.ok(out.includes('    print("$x$")')); assert.ok(!out.includes('<b>'));
   assert.equal(formatDiscord('one costs $5 and another costs $8'), 'one costs $5 and another costs $8');
   assert.equal(studyContent(job({state:'completed',answer:'-4\n- explain\n    a = 3'})), '-4\n- explain\n    a = 3');

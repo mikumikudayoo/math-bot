@@ -37,7 +37,7 @@ test('legacy-mode staging checks all three models, verifies exact answers and pe
   const client:ResponsesClient = {create:async params=>{calls.push(params);return reply('391');}};
   try {
     assert.equal(await smokeCli(['--confirm','--terra','--sol'],env,s=>lines.push(s),f.load,client),0);
-    assert.deepEqual(calls.map(p=>p.model),['gpt-6-luna','gpt-6.1-terra','gpt-6.1-sol']);
+    assert.deepEqual(calls.map(p=>p.model),['gpt-6-luna','gpt-6.1-terra','gpt-6.2-sol']);
     assert.deepEqual(calls.map(p=>p.max_output_tokens),[256,512,512]);
     assert.ok(calls.every(p=>p.store===false && (p.reasoning as {effort?:string}).effort==='low'));
     const rows = f.store.db.prepare('SELECT DISTINCT job,user,status FROM openai_usage').all();
