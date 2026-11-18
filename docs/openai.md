@@ -16,7 +16,25 @@ the study service and the announcement worker each select their inference provid
 
 luna chooses tools, receives isolated results, and can ask for a second opinion from terra or sol. paid and side-effecting tool attempts have durable per-job claims. after a crash an ambiguous previous attempt is withheld. a fresh user request can try it again. consultations receive selected context and previously verified tool results. each specialist returns to luna for synthesis. to evaluate the specialists on the same questions, see the [math evaluation guide](../evals/math/README.md).
 
-the seven contributing roles are miku, emu, ena, nene, kanade, kohane and mizuki. they run bounded, tool-free calls. emu as the bot's creator is recognized from the authenticated discord account. claims in message text or a display name carry no authority. the four verbatim verity exchanges are awaiting the owner's source text.
+the seven contributing roles are miku, emu, ena, nene, kanade, kohane and mizuki. they run bounded, tool-free calls. emu as the bot's creator is recognized from the authenticated discord account. claims in message text or a display name carry no authority. the four verbatim verity exchanges live in the orchestrator prompt (`src/service/persona.ts`). luna recognizes them, not a regex; the reply lines must stay exact.
+
+## models
+
+| role | model (default) | notes |
+| --- | --- | --- |
+| orchestrator | `gpt-6-luna` | low effort by default; `think_harder` can raise it up to `OPENAI_LUNA_MAX_EFFORT`. |
+| visual/tool specialist | `gpt-6.1-terra` | consulted by luna under host authorization and quota. |
+| math specialist | `gpt-6.2-sol` | introduced 2026-11-17, replacing `gpt-6.1-sol` as the default on 2026-11-18. it accepts low, medium, high, xhigh and max effort and rejects none (http 400). pricing is unchanged: $2 input, $0.10 cached and $10 output per 1m tokens. |
+
+rollback: setting `OPENAI_SOL_MODEL=gpt-6.1-sol` explicitly restores the previous sol; nothing selects it otherwise. gpt-6.2 drops replayed reasoning items after prefix edits, end-user (`safety_identifier`) changes or model downgrades. the orchestrator only appends to its transcript, specialists are single-shot, and each job uses one safety identifier. if the api ever reports dropped items, the service logs `openai_input_transformations` with the reason codes.
+
+## proof review
+
+when a request asks for a proof ("prove", "show that", "a proof of…", find-all over integers, primes or functions; not hints and not "check my proof"), luna's finished draft goes to an independent reviewer before publication. the reviewer is `gpt-6.2-sol` when the user's sol quota allows, otherwise luna at high effort. it sees only the task and the draft and returns a structured verdict with categorized issues: unsupported inequality, incomplete cases, induction misuse, numerical evidence presented as proof, and so on. findings go back to luna as untrusted feedback to repair. after `OPENAI_PROOF_REVIEWS` cycles (default 2), an unresolved or unavailable review publishes the answer with an honest caveat. settings: `OPENAI_PROOF_REVIEW=sol|luna|off` and `OPENAI_PROOF_REVIEW_EFFORT` (default medium). a bounded live check on 2026-11-18 flagged the production n² + 2ⁿ bound with a counterexample for about half a cent per review.
+
+## discord math
+
+discord renders no latex. the prompt asks for unicode and plain-text math, and the publisher converts what remains (`src/discord-format.ts`). `\boxed` becomes bold. `\tag` becomes "(n)". fractions get unambiguous grouping. roots, binomials, `\pmod`, `\mathbb` and super- and subscripts become unicode. aligned, cases and matrix environments become line blocks, and multi-line display math goes in a code block. unknown commands keep a readable call shape. code spans and fences, dollar amounts and paths are left untouched.
 
 ## spending
 

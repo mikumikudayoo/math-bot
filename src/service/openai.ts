@@ -305,6 +305,11 @@ export class OpenAIRuntime {
         }
         const usage = extractUsage(raw);
         this.ledger.settle(reservation.id, {usage, status: usage ? 'ok' : 'unmetered', latencyMs: Date.now() - started});
+        // GPT-6.2+ drops replayed reasoning items on prefix, end-user or model mismatch and says so
+        // here. Log only the fixed reason codes, so silent reasoning loss is visible to operators.
+        const transforms = (raw as {input_transformations?: unknown})?.input_transformations;
+        if (Array.isArray(transforms) && transforms.length) console.warn('openai_input_transformations', {model, purpose: request.purpose,
+          reasons: transforms.slice(0, 8).map(t => { const r = (t as {reason?: unknown})?.reason; return typeof r === 'string' && /^[a-z_]{1,40}$/.test(r) ? r : 'other'; })});
         return normalizeResponse(raw);
       }
     } finally {

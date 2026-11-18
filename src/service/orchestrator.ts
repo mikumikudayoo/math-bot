@@ -409,7 +409,8 @@ export async function orchestrate(turn:Turn):Promise<Result> {
     }),signal,{
       concurrency:settings.toolConcurrency,
       exclusiveGroup:n=>n.startsWith('discord_')?'discord':n==='plot'?'plot':undefined,
-      timeoutMs:n=>n.startsWith('consult_')||n==='plot'?settings.timeoutMs:35000,
+      // prepare_final may run a proof review (a full model call), so it gets the model timeout too.
+      timeoutMs:n=>n.startsWith('consult_')||n==='plot'||(n==='prepare_final'&&proofTask)?settings.timeoutMs:35000,
       onFinish:(call,r)=>{if(started.has(call.id))emit('tool_completed',{label:call.name,ok:r.ok});}
     });
     signal.throwIfAborted();if(rejected)throw rejected;
