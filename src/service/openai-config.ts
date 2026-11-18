@@ -58,6 +58,8 @@ export interface OpenAIConfig {
   sevenAgentChance: number;
   softRounds: number; hardRounds: number; toolConcurrency: number; imageCorrections: number;
   streaming: boolean;
+  /** Independent review of proof drafts: 'sol' (falls back to Luna when Sol is not authorized), 'luna', or 'off'. */
+  proofReview: 'sol' | 'luna' | 'off'; proofReviewEffort: ReasoningEffort; proofReviews: number;
   pricing: Record<string, ModelSpec>;
 }
 
@@ -175,8 +177,18 @@ export function parseOpenAIConfig(env: Record<string, string | undefined>, inher
     toolConcurrency: number('AI_TOOL_CONCURRENCY', 4, 1, 16),
     imageCorrections: number('AI_IMAGE_CORRECTIONS', 5, 0, 20),
     streaming: bool('AI_STREAMING', true),
+    proofReview: proofReviewMode(env.OPENAI_PROOF_REVIEW),
+    // Clamped later to the Sol ceiling; medium keeps two reviews inside the Sol request budget.
+    proofReviewEffort: effort('OPENAI_PROOF_REVIEW_EFFORT', 'medium', 'sol', 'low'),
+    proofReviews: number('OPENAI_PROOF_REVIEWS', 2, 1, 4),
     pricing,
   };
+}
+
+function proofReviewMode(raw: string | undefined): 'sol' | 'luna' | 'off' {
+  const value = (raw ?? '').trim() || 'sol';
+  if (value !== 'sol' && value !== 'luna' && value !== 'off') throw new ConfigError('OPENAI_PROOF_REVIEW must be sol, luna or off.');
+  return value;
 }
 
 /** Highest effort ≤ `ceiling` that the model supports and that is ≥ low; falls back to the model default. */

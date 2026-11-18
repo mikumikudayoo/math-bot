@@ -340,5 +340,26 @@
       "ambiguous", "not enough", "underspecified", "under-specified", "cannot be determined", "can't be determined",
       "not determined", "not uniquely", "depends on", "multiple of 5", "need more", "missing"
     ]}
+  },
+  {
+    "id": "proof-n2-plus-2n-square",
+    "category": "proof",
+    "difficulty": "olympiad",
+    "prompt": "Find all positive integers n such that n^2 + 2^n is a perfect square. Prove that your answer is complete.",
+    "expectedTier": "advanced",
+    "note": "Production regression 2026-11-17: n = 6 was reached through an invalid bound comparing 2^(a-1) with 2a+d for arbitrary d. Passing requires a valid, exhaustive argument, not only n = 6.",
+    "check": {"type": "proof-rubric", "answer": {"type": "numeric", "answer": 6},
+      "required": [
+        {"label": "difference-of-squares factorization", "pattern": "\\((\\w)-n\\)\\(\\1\\+n\\)|\\((\\w)\\+n\\)\\(\\2-n\\)|difference of (?:two )?squares"},
+        {"label": "both factors are powers of two", "pattern": "powers? of (?:2|two)|-n=2\\^"},
+        {"label": "parity: both factors even, so the smaller exponent is at least 1", "pattern": "both (?:factors )?(?:are |must be )?even|same parity|parity|\\b[a-z]≥1|\\b[a-z]>0"},
+        {"label": "reduced equation keeps the factor depending on the exponent gap", "pattern": "2\\^\\(?[a-z]-1\\)?\\(2\\^\\(?[a-z]\\)?-1\\)"},
+        {"label": "a bound that accounts for the exponent gap", "pattern": "2\\^\\(?([a-z])\\)?-1≥\\1|2\\^\\(?([a-z])\\)?≥\\2\\+1|bernoulli"},
+        {"label": "remaining small cases checked", "pattern": "[a-z]≤4|[a-z]<5|[a-z]=4"},
+        {"label": "completeness stated", "pattern": "only (?:solution|answer|value|positive integer)|unique|no other|exactly one"}
+      ],
+      "forbidden": [
+        {"label": "gap-blind bound 2^(a-1) > 2a+d, false for large d", "pattern": "2\\^\\(?([a-z])-1\\)?(?:>|≥)2\\1\\+[a-z]"}
+      ]}
   }
 ]

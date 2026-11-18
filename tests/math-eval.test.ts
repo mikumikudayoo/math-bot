@@ -77,9 +77,13 @@ test('problems.json schema', () => {
     if (c.type === 'numeric') assert.ok(Number.isFinite(c.answer), `${p.id} numeric answer is finite`);
     else if (c.type === 'exact') assert.ok(c.answers.length > 0, p.id);
     else if (c.type === 'contains-all' || c.type === 'flags-ambiguity') assert.ok(c.terms.length > 0, p.id);
+    else if (c.type === 'proof-rubric') {
+      assert.ok(c.required.length > 0, p.id);
+      for (const r of [...c.required, ...(c.forbidden ?? [])]) assert.doesNotThrow(() => new RegExp(r.pattern, 'i'), `${p.id}: ${r.label}`);
+    }
     else assert.fail(`${p.id}: unknown check type`);
   }
-  for (const p of problems.filter(p => p.category === 'proof')) assert.equal(p.check.type, 'contains-all', p.id);
+  for (const p of problems.filter(p => p.category === 'proof')) assert.ok(['contains-all', 'proof-rubric'].includes(p.check.type), p.id);
   for (const p of problems.filter(p => p.category === 'ambiguous-unsolvable')) assert.equal(p.check.type, 'flags-ambiguity', p.id);
 });
 

@@ -3,20 +3,38 @@
  * No I/O, no model calls. Every verdict carries a human-readable `detail`
  * so a reviewer can audit the extraction instead of trusting it blindly.
  */
+import { formatDiscord } from '../discord-format.js';
 
 export type Check =
   | {type: 'numeric'; answer: number; tolerance?: number}
   | {type: 'exact'; answers: string[]}
   | {type: 'contains-all'; terms: string[]}
-  | {type: 'flags-ambiguity'; terms: string[]};
+  | {type: 'flags-ambiguity'; terms: string[]}
+  | ProofRubric;
 
-export interface Grade {pass: boolean; detail: string}
+/**
+ * A proof is scored on separate dimensions; it passes only when all hold. A correct final
+ * answer with an invalid or incomplete argument fails. Patterns are regular expressions over
+ * normalizeText() output (lowercase, collapsed spaces, superscripts as ^x, no Markdown).
+ * Rubrics state necessary evidence of a complete argument and known-invalid steps; they are a
+ * regression net, not a proof checker, so live evaluations should still be read by a human.
+ */
+export interface ProofRubric {
+  type: 'proof-rubric';
+  answer: {type: 'numeric'; answer: number; tolerance?: number} | {type: 'exact'; answers: string[]};
+  required: {label: string; pattern: string}[];
+  forbidden?: {label: string; pattern: string}[];
+}
+export interface Grade {pass: boolean; detail: string; dimensions?: Record<string, boolean>}
 
 export const DEFAULT_TOLERANCE = 1e-9;
 
 const SUPERSCRIPT: Record<string, string> = {
-  '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9', '⁻': '-',
+  '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9', '⁻': '-', '⁺': '+', '⁼': '=', '⁽': '(', '⁾': ')',
+  'ᵃ': 'a', 'ᵇ': 'b', 'ᶜ': 'c', 'ᵈ': 'd', 'ᵉ': 'e', 'ᶠ': 'f', 'ᵍ': 'g', 'ʰ': 'h', 'ⁱ': 'i', 'ʲ': 'j', 'ᵏ': 'k', 'ˡ': 'l', 'ᵐ': 'm',
+  'ⁿ': 'n', 'ᵒ': 'o', 'ᵖ': 'p', 'ʳ': 'r', 'ˢ': 's', 'ᵗ': 't', 'ᵘ': 'u', 'ᵛ': 'v', 'ʷ': 'w', 'ˣ': 'x', 'ʸ': 'y', 'ᶻ': 'z',
 };
+const SUPERSCRIPT_RUN = new RegExp('[' + Object.keys(SUPERSCRIPT).join('') + ']+', 'g');
 
 /**
  * Superscripts become `^digits` *before* NFKC, which would otherwise turn
@@ -24,7 +42,8 @@ const SUPERSCRIPT: Record<string, string> = {
  */
 function baseNormalize(text: string): string {
   return text
-    .replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+/g, run => '^' + [...run].map(c => SUPERSCRIPT[c] ?? '').join(''))
+    // A multi-character exponent keeps its grouping: 2ᵃ⁻¹ -> 2^(a-1), x² -> x^2.
+    .replace(SUPERSCRIPT_RUN, run => { const v = [...run].map(c => SUPERSCRIPT[c] ?? '').join(''); return '^' + (v.length > 1 ? '(' + v + ')' : v); })
     .normalize('NFKC')
     .replace(/[−‐‑‒–—﹣－]/g, '-')
     .replace(/[‘’]/g, "'")
@@ -180,6 +199,23 @@ export function grade(check: Check, answer: string): Grade {
       return missing.length
         ? {pass: false, detail: `missing key step(s): ${missing.map(t => JSON.stringify(t)).join(', ')}`}
         : {pass: true, detail: `all ${check.terms.length} key steps present`};
+    }
+    case 'proof-rubric': {
+      const final = grade(check.answer, answer);
+      // Grade what Discord readers see: TeX is converted first (2^{a-1} -> 2ᵃ⁻¹ -> 2^(a-1)).
+      const shown = formatDiscord(answer);
+      const text = normalizeText(shown);
+      const test = (pattern: string) => new RegExp(pattern, 'i').test(text);
+      const missing = check.required.filter(r => !test(r.pattern)).map(r => r.label);
+      const invalid = (check.forbidden ?? []).filter(r => test(r.pattern)).map(r => r.label);
+      // Discord shows formatted text; leftover TeX commands or brace groups are a notation failure.
+      const residue = /\\[a-zA-Z]+|\b(?:tag|boxed|frac|begin|end)\{/.test(shown);
+      const dimensions = {finalAnswer: final.pass, completeArgument: !missing.length, validSteps: !invalid.length, notation: !residue};
+      return {pass: Object.values(dimensions).every(Boolean), dimensions,
+        detail: [`answer: ${final.pass ? 'correct' : 'wrong'} (${final.detail})`,
+          missing.length ? `missing: ${missing.join('; ')}` : 'all required steps present',
+          invalid.length ? `invalid steps: ${invalid.join('; ')}` : 'no known-invalid step',
+          residue ? 'TeX residue after Discord formatting' : 'notation clean'].join(' | ')};
     }
     case 'flags-ambiguity': {
       const text = normalizeText(answer);

@@ -16,6 +16,7 @@ import { sandboxPython } from './tools.js';
 import { reviewArtifact } from './artifact-review.js';
 import type { JobEventData, JobEventType } from './events.js';
 import type { prepareImage } from './vision.js';
+import { proofObligation, proofRiskHints, reviewMessages, parseReview, repairMessage, reviewCaveat, REVIEW_TOOL, type ReviewCategory } from './proof-review.js';
 
 type ImagePart = Awaited<ReturnType<typeof prepareImage>>;
 interface Turn {
@@ -162,6 +163,36 @@ export async function orchestrate(turn:Turn):Promise<Result> {
       if(rejected)throw rejected;
       messages.push({role:'user',content:JSON.stringify({type:'ADVISORY_OPINIONS',opinions:outcomes.filter(r=>r.ok).map(r=>({role:r.name,opinion:r.value}))})});
     }
+  }
+
+  // ---- independent proof review (see proof-review.ts) ----------------------------------
+  const proofTask=settings.proofReview!=='off'&&io.toolAllowlist?.length!==0&&proofObligation(job.prompt);
+  let reviews=0;const flagged:ReviewCategory[]=[];
+  /** valid: publish as is; repair: Luna must fix the draft; caveat: publish with an honest note. */
+  async function reviewProof(draft:string,s:AbortSignal):Promise<{kind:'valid'}|{kind:'repair';message:ChatMessage;issues:{category:ReviewCategory;step:string}[]}|{kind:'caveat';note:string}>{
+    if(++reviews>settings.proofReviews)return {kind:'caveat',note:reviewCaveat('unresolved',flagged)};
+    // Under an embargo the draft is screened before it leaves the host, like any other model input.
+    await screen(draft,s);
+    const sol=settings.proofReview==='sol'&&settings.allowed.sol&&runtime.ledger.authorizeEscalation(job.id,job.user,'sol').ok;
+    const role:ModelRole=sol?'sol':'luna';
+    const level=sol?clampEffort(settings,'sol',settings.proofReviewEffort,settings.consultMaxEffort.sol,settings.consultEffort.sol)
+      :clampEffort(settings,'luna','high',settings.lunaMaxEffort,settings.lunaEffort);
+    emit('consultation_approved',{label:role,effort:level});
+    let verdict:ReturnType<typeof parseReview>;
+    try{
+      // Bounded output keeps two reviews inside one Sol request budget.
+      verdict=parseReview(await ask(role,'proof-review',level,reviewMessages(job.prompt,draft,proofRiskHints(draft)),[REVIEW_TOOL],s,6000));
+    }catch(error){
+      if(s.aborted||error===rejected)throw error;
+      emit('consultation_completed',{label:role,ok:false});
+      return {kind:'caveat',note:reviewCaveat('unverified')};
+    }
+    emit('consultation_completed',{label:role,ok:verdict?.verdict==='valid'});
+    if(!verdict)return {kind:'caveat',note:reviewCaveat('unverified')};
+    if(verdict.verdict==='valid')return {kind:'valid'};
+    flagged.push(...verdict.issues.map(i=>i.category));
+    if(reviews>=settings.proofReviews)return {kind:'caveat',note:reviewCaveat('unresolved',flagged)};
+    return {kind:'repair',message:repairMessage(verdict),issues:verdict.issues.map(i=>({category:i.category,step:i.step}))};
   }
 
   function claim(name:string,args:Record<string,unknown>){
@@ -336,6 +367,11 @@ export async function orchestrate(turn:Turn):Promise<Result> {
         reconciled=true; messages.push({role:'assistant',content:answer},{role:'system',content:'Reconcile your answer with the following specialist conclusions. Preserve mathematical essentials, or explicitly identify an error if you disagree.'},{role:'user',content:JSON.stringify(omitted)});continue;
       }
       if(omitted.length)return partial("i couldn't reconcile the specialist findings into a verified final answer.");
+      if(proofTask){
+        const review=await reviewProof(answer,signal);
+        if(review.kind==='repair'){messages.push({role:'assistant',content:answer},review.message);continue;}
+        if(review.kind==='caveat')return finalize(answer+review.note);
+      }
       return finalize(answer);
     }
     const raw=(response as {choices:{message:{provider_items?:unknown[]}}[]}).choices[0]!.message;
@@ -352,7 +388,14 @@ export async function orchestrate(turn:Turn):Promise<Result> {
           if(calls.length!==1||typeof args.answer!=='string'||!args.answer.trim()||args.answer.length>5500||missingEvidence()
               ||missingConclusions(args.answer).length)
             throw new UserError('finish verifying the answer before delivery.');
-          prepared=safeAnswer(args.answer.trim(),turn,knownIds);
+          let text=args.answer.trim();
+          if(proofTask){
+            const review=await reviewProof(text,s);
+            // The repair feedback becomes this tool's result; Luna must submit a corrected draft.
+            if(review.kind==='repair')return {approved:false,reviewIssues:review.issues,instruction:String(review.message.content)};
+            if(review.kind==='caveat')text+=review.note;
+          }
+          prepared=safeAnswer(text,turn,knownIds);
           return {approved:true,finalText:prepared,instruction:'deliver the approved final text verbatim, without tools.'};
         }
         if(callKeys.has(call.id)&&callKeys.get(call.id)!==key)throw new UserError('a tool call ID was reused with different arguments.');
