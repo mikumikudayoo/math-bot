@@ -59,8 +59,11 @@ on developers.openai.com.
   reasons if any appear.
 - Changes: the default `OPENAI_SOL_MODEL` is `gpt-6.2-sol`; the pricing table, env examples, tests
   and docs are updated. `gpt-6.1-sol` stays priced only for an explicit
-  `OPENAI_SOL_MODEL=gpt-6.1-sol` rollback. Production leaves `OPENAI_SOL_MODEL` empty, so a deploy
-  migrates it without an env change.
+  `OPENAI_SOL_MODEL=gpt-6.1-sol` rollback. **Correction (deployment, 2026-11-18):** the earlier
+  read-only check misread production's quoted env values as empty. Production in fact pinned
+  `OPENAI_SOL_MODEL="gpt-6.1-sol"`, so the new default alone did not migrate it. The new release's
+  own copy of `.env.ai.production` was changed to `"gpt-6.2-sol"` (see §14). The `9ab6b3d` copy keeps
+  6.1 for rollback.
 
 ## 5. Mathematical reliability
 
@@ -164,6 +167,37 @@ alone. Verify in `#ai-test`:
 Rollback: point both processes back at the `9ab6b3d` directory, which is unchanged. The new
 code adds no schema migration. For a model-only rollback, set `OPENAI_SOL_MODEL=gpt-6.1-sol`;
 to disable reviews, set `OPENAI_PROOF_REVIEW=off`.
+
+## 14. Deployment record (2026-11-18, authorized by the owner)
+
+- Release directory: `/opt/math-bot/.cache/aleph-v2-qualification/a0b80549c608f1cbc2616077c839044b4869169c`.
+  It is a clone of the `9ab6b3d` release, fetched from GitHub and checked out detached at `a0b8054`,
+  with 0 dirty files.
+- On the server: `bun install --frozen-lockfile`; both typechecks clean; `bun test` **1131 pass,
+  0 fail**; Python 4 OK; build OK. Tests ran before the env files and the `data` link existed.
+- Backup: `/opt/math-bot/backups/aleph-rc-a0b8054-20261118T045853Z/` holds an online SQLite backup
+  of `data/production.sqlite` (integrity ok), the prior `dump.pm2` and `RELEASE.txt`.
+- Configuration: env files copied from `9ab6b3d`, with `data -> /opt/math-bot/data`.
+  `OPENAI_SOL_MODEL` was changed to `"gpt-6.2-sol"` in this release's `.env.ai.production` only; the
+  previous copy is kept beside it as `.env.ai.production.pre-sol62`. `PYTHON_EXECUTABLE` still points
+  at the `9ab6b3d` release's `.venv`, so **do not delete that directory** (it is also the rollback target).
+- Smoke (`openai:smoke --confirm --terra --sol`, then `--sol` after the switch) passed: luna, terra,
+  sol = `gpt-6.2-sol`, about $0.0002 in total.
+- Cutover: `aleph-zero-ai`, then `aleph-zero-bot`, re-created under PM2 from the new directory with
+  `BOT_ENV=production`, then `pm2 save`. `/health` reports ok, provider openai; the bot logged in to
+  production; the AI startup log shows `sol: gpt-6.2-sol/medium..xhigh`. `aleph-zero-automation` was not
+  touched. No jobs were queued or running at the switch.
+- **Not verified live:** real Discord conversations (chess reply chain, the n² + 2ⁿ proof with review,
+  an embargo refusal). These need a human message in `#ai-test`.
+
+Rollback (as `mathbot`):
+```sh
+D=/opt/math-bot/.cache/aleph-v2-qualification/9ab6b3d73956d32531774b6651c444acf7afcce5
+pm2 delete aleph-zero-ai aleph-zero-bot
+cd $D && BOT_ENV=production pm2 start /usr/local/bin/bun --name aleph-zero-ai --cwd $D --interpreter none -- $D/dist/service/server.js
+cd $D && BOT_ENV=production pm2 start $D/dist/index.js --name aleph-zero-bot --cwd $D --interpreter /usr/local/bin/bun
+pm2 save
+```
 
 ## 13. Remaining limitations
 
